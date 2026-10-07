@@ -256,7 +256,7 @@ export function LandingPage(): ReactElement {
             }}
           >
             <span className="story-brand-mark">
-              <img src={`${ASSET_BASE}assets/brand/favicon.webp`} alt="" />
+              <img src={`${ASSET_BASE}assets/brand/favicon.jpg`} alt="" />
             </span>
             <span>
               <strong>Cartethyia</strong>

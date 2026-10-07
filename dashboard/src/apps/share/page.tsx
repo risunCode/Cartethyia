@@ -26,7 +26,9 @@ import {
 
 interface IssueResult { key: string; keyId: string; keyPrefix: string; createdAt: string }
 interface ApiError { error?: string | { code?: string; message?: string }; message?: string }
-interface ProbeResult { readonly ttftMs: number; readonly totalMs: number }
+type ProbeResult =
+  | { readonly ok: true; readonly ttftMs: number; readonly totalMs: number }
+  | { readonly ok: false; readonly status: number | null };
 
 function message(payload: ApiError): string {
   if (typeof payload.error === "string") return payload.error;
@@ -128,7 +130,7 @@ function ModelCard({
           )}
         </span>
       </div>
-      {result ? (
+      {result?.ok ? (
         <div className="share-model-card-result" role="status">
           <strong>OK</strong>
           <span>TTFT {formatProbeDuration(result.ttftMs)}</span>
@@ -141,7 +143,7 @@ function ModelCard({
             variant="secondary"
             size="sm"
             icon={
-              result ? (
+              result?.ok ? (
                 <span style={{ display: "inline-flex", color: "var(--green)" }}>
                   <CheckCircle2 size={13} />
                 </span>
@@ -153,12 +155,20 @@ function ModelCard({
             disabled={probing}
             onClick={() => onProbe(id)}
             title={
-              result
+              result?.ok
                 ? `Last test passed in ${formatProbeDuration(result.totalMs)} — click to re-test`
-                : "Test this model using the shared API key"
+                : result
+                  ? `Last test failed${result.status !== null ? ` with HTTP ${result.status}` : ""} — click to re-test`
+                  : "Test this model using the shared API key"
             }
           >
-            {probing ? "Testing…" : result ? `Done ${formatProbeDuration(result.totalMs)}` : "Test"}
+            {probing
+              ? "Testing…"
+              : result?.ok
+                ? `Done ${formatProbeDuration(result.totalMs)}`
+                : result
+                  ? `Failed${result.status !== null ? ` ${result.status}` : ""}`
+                  : "Test"}
           </Button>
         ) : null}
         <ClipboardButton
@@ -329,7 +339,11 @@ export function SharePage(): ReactElement {
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {
-        throw new Error(`Request failed with HTTP ${response.status}`);
+        // The card keeps the status: a toast alone disappears, and the button
+        // used to revert to "Test", so a 403 looked identical to never tested.
+        setProbeResults((current) => new Map(current).set(model, { ok: false, status: response.status }));
+        toast.error("Model probe failed", `Request failed with HTTP ${response.status}`);
+        return;
       }
       const reader = response.body.getReader();
       try {
@@ -345,10 +359,13 @@ export function SharePage(): ReactElement {
       }
       const totalMs = Math.round(performance.now() - startedAt);
       const ttftMs = Math.round((firstByteAt ?? performance.now()) - startedAt);
-      setProbeResults((current) => new Map(current).set(model, { ttftMs, totalMs }));
+      setProbeResults((current) => new Map(current).set(model, { ok: true, ttftMs, totalMs }));
       toast.success("Model test complete", `${model} · TTFT ${ttftMs} ms · Done ${totalMs} ms`);
     } catch (error: unknown) {
-      toast.error("Model probe failed", error instanceof Error ? error.message : "The request could not be completed.");
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setProbeResults((current) => new Map(current).set(model, { ok: false, status: null }));
+        toast.error("Model probe failed", error instanceof Error ? error.message : "The request could not be completed.");
+      }
     } finally {
       if (probeAbortRef.current.get(model) === controller) probeAbortRef.current.delete(model);
       setProbingModels((current) => {
@@ -381,7 +398,7 @@ export function SharePage(): ReactElement {
           <a className="share-brand" href="/">
             <span className="share-brand-mark" aria-hidden="true">
               <img
-                src={`${import.meta.env.BASE_URL}assets/brand/favicon_love.webp`}
+                src={`${import.meta.env.BASE_URL}assets/brand/favicon.jpg`}
                 alt=""
                 width={34}
                 height={34}

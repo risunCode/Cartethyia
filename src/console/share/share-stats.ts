@@ -35,6 +35,8 @@ export interface ShareHourlyBucket {
   /** ISO instant at the top of the hour. */
   readonly hour: string;
   readonly requests: number;
+  /** Input plus output tokens recorded in the hour. */
+  readonly tokens: number;
 }
 
 export interface ShareTopModel {
@@ -140,7 +142,7 @@ function utcHourStart(now: Date): Date {
 
 interface FamilyRollup {
   totals: ShareFamilyTotals;
-  byHour: Map<string, number>;
+  byHour: Map<string, { requests: number; tokens: number }>;
   models: Map<string, { modelId: string; requests: number; tokens: number; rateSum: number; rateCount: number; ttfbSum: number; ttfbCount: number }>;
   ips: Map<string, { ip: string; requests: number; tokens: number; lastSeenAt: string | null; userAgent: string | null }>;
 }
@@ -154,7 +156,7 @@ function rollupFamily(
   bounds: { dayStart: number; monthStart: number; lastHourStart: number; windowStart: number; allowed: ReadonlySet<string> | null },
 ): FamilyRollup {
   const totals = { requests: 0, errors: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, lastHourRequests: 0, todayTokens: 0, monthTokens: 0 };
-  const byHour = new Map<string, number>();
+  const byHour = new Map<string, { requests: number; tokens: number }>();
   const models: FamilyRollup["models"] = new Map();
   const ips: FamilyRollup["ips"] = new Map();
   for (const event of events) {
@@ -170,7 +172,10 @@ function rollupFamily(
     if (at >= bounds.monthStart) totals.monthTokens += tokens;
     if (at >= bounds.windowStart) {
       const hour = new Date(Math.floor(at / HOUR_MS) * HOUR_MS).toISOString();
-      byHour.set(hour, (byHour.get(hour) ?? 0) + 1);
+      const bucket = byHour.get(hour) ?? { requests: 0, tokens: 0 };
+      bucket.requests += 1;
+      bucket.tokens += tokens;
+      byHour.set(hour, bucket);
     }
     if (event.requestedModel !== null && (bounds.allowed === null || modelAllowed(event.requestedModel, bounds.allowed))) {
       const model = models.get(event.requestedModel) ?? { modelId: event.requestedModel, requests: 0, tokens: 0, rateSum: 0, rateCount: 0, ttfbSum: 0, ttfbCount: 0 };
@@ -264,7 +269,8 @@ export function createShareStatsPort(): ShareStatsPort {
       const hourly: ShareHourlyBucket[] = [];
       for (let index = 0; index < HOURS_WINDOW; index += 1) {
         const hour = new Date(windowStart.getTime() + index * HOUR_MS).toISOString();
-        hourly.push({ hour, requests: byHour.get(hour) ?? 0 });
+        const bucket = byHour.get(hour);
+        hourly.push({ hour, requests: bucket?.requests ?? 0, tokens: bucket?.tokens ?? 0 });
       }
 
       return {

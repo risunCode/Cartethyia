@@ -71,7 +71,7 @@ export interface ShareFamilyStatsData {
     readonly monthTokens: number;
   };
   readonly recipients: { readonly total: number; readonly active: number };
-  readonly hourly: readonly { readonly hour: string; readonly requests: number }[];
+  readonly hourly: readonly { readonly hour: string; readonly requests: number; readonly tokens: number }[];
   readonly models: readonly {
     readonly modelId: string;
     readonly requests: number;

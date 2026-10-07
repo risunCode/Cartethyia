@@ -1,5 +1,13 @@
 ## Unreleased
 
+- The Usage page counts cached tokens, not whole requests. A request with any
+  cache hit had its entire input counted as cached, so the cached total, the
+  cache hit rate, and the per-model and per-bucket breakdowns all read as if
+  nearly every token were cached. The estimated cost was never computed from
+  that total — each request is priced from its own cached and fresh split — so
+  the two numbers could not be reconciled. The folds now sum
+  `cached_input_tokens`.
+
 - First-boot setup completes on the SQLite backend, and a migrated database
   reports ready. The bun-sqlite transaction builder has no `execute`, so the
   setup lock threw and the wizard answered with an internal error; the handle

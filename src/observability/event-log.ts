@@ -170,7 +170,7 @@ export function accumulate(totals: EventTotals, event: TelemetryEventRecord): vo
   else if (event.status === "truncated") totals.truncated += 1;
   else if (event.status !== null) totals.failed += 1;
   totals.inputTokens += event.inputTokens ?? 0;
-  if ((event.cachedInputTokens ?? 0) > 0) totals.cachedTokens += event.inputTokens ?? 0;
+  totals.cachedTokens += event.cachedInputTokens ?? 0;
   totals.outputTokens += event.outputTokens ?? 0;
   if (event.estimatedCostUsd !== null) totals.estimatedCost += event.estimatedCostUsd;
   else if (event.status === "completed") totals.unpriced += 1;

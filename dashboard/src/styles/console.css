@@ -982,18 +982,7 @@
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background:
-    radial-gradient(55rem 38rem at 8% -12%, rgba(250, 212, 178, 0.32), transparent 60%),
-    radial-gradient(48rem 34rem at 108% 6%, rgba(246, 222, 182, 0.3), transparent 60%),
-    radial-gradient(42rem 42rem at 50% 118%, rgba(240, 192, 169, 0.2), transparent 60%),
-    var(--page-bg);
-}
-:root[data-theme="dark"] .app-bg {
-  background:
-    radial-gradient(55rem 38rem at 8% -12%, rgba(14, 165, 233, 0.18), transparent 60%),
-    radial-gradient(48rem 34rem at 108% 6%, rgba(139, 92, 246, 0.16), transparent 60%),
-    radial-gradient(42rem 42rem at 50% 118%, rgba(190, 24, 93, 0.12), transparent 60%),
-    var(--page-bg);
+  background: var(--page-bg);
 }
 @media (max-width: 1024px) {
   .app-sidebar {

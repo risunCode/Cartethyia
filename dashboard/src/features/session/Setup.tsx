@@ -272,9 +272,7 @@ export default function Setup(): ReactNode {
       <main className="auth-viewport">
         <div className="card-solid auth-window">
           <div className="auth-header">
-            <div className="auth-logo" aria-hidden="true">
-              C
-            </div>
+            <div className="auth-logo" aria-hidden="true" />
             <h1 className="auth-title">Account Already Registered</h1>
             <p className="auth-desc">
               This console already has an administrator account, so setup is closed.
@@ -298,9 +296,7 @@ export default function Setup(): ReactNode {
     <main className="auth-viewport">
       <div className="card-solid auth-window">
         <div className="auth-header">
-          <div className="auth-logo" aria-hidden="true">
-            C
-          </div>
+          <div className="auth-logo" aria-hidden="true" />
           <h1 className="auth-title">Cartethyia Console Setup</h1>
           <p className="auth-desc">
             {mode === "create"

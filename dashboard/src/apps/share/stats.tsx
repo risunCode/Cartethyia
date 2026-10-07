@@ -282,34 +282,66 @@ function HourlySparkline({
 }: {
   readonly hourly: ShareFamilyStatsData["hourly"];
 }): ReactElement {
+  const format = useTokenFormat();
   const max = Math.max(1, ...hourly.map((bucket) => bucket.requests));
   const slot = 10;
   const width = hourly.length * slot;
   const height = 44;
+  // The bar under the pointer. Hover and drag both set it; leaving the strip
+  // clears it, so the readout never lingers on a bar the pointer has left.
+  const [active, setActive] = useState<number | null>(null);
+  const bucketAt = (strip: HTMLDivElement, clientX: number): number | null => {
+    const rect = strip.getBoundingClientRect();
+    if (rect.width === 0 || hourly.length === 0) return null;
+    const index = Math.floor(((clientX - rect.left) / rect.width) * hourly.length);
+    return index >= 0 && index < hourly.length ? index : null;
+  };
+  const shown = active !== null ? hourly[active] : undefined;
   return (
     <div>
-      <svg
-        className="share-sparkline"
-        viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
-        role="img"
-        aria-label="Requests per hour over the last 24 hours"
+      <div className="share-hourly-readout" aria-live="polite">
+        {shown ? (
+          <>
+            <strong>{format(shown.tokens)}</strong>
+            <span>
+              {hourLabel(shown.hour)} · {formatCount(shown.requests)} req
+            </span>
+          </>
+        ) : (
+          <span>drag a bar</span>
+        )}
+      </div>
+      <div
+        className="share-sparkline-wrap"
+        onPointerEnter={(event) => setActive(bucketAt(event.currentTarget, event.clientX))}
+        onPointerMove={(event) => setActive(bucketAt(event.currentTarget, event.clientX))}
+        onPointerLeave={() => setActive(null)}
       >
-        {hourly.map((bucket, index) => {
-          const barHeight = Math.round((bucket.requests / max) * (height - 4));
-          return (
-            <rect
-              key={bucket.hour}
-              className={`share-sparkline-bar${bucket.requests === 0 ? " is-empty" : ""}`}
-              x={index * slot + 1}
-              y={height - Math.max(2, barHeight)}
-              width={slot - 3}
-              height={Math.max(2, barHeight)}
-              rx={1.5}
-            />
-          );
-        })}
-      </svg>
+        <svg
+          className="share-sparkline"
+          viewBox={`0 0 ${width} ${height}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label="Requests per hour over the last 24 hours"
+        >
+          {hourly.map((bucket, index) => {
+            const barHeight = Math.round((bucket.requests / max) * (height - 4));
+            return (
+              <rect
+                key={bucket.hour}
+                className={`share-sparkline-bar${bucket.requests === 0 ? " is-empty" : ""}${index === active ? " is-active" : ""}`}
+                x={index * slot + 1}
+                y={height - Math.max(2, barHeight)}
+                width={slot - 3}
+                height={Math.max(2, barHeight)}
+                rx={1.5}
+              >
+                <title>{`${format(bucket.tokens)} tokens · ${formatCount(bucket.requests)} requests`}</title>
+              </rect>
+            );
+          })}
+        </svg>
+      </div>
       <div className="share-hourly-axis">
         <span>{hourly.length ? hourLabel(hourly[0]!.hour) : ""}</span>
         <span>last 24h</span>

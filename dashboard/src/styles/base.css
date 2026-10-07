@@ -211,22 +211,6 @@ body {
   font-family: var(--font-sans);
   color: var(--text-primary);
   background-color: var(--page-bg);
-  background-image:
-    radial-gradient(
-      at 15% 10%,
-      color-mix(in srgb, var(--purple) 8%, transparent) 0px,
-      transparent 50%
-    ),
-    radial-gradient(
-      at 85% 85%,
-      color-mix(in srgb, var(--teal) 6%, transparent) 0px,
-      transparent 50%
-    ),
-    radial-gradient(
-      at 50% 50%,
-      color-mix(in srgb, var(--orange) 4%, transparent) 0px,
-      transparent 60%
-    );
   background-attachment: fixed;
   overflow: hidden;
 }
@@ -954,6 +938,24 @@ main > .state-viewport {
   display: grid;
   place-items: center;
   padding: 24px;
+  /* The login and setup screens carry their own key art. The veil sits over
+     the image so the card stays readable; it is the only thing that changes
+     between themes. */
+  --auth-backdrop-veil: 0;
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--page-bg) calc(var(--auth-backdrop-veil) * 100%), transparent),
+      color-mix(in srgb, var(--page-bg) calc(var(--auth-backdrop-veil) * 100%), transparent)
+    ),
+    url("/assets/brand/login_register.jpg");
+  background-position: center, center;
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-attachment: fixed, fixed;
+}
+
+[data-theme="dark"] .auth-viewport {
+  --auth-backdrop-veil: 0;
 }
 
 .auth-window {
@@ -972,7 +974,7 @@ main > .state-viewport {
   width: 48px;
   height: 48px;
   border-radius: 14px;
-  background: var(--accent);
+  background: var(--accent) center / cover no-repeat url("/assets/brand/favicon.jpg");
   color: var(--accent-foreground);
   display: grid;
   place-items: center;

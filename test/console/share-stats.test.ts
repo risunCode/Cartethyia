@@ -461,6 +461,30 @@ describe("createShareStatsPort — time windows", () => {
       await scope.cleanup();
     }
   });
+
+  test("an hour's bucket sums the tokens of the requests in it", async () => {
+    // The share page prints the token figure above the bar the pointer is on,
+    // so a bucket that counted requests but not tokens would label every hour 0.
+    const scope = await familyScope("share-hourly-tokens");
+    try {
+      const key = crypto.randomUUID();
+      const now = Date.now();
+      await writeRows([
+        row(scope.tenantId, key, { createdAt: new Date(now - 30 * 60_000), inputTokens: 1_000_000, outputTokens: 500_000 }),
+        row(scope.tenantId, key, { createdAt: new Date(now - 30 * 60_000), inputTokens: 250_000, outputTokens: 250_000 }),
+        // A different hour, so its tokens must not land in the first bucket.
+        row(scope.tenantId, key, { createdAt: new Date(now - 3 * HOUR_MS), inputTokens: 9_000, outputTokens: 1_000 }),
+      ]);
+      const stats = await createShareStatsPort().getFamilyStats(scope.tenantId, [key], EMPTY_RECIPIENTS);
+      const withTokens = stats.hourly.filter((bucket) => bucket.tokens > 0);
+      expect(withTokens).toHaveLength(2);
+      expect(withTokens.map((bucket) => bucket.tokens).sort((a, b) => a - b)).toEqual([10_000, 2_000_000]);
+      // A quiet hour reports zero tokens, not an absent field.
+      expect(stats.hourly.filter((bucket) => bucket.requests === 0).every((bucket) => bucket.tokens === 0)).toBe(true);
+    } finally {
+      await scope.cleanup();
+    }
+  });
 });
 
 describe("createShareStatsPort — top models", () => {

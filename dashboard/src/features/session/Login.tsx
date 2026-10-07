@@ -89,9 +89,7 @@ export default function Login(): ReactNode {
       <main className="auth-viewport">
         <div className="card-solid auth-window">
           <div className="auth-header">
-            <div className="auth-logo" aria-hidden="true">
-              C
-            </div>
+            <div className="auth-logo" aria-hidden="true" />
             <h1 className="auth-title">Cartethyia Console</h1>
             <p className="auth-desc">Checking console setup...</p>
           </div>
@@ -104,9 +102,7 @@ export default function Login(): ReactNode {
     <main className="auth-viewport">
       <div className="card-solid auth-window">
         <div className="auth-header">
-          <div className="auth-logo" aria-hidden="true">
-            C
-          </div>
+          <div className="auth-logo" aria-hidden="true" />
           <h1 className="auth-title">Cartethyia Console</h1>
           <p className="auth-desc">Sign in to manage AI Gateway routing and providers</p>
         </div>

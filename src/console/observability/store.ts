@@ -395,7 +395,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
     for (const event of events) {
       requests += 1;
       inputTokens += event.inputTokens ?? 0;
-      if ((event.cachedInputTokens ?? 0) > 0) cachedTokens += event.inputTokens ?? 0;
+      cachedTokens += event.cachedInputTokens ?? 0;
       outputTokens += event.outputTokens ?? 0;
       if (isGatewayError(event.status, event.httpStatus)) errors += 1;
       if (event.status === "cancelled") cancelled += 1;
@@ -446,7 +446,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       const bucket = byTime.get(start) ?? { t: new Date(start).toISOString(), requests: 0, input: 0, cached: 0, output: 0 };
       bucket.requests += 1;
       bucket.input += event.inputTokens ?? 0;
-      if ((event.cachedInputTokens ?? 0) > 0) bucket.cached += event.inputTokens ?? 0;
+      bucket.cached += event.cachedInputTokens ?? 0;
       bucket.output += event.outputTokens ?? 0;
       byTime.set(start, bucket);
     }
@@ -479,7 +479,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       bucket.requests += 1;
       bucket.input += event.inputTokens ?? 0;
       bucket.output += event.outputTokens ?? 0;
-      if ((event.cachedInputTokens ?? 0) > 0) bucket.cached += event.inputTokens ?? 0;
+      bucket.cached += event.cachedInputTokens ?? 0;
       if (isGatewayError(event.status, event.httpStatus)) bucket.errors += 1;
       if (event.estimatedCostUsd !== null) bucket.cost = (bucket.cost ?? 0) + event.estimatedCostUsd;
       if (event.tokensPerSec !== null) {
@@ -570,7 +570,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
     let outputTokens = 0;
     for (const event of events) {
       inputTokens += event.inputTokens ?? 0;
-      if ((event.cachedInputTokens ?? 0) > 0) cachedTokens += event.inputTokens ?? 0;
+      cachedTokens += event.cachedInputTokens ?? 0;
       outputTokens += event.outputTokens ?? 0;
     }
     const tokenTotal = inputTokens + outputTokens;
