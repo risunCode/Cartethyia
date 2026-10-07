@@ -77,16 +77,6 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     },
   },
   {
-    // Devin frames its own gRPC chat protocol over a bespoke wire.
-    id: "devin",
-    displayName: "Devin",
-    baseUrl: "https://server.codeium.com",
-    bespokeWire: true,
-    hasAdapterUserAgent: true,
-    credentialUrl: "https://devin.ai",
-    credentialHint: "Signed in with a Devin account; there is no key to paste.",
-  },
-  {
     id: "antigravity",
     displayName: "Antigravity",
     baseUrl: "https://daily-cloudcode-pa.googleapis.com",
@@ -219,8 +209,6 @@ const WEB_SEARCH_CAPABLE_PROVIDER_IDS: ReadonlySet<string> = new Set([
   "gemini",
   // Gemini wire with its own search plumbing.
   "antigravity",
-  // Marketplace adapters that expose a search tool per upstream.
-  "devin",
 ]);
 
 /**
@@ -310,7 +298,7 @@ export interface BundledProviderMetadata {
   /**
    * The provider's adapter frames its own wire protocol instead of going
    * through one of the gateway's canonical codecs (chat / responses /
-   * messages). Devin and Kiro are the bundled cases: they encode requests
+   * messages). Kiro is the bundled case: it encodes requests
    * by hand, so a part their codec does not handle is dropped rather than
    * encoded, and generation controls reach them raw.
    */

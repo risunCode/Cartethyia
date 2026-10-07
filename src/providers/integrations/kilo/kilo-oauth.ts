@@ -11,7 +11,7 @@
  *
  * There is no refresh grant: the start response advertises no token lifetime
  * and the approved payload carries no refresh token, so this client
- * deliberately declares no `refresher` capability — the same shape as Devin's.
+ * deliberately declares no `refresher` capability.
  * The organization id the gateway scopes requests by is folded into the stored
  * credential secret, because the console stores one opaque string per account.
  */

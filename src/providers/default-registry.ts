@@ -150,21 +150,6 @@ export const PROVIDER_CAPABILITIES = {
         ...(fetcher === undefined ? {} : { fetcher }),
       }),
   },
-  devin: {
-    loadAdapter: async () => (await import("./integrations/devin/devin")).devinAdapter,
-    loadModels: async () => (await import("./integrations/devin/devin-catalog")).DEVIN_MODELS,
-    loadAuthentication: oauthCapability(() => import("./integrations/devin/devin-oauth"), "devinOAuthClient"),
-    loadQuotaCollector: quotaCapability(() => import("./integrations/devin/devin-quota"), "fetchDevinQuota"),
-    // Devin's catalog is per-account: `GetCliModelConfigs` answers with the
-    // models the credential's plan reaches, so the static row is only the
-    // offline seed and discovery needs the credential.
-    loadModelDiscovery: async () => async ({ credential, fetcher }) =>
-      (await import("./integrations/devin/devin")).fetchDevinModels(
-        credential,
-        ...(fetcher === undefined ? [] : [fetcher as typeof fetch]),
-      ),
-    modelDiscoveryRequiresCredential: true,
-  },
   antigravity: {
     loadAdapter: async () => (await import("./integrations/antigravity/antigravity")).antigravityAdapter,
     loadModels: async () => (await import("./integrations/antigravity/antigravity")).ANTIGRAVITY_MODELS,

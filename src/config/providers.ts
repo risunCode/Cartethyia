@@ -23,8 +23,8 @@ export function oauthCallbackUrl(providerId: string): string {
  * Browser-authorize redirect URI for a provider.
  *
  * Browser OAuth always advertises the loopback callback
- * `http://127.0.0.1:59653/callback` — the URI Devin and Codex register with
- * their authorization servers. The console callback stays the exchange
+ * `http://127.0.0.1:59653/callback` — the URI Codex registers with its
+ * authorization server. The console callback stays the exchange
  * endpoint: the dashboard dialog pastes the loopback landing URL back and
  * the server exchanges the code against the same loopback URI.
  */

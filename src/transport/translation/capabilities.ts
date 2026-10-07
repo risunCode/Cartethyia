@@ -66,7 +66,7 @@ export const GENERATION_CONTROL_MATRIX: Readonly<
 };
 
 /**
- * Controls a bespoke adapter (Cursor, Devin) receives. These adapters read the
+ * Controls a bespoke adapter (Cursor) receives. These adapters read the
  * fields they understand directly from `generation_controls`, so nothing is
  * filtered out on their behalf: a wire matrix describes what a *codec* can
  * re-encode, and no codec is involved here. Filtering would silently drop a

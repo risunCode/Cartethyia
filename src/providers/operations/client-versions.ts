@@ -287,15 +287,6 @@ export const VERSION_SOURCES = {
     fallback: "0.127.0",
     sources: [],
   },
-  devin: {
-    key: "devin",
-    // Tracks the Devin VS Code extension line. The pinned floor is the
-    // in-repo extension version: discovery moves forward only, so an
-    // upstream feed lagging behind can never silently downgrade the badge.
-    fallback: "1.49.2",
-    minVersion: "1.49.2",
-    sources: [{ url: "https://open-vsx.org/api/Codeium/codeium" }],
-  },
   github: {
     key: "github-copilot-chat",
     fallback: "0.43.0",
@@ -350,7 +341,6 @@ const resolvers = {
   claudeCli: createClientVersionResolver(VERSION_SOURCES.claudeCli),
   claudeSdk: createClientVersionResolver(VERSION_SOURCES.claudeSdk),
   kiro: createClientVersionResolver(VERSION_SOURCES.kiro),
-  devin: createClientVersionResolver(VERSION_SOURCES.devin),
   github: createClientVersionResolver(VERSION_SOURCES.github),
   kilo: createClientVersionResolver(VERSION_SOURCES.kilo),
   mimo: createClientVersionResolver(VERSION_SOURCES.mimo),
@@ -376,7 +366,6 @@ const PROVIDER_VERSION_RESOLVERS: Readonly<Record<string, ClientVersionResolver>
   kiro: resolvers.kiro,
   anthropic: resolvers.claudeCli,
   claude: resolvers.claudeCli,
-  devin: resolvers.devin,
   github: resolvers.github,
   kilo: resolvers.kilo,
   mimodesktop: resolvers.mimo,

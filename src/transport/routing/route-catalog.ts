@@ -104,8 +104,8 @@ export function buildCapabilityProfile(row: {
   const outputMods = Array.isArray(mods.output) ? mods.output : [];
   // The canonical chat and responses codecs encode `image`, `document`/`file`,
   // and `audio` parts; the messages codec encodes the first two but has no
-  // audio block (see `AUDIO_CAPABLE_WIRE_FAMILIES`). A bespoke adapter (Cursor,
-  // Devin) frames its own protocol and has no generic rich-content path.
+  // audio block (see `AUDIO_CAPABLE_WIRE_FAMILIES`). A bespoke adapter (Cursor)
+  // frames its own protocol and has no generic rich-content path.
   // Treating the codec routes as capable by default keeps pass-through behavior
   // instead of degrading a caller's attachment to text on the strength of a
   // metadata guess. An explicit modality still wins, so a catalog can declare

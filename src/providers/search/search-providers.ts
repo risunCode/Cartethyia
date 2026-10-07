@@ -7,9 +7,6 @@
  * hints live in `metadata.ts` beside every other bundled identity;
  * this file owns only the per-provider request mapping and response
  * normalization, which is what makes a provider's wire local to one spec.
- *
- * The `devin-search` model id is retained on the Devin provider (which is a
- * chat provider); it is not part of this file.
  */
 import type { SearchParams, SearchProviderSpec, SearchRequestInit } from "./search-provider";
 import { asRecord, stringField } from "./search-provider";

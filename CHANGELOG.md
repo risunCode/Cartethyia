@@ -1,5 +1,11 @@
 ## Unreleased
 
+- The Devin provider is removed. Its adapter, OAuth client, quota collector,
+  model discovery, client-version tracking, catalog metadata, and dashboard
+  icons are gone, and nothing references it. On the next boot the unowned
+  `providers` row it left behind is retired and its builtin model row goes
+  with it through the foreign key; telemetry history is not touched.
+
 - `db.execute` on the SQLite backend returns the types the schema declares.
   It read through `prepare().all()` and handed back stored values, so a
   timestamp came back as text and a boolean as an integer — the mismatch that

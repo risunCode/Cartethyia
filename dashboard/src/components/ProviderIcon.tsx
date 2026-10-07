@@ -46,8 +46,6 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   // the initials fallback instead of a logo.
   workbuddy: { file: "codebuddy", ext: "webp" },
   agentrouter: { file: "agentrouter", ext: "svg" },
-  "devin-search": { file: "devin-search", ext: "svg" },
-  devin: { file: "devin", ext: "webp" },
   parallel: { file: "parallel", ext: "svg" },
   gmi: { file: "gmi-cloud", ext: "svg" },
   hermes: { file: "hermes", ext: "webp" },
