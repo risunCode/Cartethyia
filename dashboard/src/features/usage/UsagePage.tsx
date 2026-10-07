@@ -1441,6 +1441,9 @@ export default function Usage(): ReactNode {
   return (
     <InFlightProvider>
       <Stack gap="16px">
+      <Card>
+        <CardHeader title="Usage" subtitle={periodLabel(period)} icon={<Activity size={16} />} />
+        <CardBody style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div className="metric-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
         <RequestsStatCard
           pending={summaryQuery.isPending}
@@ -1796,6 +1799,8 @@ export default function Usage(): ReactNode {
         </CardBody>
       </Card>
 
+        </CardBody>
+      </Card>
       <RequestDetailDrawer requestId={selectedId} onClose={() => setSelectedId(null)} />
       </Stack>
     </InFlightProvider>
