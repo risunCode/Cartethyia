@@ -998,13 +998,13 @@
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  /* A flat page color gives a translucent card nothing to show through, so it
-     reads as opaque. The wash sits behind every console page, which is what
-     makes the glass surface visible on providers the way it is on CLI tools. */
-  background:
-    radial-gradient(1000px 520px at 12% -8%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%),
-    radial-gradient(860px 480px at 100% 0%, color-mix(in srgb, var(--purple) 8%, transparent), transparent 60%),
-    var(--page-bg);
+  /* A veil over the key art. The art stays visible enough to read through a
+     glass card; the page color keeps text legible. Dark art needs less veil. */
+  --console-backdrop-veil: 0.82;
+  background: color-mix(in srgb, var(--page-bg) calc(var(--console-backdrop-veil) * 100%), transparent);
+}
+html[data-theme="dark"] .app-bg {
+  --console-backdrop-veil: 0.62;
 }
 @media (max-width: 1024px) {
   .app-sidebar {

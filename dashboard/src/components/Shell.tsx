@@ -750,11 +750,25 @@ export function DashboardShell({
     }
   };
 
+  useEffect(() => {
+    document.documentElement.dataset.glassEnabled = "true";
+    return () => {
+      delete document.documentElement.dataset.glassEnabled;
+    };
+  }, []);
+
   const meta = resolveRouteMeta(location.pathname, providersQuery.data ?? []);
   const defaultLogoUrl = `${import.meta.env.BASE_URL}assets/brand/sidebar_ico.jpg`;
   const logoUrl = defaultLogoUrl;
   return (
     <>
+      <img
+        className="console-background"
+        src={`${import.meta.env.BASE_URL}default-backgrounds.webp`}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+      />
       <div className="app-bg" aria-hidden="true" />
       <div className="app-shell-root">
         {drawerPresence.mounted && (

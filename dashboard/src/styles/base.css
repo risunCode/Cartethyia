@@ -278,6 +278,20 @@ html[data-ambient-glow="off"] body {
 html[data-glass-depth="2"] {
   --glass-depth: 2;
 }
+/* The console key art. A veil of the page color sits over it in .app-bg's
+   sibling so the art reads as atmosphere, not as a poster. */
+.console-background {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  filter: blur(2px);
+  transform: scale(1.02);
+}
+
 
 @media (max-width: 640px) {
   .custom-background-layer {
