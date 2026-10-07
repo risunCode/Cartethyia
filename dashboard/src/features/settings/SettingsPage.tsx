@@ -57,15 +57,15 @@ function PrivacyPanel(): ReactNode {
                   )
                 }
                 options={[
+                  { value: "none", label: "Off — no payload capture (default)" },
                   {
                     value: "metadata",
-                    label: "Metadata — Proxy→Provider method + headers (default), pruned after 15 minutes",
+                    label: "Metadata — Proxy→Provider method + headers, pruned after 15 minutes",
                   },
                   {
                     value: "full",
                     label: "Full — redacted bodies at the depth below, pruned after 15 minutes",
                   },
-                  { value: "none", label: "Off — no payload capture" },
                 ]}
               />
               {settings.telemetryPayloads === "full" ? (
@@ -94,11 +94,11 @@ function PrivacyPanel(): ReactNode {
                       },
                       {
                         value: "moderate",
-                        label: "Moderate — all four panels, 16 MiB cap",
+                        label: "Moderate — all four panels, 8 MiB cap",
                       },
                       {
                         value: "maximum",
-                        label: "Maximum — all four panels, 32 MiB cap",
+                        label: "Maximum — all four panels, 16 MiB cap",
                       },
                     ]}
                   />
@@ -125,9 +125,8 @@ function PrivacyPanel(): ReactNode {
                 </div>
               ) : null}
               <p style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                Request-event metadata is always retained. Default drawer capture is metadata-only
-                (Proxy→Provider method + allowlisted headers). Bodies stay opt-in, redacted, and
-                deleted automatically after 15 minutes.
+                Request-event metadata is always retained. Payload capture is off until turned on
+                here. Bodies stay opt-in, redacted, and deleted automatically after 15 minutes.
               </p>
             </div>
             <div>

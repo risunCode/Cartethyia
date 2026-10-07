@@ -319,8 +319,8 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       memory_bytes: memory.rss,
       memory_percent: Math.round((memory.rss / Math.max(totalmem(), 1)) * 10000) / 100,
       // Reported so the console can explain a large RSS instead of leaving the
-      // operator to read it as the gateway alone. Under PGlite this process
-      // hosts the database too, which is most of the resident set.
+      // operator to read it as the gateway alone. In lite mode this process
+      // hosts the database too, so the resident set covers both.
       database_in_process: resolveDbMode() === "lite",
       cpu_percent: cpuPercent,
       cpu_cores: cpus().length,

@@ -66,7 +66,7 @@ function watchMsEnv(): number {
 }
 
 const WATCH_MS = watchMsEnv();
-const MIGRATIONS_DIR = join(process.cwd(), "migrations");
+const MIGRATIONS_DIR = join(process.cwd(), "migrations", "full-postgres");
 const DEPENDENCY_FILES = ["package.json", "bun.lock"] as const;
 
 /** Latest mtime (ms) across the two load-bearing manifests, or 0 if none. */

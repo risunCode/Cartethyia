@@ -130,9 +130,9 @@ export const CONFIG_SPEC = {
   CARTETHYIA_TELEMETRY_RETENTION_DAYS: { kind: "int", default: 30, min: 3, max: 365 },
   CARTETHYIA_TELEMETRY_PAYLOAD_MAX_BYTES: {
     kind: "int",
-    default: 32 * 1024 * 1024,
+    default: 16 * 1024 * 1024,
     min: 1 * 1024 * 1024,
-    max: 256 * 1024 * 1024,
+    max: 16 * 1024 * 1024,
   },
 
   // Upstream request timeout + retry backoff

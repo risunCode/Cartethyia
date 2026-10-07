@@ -77,11 +77,14 @@ function maxFileBytes(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : DEFAULT_MAX_FILE_BYTES;
 }
 
-function checksum(value: string): string {
+function checksum(value: Buffer | readonly Buffer[]): string {
+  const parts = Array.isArray(value) ? value : [value];
   let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
+  for (const part of parts) {
+    for (let index = 0; index < part.byteLength; index += 1) {
+      hash ^= part[index]!;
+      hash = Math.imul(hash, 16777619);
+    }
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
@@ -90,20 +93,24 @@ function fileName(now = new Date()): string {
   return `${now.toISOString().slice(0, 13).replaceAll(":", "-")}-${process.pid}.jsonb`;
 }
 
-async function appendFrame(frame: PayloadFrame): Promise<PayloadFileReference> {
+async function appendFrame(frame: PayloadFrame, parts?: readonly Buffer[]): Promise<PayloadFileReference> {
   const directory = payloadDirectory();
   await mkdir(directory, { recursive: true });
-  const encoded = Buffer.from(JSON.stringify(frame), "utf8");
-  if (encoded.byteLength > MAX_FRAME_BYTES) throw new Error("telemetry payload frame exceeds limit");
+  // Written as the pieces it was built from. Assembling them into one buffer
+  // first costs a full extra copy, and Bun zeroes that buffer on allocation,
+  // so the copy measured several times the frame's size.
+  parts ??= [Buffer.from(JSON.stringify(frame), "utf8")];
+  const encodedBytes = parts.reduce((total, part) => total + part.byteLength, 0);
+  if (encodedBytes > MAX_FRAME_BYTES) throw new Error("telemetry payload frame exceeds limit");
   const file = fileName();
   const path = join(directory, file);
   const currentSize = await stat(path).then((value) => value.size).catch(() => 0);
   const offset = currentSize;
-  if (offset + FRAME_HEADER_BYTES + encoded.byteLength > maxFileBytes()) {
+  if (offset + FRAME_HEADER_BYTES + encodedBytes > maxFileBytes()) {
     const rotated = `${Date.now()}-${randomUUID()}.jsonb`;
-    return appendFrameToPath(frame, join(directory, rotated));
+    return appendFrameToPath(frame, join(directory, rotated), basename(rotated), undefined, parts);
   }
-  return appendFrameToPath(frame, path, file, offset, encoded);
+  return appendFrameToPath(frame, path, file, offset, parts);
 }
 
 async function appendFrameToPath(
@@ -111,15 +118,17 @@ async function appendFrameToPath(
   path: string,
   knownFile = basename(path),
   knownOffset?: number,
-  knownEncoded?: Buffer,
+  knownParts?: readonly Buffer[],
 ): Promise<PayloadFileReference> {
-  const encoded = knownEncoded ?? Buffer.from(JSON.stringify(frame), "utf8");
+  const parts = knownParts ?? [Buffer.from(JSON.stringify(frame), "utf8")];
+  const encodedBytes = parts.reduce((total, part) => total + part.byteLength, 0);
   const offset = knownOffset ?? await stat(path).then((value) => value.size).catch(() => 0);
   const header = Buffer.alloc(FRAME_HEADER_BYTES);
-  header.writeUInt32BE(encoded.byteLength, 0);
+  header.writeUInt32BE(encodedBytes, 0);
   const handle = await open(path, "a");
   try {
-    await handle.write(Buffer.concat([header, encoded]));
+    await handle.write(header);
+    for (const part of parts) await handle.write(part);
   } finally {
     await handle.close();
   }
@@ -127,20 +136,62 @@ async function appendFrameToPath(
     storage: "jsonb-file",
     file: knownFile,
     offset,
-    length: FRAME_HEADER_BYTES + encoded.byteLength,
-    checksum: checksum(encoded.toString("utf8")),
+    length: FRAME_HEADER_BYTES + encodedBytes,
+    checksum: checksum(parts),
     version: 1,
   };
 }
 
-export function writePayloadFrame(payload: unknown, expiresAt: Date): Promise<PayloadFileReference> {
-  const frame: PayloadFrame = {
-    version: 1,
-    id: randomUUID(),
-    expiresAt: expiresAt.toISOString(),
-    payload,
-  };
-  const task = writeTail.then(() => appendFrame(frame));
+const FRAME_BODY_KEYS = [
+  "request_body",
+  "response_body",
+  "client_response_body",
+  "provider_request_body",
+  "provider_response_body",
+] as const;
+
+/**
+ * The pieces of a frame whose bodies were already serialized while measured.
+ *
+ * Returned as separate buffers rather than one assembled buffer: the file
+ * write accepts a list, and assembling them first is a copy of the whole frame
+ * that nothing reads back.
+ */
+function prebuiltFrameParts(
+  id: string,
+  expiresAt: string,
+  capturedAt: string,
+  requestId: string | null,
+  signals: unknown,
+  bodies: readonly string[],
+): Buffer[] {
+  const parts = [
+    Buffer.from(
+      `{"version":1,"id":${JSON.stringify(id)},"expiresAt":${JSON.stringify(expiresAt)},` +
+        `"payload":{"request_id":${JSON.stringify(requestId)},"captured_at":${JSON.stringify(capturedAt)},` +
+        `"expires_at":${JSON.stringify(expiresAt)}`,
+      "utf8",
+    ),
+  ];
+  for (let index = 0; index < FRAME_BODY_KEYS.length; index += 1) {
+    parts.push(Buffer.from(`,"${FRAME_BODY_KEYS[index]}":${bodies[index] ?? "null"}`, "utf8"));
+  }
+  parts.push(Buffer.from(`,"signals":${JSON.stringify(signals)}}}`, "utf8"));
+  return parts;
+}
+
+export function writePayloadFrame(
+  payload: unknown,
+  expiresAt: Date,
+  prebuilt?: { readonly requestId: string | null; readonly capturedAt: string; readonly signals: unknown; readonly bodies: readonly string[] },
+): Promise<PayloadFileReference> {
+  const id = randomUUID();
+  const expires = expiresAt.toISOString();
+  const parts = prebuilt
+    ? prebuiltFrameParts(id, expires, prebuilt.capturedAt, prebuilt.requestId, prebuilt.signals, prebuilt.bodies)
+    : undefined;
+  const frame: PayloadFrame = { version: 1, id, expiresAt: expires, payload };
+  const task = writeTail.then(() => appendFrame(frame, parts));
   writeTail = task.then(() => undefined, () => undefined);
   return task;
 }
@@ -151,14 +202,24 @@ export async function readPayloadFrame(reference: PayloadFileReference): Promise
   const safeFile = basename(reference.file);
   if (safeFile !== reference.file || safeFile.length === 0) return undefined;
   const path = join(payloadDirectory(), safeFile);
-  const data = await readFile(path);
-  if (reference.offset < 0 || reference.offset + reference.length > data.byteLength) return undefined;
-  const frame = data.subarray(reference.offset, reference.offset + reference.length);
+  // Read exactly the frame. Reading the whole file copied every earlier frame
+  // in the same hour into memory just to return one of them.
+  const handle = await open(path, "r");
+  let data: Buffer;
+  try {
+    const stat = await handle.stat();
+    if (reference.offset < 0 || reference.offset + reference.length > stat.size) return undefined;
+    data = Buffer.alloc(reference.length);
+    await handle.read(data, 0, reference.length, reference.offset);
+  } finally {
+    await handle.close();
+  }
+  const frame = data;
   const length = frame.readUInt32BE(0);
-  if (length + FRAME_HEADER_BYTES !== frame.byteLength) return undefined;
-  const json = frame.subarray(FRAME_HEADER_BYTES).toString("utf8");
+  if (length <= 0 || length + FRAME_HEADER_BYTES !== frame.byteLength) return undefined;
+  const json = frame.subarray(FRAME_HEADER_BYTES);
   if (checksum(json) !== reference.checksum) return undefined;
-  const parsed = JSON.parse(json) as PayloadFrame;
+  const parsed = JSON.parse(json.toString("utf8")) as PayloadFrame;
   return parsed.version === 1 ? parsed.payload : undefined;
 }
 

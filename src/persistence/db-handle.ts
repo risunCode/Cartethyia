@@ -6,11 +6,13 @@ import * as schema from "./schema";
 export const fullSchema = schema;
 
 /**
- * Drizzle instance behind the handle. Declared as the node-postgres shape on
- * purpose: both drivers extend the same pg-core `PgDatabase` base over the
- * same schema, so every query builder is identical and only the session
- * differs. The PGlite backend asserts its instance to this type once, at
- * creation, instead of forcing a union through ~30 transaction call sites.
+ * Drizzle instance behind the handle. Declared as the node-postgres shape
+ * because that is what every store was written against. The SQLite backend's
+ * builder is a different type, so it asserts its instance to this type once,
+ * at creation, instead of forcing a union through ~30 transaction call sites.
+ * The assertion is the seam, not a claim that the builders are identical: a
+ * store that reaches past the surface both drivers implement fails its
+ * SQLite run rather than typechecking clean and breaking at boot.
  */
 export type CartethyiaDatabase = NodePgDatabase<typeof fullSchema>;
 
@@ -25,8 +27,14 @@ export interface QueryRows {
  * shutdown-symmetric per backend.
  */
 export interface DatabaseHandle {
-  readonly kind: "pg" | "pglite";
+  readonly kind: "pg" | "sqlite";
   readonly db: CartethyiaDatabase;
+  /**
+   * Present only on the SQLite backend: the auth lookups prepared once at
+   * boot. The PostgreSQL backend has no equivalent and the store falls back
+   * to the query builder, so this stays optional.
+   */
+  readonly auth?: import("./db-sqlite").SqliteAuthStatements;
   query: (text: string, params?: readonly unknown[]) => Promise<QueryRows>;
   exec: (script: string) => Promise<void>;
   close: () => Promise<void>;

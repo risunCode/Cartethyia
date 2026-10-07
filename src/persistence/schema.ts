@@ -672,6 +672,8 @@ export const sharePopups = pgTable(
     check(
       "share_popups_image_size_check",
       sql`${table.image} IS NULL OR octet_length(${table.image}) <= 2097152`,
+      // SQLite has no octet_length. The generator rewrites this check to
+      // `length(`; both count bytes for a blob column.
     ),
   ],
 );
@@ -836,7 +838,7 @@ export interface ConsoleSettingsPreferences {
   /** PonyTail directive intensity; `full` when unset. Only applied when enabled. */
   ponyTailLevel?: "lite" | "full" | "ultra" | null;
   /**
-   * Payload capture mode (default `metadata` when unset):
+   * Payload capture mode (default `none` when unset):
    * - `metadata` — Proxy→Provider method + allowlisted headers only
    * - `full` — full redacted bodies up to the configured capture limit
    * - `none` — no drawer capture (request metadata events still retained)
@@ -846,8 +848,8 @@ export interface ConsoleSettingsPreferences {
    * Capture depth for `full` mode (default `minimum` when unset). Fixed size
    * tiers so every debug sees all four drawer panels — only the cap changes:
    * - `minimum` — 1 MiB combined cap, light enough to leave on
-   * - `moderate` — 16 MiB combined cap, expect CPU/memory spikes while active
-   * - `maximum` — 32 MiB combined cap, expect CPU/memory spikes while active
+   * - `moderate` — 8 MiB combined cap, expect CPU/memory spikes while active
+   * - `maximum` — 16 MiB combined cap, expect CPU/memory spikes while active
    */
   telemetryPayloadDepth?: "minimum" | "moderate" | "maximum";
   privacyMode?: "masked" | "full";

@@ -2,7 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { existsSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { createServer } from "node:net";
 import {
   MINIMUM_BUN_VERSION,
@@ -363,10 +363,10 @@ async function setup(): Promise<void> {
   // Step 4: Probe Postgres in full mode; lite verifies the data dir instead.
   const dbMode = resolveDbMode();
   if (dbMode === "lite") {
-    console.log("🗂️  Lite mode: no PostgreSQL to install");
-    const pgliteDir = join(resolveDataDir(), "pglite");
-    mkdirSync(pgliteDir, { recursive: true });
-    console.log(`✓ Data directory ready at ${pgliteDir}\n`);
+    console.log("🗂️  Lite mode: embedded SQLite, no PostgreSQL to install");
+    const dataDir = resolveDataDir();
+    mkdirSync(dataDir, { recursive: true });
+    console.log(`✓ Data directory ready at ${dataDir}\n`);
   } else {
     console.log("🐘 Checking PostgreSQL...");
     await ensureFullDatabase(config.probeTimeoutMs);

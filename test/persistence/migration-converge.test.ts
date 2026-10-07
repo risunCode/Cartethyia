@@ -21,7 +21,7 @@ function applyFile(
   client: { query: (text: string, values?: unknown[]) => Promise<unknown> },
   file: string,
 ): Promise<void> {
-  const source = readFileSync(resolve(process.cwd(), "migrations", file), "utf8");
+  const source = readFileSync(resolve(process.cwd(), "migrations", "full-postgres", file), "utf8");
   return splitStatements(source).reduce<Promise<void>>(
     (chain, statement) => chain.then(() => client.query(statement).then(() => undefined)),
     Promise.resolve(),

@@ -16,7 +16,7 @@ flowchart TD
   boot --> deps["buildProductionDeps()"]
   deps --> db["bootDatabase()"]
   db --> lite{"CARTETHYIA_DB_MODE"}
-  lite -->|lite| pglite["PGlite in data/pglite"]
+  lite -->|lite| sqlite["SQLite at data/cartethyia.sqlite"]
   lite -->|full| pg["external PostgreSQL"]
   deps --> migrate["ensureMigrated()"]
   deps --> seed["seed providers and models"]
@@ -127,10 +127,10 @@ Two database modes share one schema:
 
 | Mode | Database | Coordination |
 | --- | --- | --- |
-| Lite | embedded PGlite under `data/pglite` | in-process unless `REDIS_URL` is set |
+| Lite | embedded SQLite at `data/cartethyia.sqlite` | in-process unless `REDIS_URL` is set. One process is the whole deployment, so the in-process admission counters are the shared counters; set `REDIS_URL` only to share them with a second process |
 | Full | external PostgreSQL | Redis when `REDIS_URL` is set, else memory |
 
-`migrations/0000_baseline.sql` is the current schema for a new database.
+`migrations/full-postgres/0000_baseline.sql` is the current schema for a new database. Lite builds from `migrations/lite-sqlite3/0000_baseline.sql`, derived from it.
 `0001`, `0002`, and `0003` converge a database built from an older baseline.
 A database whose ledger names a baseline this release no longer ships records
 `0000_baseline.sql` without executing it, then runs the three files.
@@ -146,7 +146,7 @@ flowchart LR
   browser["dashboard/src"] --> api["/console/api"]
   api --> session["session cookie + CSRF"]
   session --> domains["console domains"]
-  domains --> db["Postgres or PGlite"]
+  domains --> db["Postgres or SQLite"]
   domains --> snap["route snapshot"]
   domains --> files["telemetry files"]
 ```

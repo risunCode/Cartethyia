@@ -43,7 +43,7 @@ closest owner instead — one folder, one skill.
 - `.env.example` defaults to `CARTETHYIA_DB_MODE=lite`; Docker Compose defaults
   to Full with external PostgreSQL and bundled Redis configuration. Keep these
   defaults intentional and document changes in `documentation/getting-started.md`.
-- Lite uses embedded PGlite and in-process coordination when `REDIS_URL` is
+- Lite uses embedded SQLite and in-process coordination when `REDIS_URL` is
   absent. Full uses external PostgreSQL; Redis remains optional unless shared
   coordination is required. Do not reintroduce `REDIS_MODE` or
   `single_instance_local`.

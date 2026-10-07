@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
+import { affectedRows, currentTimestamp, laterOf } from "../dialect";
 import type { CartethyiaDatabase } from "../db-handle";
 import {
   telemetryEvents,
@@ -127,8 +128,8 @@ export class DrizzleTelemetryStore {
             errors: sql`${telemetryUsageTotals.errors} + excluded.errors`,
             inputTokens: sql`${telemetryUsageTotals.inputTokens} + excluded.input_tokens`,
             outputTokens: sql`${telemetryUsageTotals.outputTokens} + excluded.output_tokens`,
-            lastUsedAt: sql`greatest(${telemetryUsageTotals.lastUsedAt}, excluded.last_used_at)`,
-            updatedAt: sql`now()`,
+            lastUsedAt: laterOf(sql`${telemetryUsageTotals.lastUsedAt}`, sql`excluded.last_used_at`),
+            updatedAt: currentTimestamp(),
           },
         });
     });
@@ -165,7 +166,7 @@ export class DrizzleTelemetryStore {
         LIMIT ${batchSize}
       )
     `);
-    return result.rowCount ?? 0;
+    return affectedRows(result);
   }
 
   /**
@@ -184,7 +185,7 @@ export class DrizzleTelemetryStore {
         LIMIT ${batchSize}
       )
     `);
-    return result.rowCount ?? 0;
+    return affectedRows(result);
   }
 
   /**

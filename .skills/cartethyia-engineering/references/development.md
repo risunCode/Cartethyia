@@ -27,7 +27,7 @@ state, and availability each have their own owner.
 ## Contract or schema
 
 Find every producer, validator, store, reader, and dashboard mirror. A schema
-change updates `src/persistence/schema.ts`, `migrations/0000_baseline.sql`, and
+change updates `src/persistence/schema.ts`, `migrations/full-postgres/0000_baseline.sql`, and
 adds the next forward file. The shipped set is `0000` plus `0001`, `0002`, and
 `0003`. The next file is `0004`. Do not edit or delete a file a database has
 recorded. Dashboard contracts stay browser-safe.

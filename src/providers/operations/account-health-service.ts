@@ -1,5 +1,6 @@
 // Account health: error classification, failure/success recording, recovery and cooldown sweeps.
 import { and, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { affectedRows, pruneExpiredCooldowns } from "../../persistence/dialect";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { isRecord } from "../../protocol/codecs";
 import { BUDDY_PROVIDER_IDS } from "../metadata";
@@ -773,26 +774,12 @@ async function sweepExpiredCooldownsFor(db: CartethyiaDatabase): Promise<number>
     // whole sweep. `IS DISTINCT FROM` keeps the update from rewriting rows it
     // did not change, so the returned row count is the number of accounts whose
     // cooldown set actually shrank — the same thing the loop counted.
+    const pruning = pruneExpiredCooldowns(sql`${providerAccounts.modelCooldowns}`, sql`${nowIso}`);
     const pruned = await client
       .update(providerAccounts)
-      .set({
-        modelCooldowns: sql`COALESCE(
-          (SELECT jsonb_object_agg(entry.key, entry.value)
-           FROM jsonb_each_text(${providerAccounts.modelCooldowns}) AS entry
-           WHERE entry.value > ${nowIso}),
-          '{}'::jsonb
-        )`,
-      })
-      .where(
-        sql`jsonb_typeof(${providerAccounts.modelCooldowns}) = 'object'
-          AND ${providerAccounts.modelCooldowns} IS DISTINCT FROM COALESCE(
-            (SELECT jsonb_object_agg(entry.key, entry.value)
-             FROM jsonb_each_text(${providerAccounts.modelCooldowns}) AS entry
-             WHERE entry.value > ${nowIso}),
-            '{}'::jsonb
-          )`,
-      );
-    return expired.length + (pruned.rowCount ?? 0);
+      .set({ modelCooldowns: pruning.value })
+      .where(pruning.changed);
+    return expired.length + affectedRows(pruned);
   };
   try {
     if (typeof db.transaction === "function") {

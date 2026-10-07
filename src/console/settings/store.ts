@@ -1,5 +1,6 @@
 // Drizzle-backed console persistence for runtime settings.
 import { eq, sql } from "drizzle-orm";
+import { mergeJson } from "../../persistence/dialect";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { consoleSettings, type ConsoleSettingsPreferences } from "../../persistence/schema";
 import type { RedisBackend } from "../../persistence/redis";
@@ -40,15 +41,16 @@ function normalizeRtkLevel(value: unknown): RtkLevel {
     : "full";
 }
 
-function normalizeTelemetryPayloadMode(value: unknown): TelemetryPayloadMode {
+export function normalizeTelemetryPayloadMode(value: unknown): TelemetryPayloadMode {
   if (
     typeof value === "string" &&
     (TELEMETRY_PAYLOAD_MODES as readonly string[]).includes(value)
   ) {
     return value as TelemetryPayloadMode;
   }
-  // Unset preference bags default to metadata: Proxy→Provider request line only.
-  return "metadata";
+  // Unset preference bags default to off. Capture is opt-in: a fresh install
+  // keeps no payload until an operator turns it on, and then at minimum depth.
+  return "none";
 }
 
 function normalizeTelemetryPayloadDepth(value: unknown): TelemetryPayloadDepth {
@@ -139,7 +141,7 @@ export class DrizzleRuntimeSettingsStore implements RuntimeSettingsStore {
         target: consoleSettings.tenantId,
         set: {
           // preferences, everything else on the row is left untouched.
-          preferences: sql`${consoleSettings.preferences} || ${JSON.stringify(patchPrefs)}::jsonb`,
+          preferences: mergeJson(sql`${consoleSettings.preferences}`, sql`${JSON.stringify(patchPrefs)}`),
           updatedAt: now,
         },
       })

@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "./db-handle";
+import { sqliteDialect } from "./dialect";
 import { apiKeys } from "./schema";
 
 /** Spelling a uuid column must match before it is inlined into a statement. */
@@ -34,7 +35,7 @@ async function writeLifetimeDelta(db: CartethyiaDatabase, apiKeyId: string, delt
  *
  * On the embedded backend one write queues behind a single writer, so the cost
  * of a flush is dominated by round-trips rather than by rows: measured on
- * PGlite, 300 keys cost 129 ms as separate UPDATEs and 4 ms as one
+ * the embedded backend, 300 keys cost 129 ms as separate UPDATEs and 4 ms as one
  * `UPDATE ... FROM (VALUES ...)` — 28x. That difference is the whole reason
  * this path coalesces deltas at all, so a flush that fans back out per key
  * gives the win straight back.
@@ -53,20 +54,25 @@ async function writeLifetimeDeltas(
   // `sql.raw` and validated on the way in, which is what keeps this a literal
   // rather than an injection path: a uuid must match the uuid spelling and a
   // delta must be a finite non-negative integer.
-  const values = [...deltas]
-    .map(([apiKeyId, delta]) => {
-      if (!UUID_RE.test(apiKeyId)) throw new Error(`usage flush: apiKeyId is not a uuid`);
-      if (!Number.isFinite(delta) || !Number.isInteger(delta) || delta < 0) {
-        throw new Error(`usage flush: delta is not a non-negative integer (got ${String(delta)})`);
-      }
-      return `('${apiKeyId}'::uuid, ${delta}::bigint)`;
-    })
-    .join(", ");
+  const rows = [...deltas].map(([apiKeyId, delta]) => {
+    if (!UUID_RE.test(apiKeyId)) throw new Error(`usage flush: apiKeyId is not a uuid`);
+    if (!Number.isFinite(delta) || !Number.isInteger(delta) || delta < 0) {
+      throw new Error(`usage flush: delta is not a non-negative integer (got ${String(delta)})`);
+    }
+    return { apiKeyId, delta };
+  });
+  // PostgreSQL needs the casts: the driver infers an uncast VALUES column as
+  // text and the join against a uuid key fails. SQLite stores the key as text
+  // and rejects `UPDATE ... FROM (VALUES ...)` outright, so the same rows are
+  // a SELECT with named columns instead.
+  const source = sqliteDialect()
+    ? `(${rows.map((row) => `SELECT '${row.apiKeyId}' AS id, ${row.delta} AS delta`).join(" UNION ALL ")})`
+    : `(VALUES ${rows.map((row) => `('${row.apiKeyId}'::uuid, ${row.delta}::bigint)`).join(", ")}) AS v(id, delta)`;
   await db.execute(sql.raw(`
     UPDATE "api_keys"
     SET "lifetime_tokens_consumed" =
       COALESCE("api_keys"."lifetime_tokens_consumed", 0) + v.delta
-    FROM (VALUES ${values}) AS v(id, delta)
+    FROM ${source} v
     WHERE "api_keys"."id" = v.id
   `));
 }

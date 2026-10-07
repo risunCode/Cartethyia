@@ -33,7 +33,7 @@ const FRAME_BUFFER_SPARE_BYTES = 1024 * 1024;
  *
  * Streaming callers used to prepend the unconsumed tail to every read with
  * `Buffer.concat([pending, chunk])`, which copies the entire partial frame on
- * every chunk. A frame that spans many reads (the payload cap allows 16 MiB)
+ * every chunk. A frame that spans many reads (the payload cap allows up to 16 MiB)
  * therefore cost O(n²) copying and peaked at twice the frame size. Appending
  * into spare capacity costs one copy per byte instead, and `consume` only
  * advances an offset, so dropping parsed bytes moves nothing.

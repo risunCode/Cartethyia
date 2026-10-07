@@ -87,7 +87,7 @@ else
 fi
 
 # --- 5. stop the service before touching the database ----------------------
-# PGlite is single-writer: a running service holds the data dir exclusively.
+# SQLite is single-writer: a running service holds the database file exclusively.
 if command -v systemctl >/dev/null 2>&1; then
   systemctl stop cartethyia 2>/dev/null && say "stopped cartethyia" || true
 fi
@@ -102,17 +102,6 @@ bun run setup --non-interactive || die "bun setup failed"
 say "bun run build (a few minutes on 1 vCPU)"
 bun run build || die "build failed"
 
-# PGlite resolves its runtime assets relative to the bundle and the bundler
-# does not relocate them. Without this the boot fails with ENOENT pglite.data.
-# bun run build overwrites dist/, so this must follow every build.
-say "copying PGlite runtime assets"
-cp -f node_modules/@electric-sql/pglite/dist/pglite.data \
-      node_modules/@electric-sql/pglite/dist/pglite.wasm \
-      node_modules/@electric-sql/pglite/dist/initdb.wasm dist/ \
-  || die "PGlite asset copy failed"
-
-# Do NOT use dist/cartethyia: PGlite cannot initialize inside a
-# `bun build --compile` binary (it resolves to the read-only /$bunfs/root).
 [ -f dist/main.js ] || die "dist/main.js missing after build"
 
 # --- 7. systemd ------------------------------------------------------------

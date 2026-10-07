@@ -18,8 +18,8 @@ export function resolveDbMode(env: NodeJS.ProcessEnv = process.env): DbMode {
 }
 
 /**
- * Writable root for gateway-owned on-disk state (PGlite data dir, and anything
- * else that needs the disk later). `CARTETHYIA_DATA_DIR` wins; otherwise the
+ * Writable root for gateway-owned on-disk state (the SQLite database file, and
+ * anything else that needs the disk later). `CARTETHYIA_DATA_DIR` wins; otherwise the
  * per-OS convention: `%APPDATA%\\Cartethyia` on Windows, `~/Library/Application
  * Support/Cartethyia` on macOS, `$XDG_DATA_HOME/Cartethyia` (else
  * `~/.local/share/Cartethyia`) on Linux.

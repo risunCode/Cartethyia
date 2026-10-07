@@ -14,7 +14,7 @@ flowchart TD
   B --> C["buildProductionDeps()"]
   C --> D["bootDatabase()"]
   D --> E{"db mode"}
-  E -->|lite| F["open PGlite and migrate"]
+  E -->|lite| F["open SQLite and migrate"]
   E -->|full| G["createPgHandle()"]
   C --> H["ensureMigrated()"]
   H --> I{"pg handle?"}
@@ -29,7 +29,7 @@ flowchart TD
 `buildProductionDeps()` in `src/boot/dependencies.ts` is the composition root.
 It wires the database, Redis or memory, the provider registry, the route snapshot,
 admission, the usage flush buffer, and the scheduled tasks. Lite migrates while
-opening PGlite. Full migrates in `ensureMigrated()` under `pg_advisory_lock`.
+opening SQLite. Full migrates in `ensureMigrated()` under `pg_advisory_lock`.
 
 Pool size is checked only for Full. `DATABASE_POOL_MAX` must be below the server's
 `max_connections`. A server that refuses `SHOW max_connections` logs and continues.
@@ -173,7 +173,7 @@ exactly one row matches. Two tenants sharing a username do not guess.
 
 ## Persistence
 
-`src/persistence/schema.ts` is the Drizzle source. `migrations/0000_baseline.sql`
+`src/persistence/schema.ts` is the Drizzle source. `migrations/full-postgres/0000_baseline.sql`
 must match it. Forward files are only:
 
 | File | What an old database gains |

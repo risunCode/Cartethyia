@@ -35,7 +35,7 @@ async function resolvePayloadCapture(
     const mode = prefs?.telemetryPayloads;
     const depth = prefs?.telemetryPayloadDepth;
     return {
-      mode: mode === "full" || mode === "metadata" || mode === "none" ? mode : "metadata",
+      mode: mode === "full" || mode === "metadata" || mode === "none" ? mode : "none",
       depth:
         depth === "minimum" || depth === "moderate" || depth === "maximum"
           ? depth
@@ -48,9 +48,8 @@ async function resolvePayloadCapture(
                 : "minimum",
     };
   } catch {
-    // Preference read failure must not invent body capture; metadata is the
-    // safe default that still matches Settings → Privacy.
-    return { mode: "metadata", depth: "minimum" };
+    // A preference read that fails must not invent capture. Off keeps nothing.
+    return { mode: "none", depth: "minimum" };
   }
 }
 
@@ -63,8 +62,8 @@ async function resolvePayloadCapture(
  * active; minimum is light enough to leave on.
  */
 function captureDepthMaxBytes(depth: TelemetryPayloadDepth): number {
-  if (depth === "moderate") return 16 * 1024 * 1024;
-  if (depth === "maximum") return 32 * 1024 * 1024;
+  if (depth === "moderate") return 8 * 1024 * 1024;
+  if (depth === "maximum") return 16 * 1024 * 1024;
   return 1 * 1024 * 1024;
 }
 

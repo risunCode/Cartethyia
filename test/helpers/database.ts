@@ -164,7 +164,7 @@ export async function withScratchDatabase<T>(body: (db: Pool) => Promise<T>): Pr
     url.pathname = `/${name}`;
     scratch = new Pool({ connectionString: url.toString(), max: 2 });
     const baseline = readFileSync(
-      resolve(process.cwd(), "migrations", "0000_baseline.sql"),
+      resolve(process.cwd(), "migrations", "full-postgres", "0000_baseline.sql"),
       "utf8",
     );
     await scratch.query(baseline);

@@ -1,7 +1,7 @@
 # Installation
 
 Install Cartethyia on a local machine, a VPS, or with Docker, in either
-**Lite** (embedded PGlite) or **Full** (external PostgreSQL) mode.
+**Lite** (embedded SQLite) or **Full** (external PostgreSQL) mode.
 
 > [!WARNING]
 > **Development version.** APIs, configuration, database behavior, and provider
@@ -15,7 +15,7 @@ what backs the database and how coordination is shared.
 
 | | Lite | Full |
 |---|---|---|
-| Database | Embedded PGlite | External PostgreSQL |
+| Database | Embedded SQLite | External PostgreSQL |
 | Coordination | In-process memory | Redis optional, shareable |
 | Extra services | None | PostgreSQL required |
 | Best for | Personal use, local dev, one process | VPS, sharing, selling, sustained load |
@@ -139,27 +139,6 @@ bun install
 bun run build
 ```
 
-### ⚠️ Required: copy the PGlite WASM assets
-
-The bundler does not relocate PGlite's runtime assets, and the app resolves
-them relative to the bundle. Without this the boot fails with
-`ENOENT ... pglite.data`.
-
-```bash
-cp node_modules/@electric-sql/pglite/dist/pglite.data \
-   node_modules/@electric-sql/pglite/dist/pglite.wasm \
-   node_modules/@electric-sql/pglite/dist/initdb.wasm \
-   dist/
-```
-
-Re-copy after **every** build — `bun run build` overwrites `dist/`.
-
-### ⚠️ Do not run the compiled binary
-
-`bun run build` also emits `dist/cartethyia`, but **PGlite does not work in a
-`bun build --compile` binary** — it resolves its data path to `/$bunfs/root`,
-which is read-only. Run `dist/main.js` instead.
-
 ### systemd
 
 `/etc/systemd/system/cartethyia.service`:
@@ -242,10 +221,6 @@ git reset --quiet --hard "$REMOTE" || exit 1
 bun install --frozen-lockfile >> "$LOG" 2>&1 || { echo "install failed" >> "$LOG"; exit 1; }
 bun run build >> "$LOG" 2>&1 || { echo "build failed" >> "$LOG"; exit 1; }
 
-cp -f node_modules/@electric-sql/pglite/dist/pglite.data \
-      node_modules/@electric-sql/pglite/dist/pglite.wasm \
-      node_modules/@electric-sql/pglite/dist/initdb.wasm dist/ 2>/dev/null
-
 systemctl restart cartethyia
 PORT=$(grep -E '^PORT=' .env | cut -d= -f2)
 for i in $(seq 1 40); do
@@ -256,9 +231,6 @@ for i in $(seq 1 40); do
 done
 echo "[$(date -Is)] UNHEALTHY, rollback to $LOCAL" >> "$LOG"
 git reset --quiet --hard "$LOCAL"
-cp -f node_modules/@electric-sql/pglite/dist/pglite.data \
-      node_modules/@electric-sql/pglite/dist/pglite.wasm \
-      node_modules/@electric-sql/pglite/dist/initdb.wasm dist/ 2>/dev/null
 systemctl restart cartethyia
 exit 1
 ```
@@ -385,10 +357,8 @@ database.**
 
 > [!IMPORTANT]
 > The image is built on Alpine and runs `dist/cartethyia` (the compiled
-> binary). PGlite cannot initialize inside a `bun build --compile` binary: it
-> resolves its data path to `/$bunfs/root`, which is read-only. Until that is
-> fixed, **use the native path (section 3) for Lite**, or use Docker in Full
-> mode.
+> binary). Lite state lives in the `/app/data` volume mounted above; without
+> it, replacing the container wipes the database.
 
 ---
 
@@ -470,14 +440,6 @@ CARTETHYIA_INSTALL_ID_DIR="$ROOT/data/.cartethyia" \
 
 say "bun run build (this takes a few minutes on 1 vCPU)"
 bun run build || die "build failed"
-
-# PGlite runtime assets are not relocated by the bundler and are resolved
-# relative to the bundle. They must sit beside dist/main.js.
-say "copying PGlite runtime assets"
-cp -f node_modules/@electric-sql/pglite/dist/pglite.data \
-      node_modules/@electric-sql/pglite/dist/pglite.wasm \
-      node_modules/@electric-sql/pglite/dist/initdb.wasm dist/ \
-  || die "PGlite asset copy failed"
 
 # --- 6. systemd -----------------------------------------------------------
 if command -v systemctl >/dev/null 2>&1 && [ -d /etc/systemd/system ]; then

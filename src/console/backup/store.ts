@@ -30,6 +30,7 @@
  *   has a random PK, so the natural key is checked explicitly.
  */
 import { and, eq, sql } from "drizzle-orm";
+import { differsFrom } from "../../persistence/dialect";
 import { readTelemetryEvents, TELEMETRY_EVENT_DIR } from "../../observability/event-log";
 import { appendFile, mkdir } from "node:fs/promises";
 import { getTableColumns, type Column, type SQL, type Table } from "drizzle-orm";
@@ -154,7 +155,7 @@ function ownedByFilter(table: Table, tenantId: string): SQL {
     const parentOwner = ownershipOwnerColumn(ownership.parent);
     const mine = sql`${ownership.column} in (select ${ownership.parentColumn} from ${ownership.parent} where ${parentOwner} = ${tenantId})`;
     const shared = sql`${ownership.column} in (select ${ownership.parentColumn} from ${ownership.parent} where ${parentOwner} is null)`;
-    const unreproducible = sql`${ownership.authoredColumn} is distinct from ${ownership.reproducibleValue}`;
+    const unreproducible = differsFrom(sql`${ownership.authoredColumn}`, sql`${ownership.reproducibleValue}`);
     return sql`(${mine} or (${shared} and ${unreproducible}))`;
   }
   return eq(ownership.column, tenantId);

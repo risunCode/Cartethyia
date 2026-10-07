@@ -33,6 +33,12 @@ export interface PayloadSignals {
 
 export interface StoredPayload {
   id: string;
+  /**
+   * JSON text of the five body surfaces, in drawer order, built while the
+   * record was measured. Present only on a record that has not been persisted
+   * yet; the frame writer consumes it so the bodies are not serialized twice.
+   */
+  _serialized?: readonly string[];
   request_id: string | null;
   captured_at: Date;
   expires_at: Date;
@@ -114,49 +120,65 @@ export function buildPayloadRecord(
   maxBytes = resolveTelemetryPayloadMaxBytes(),
 ): Omit<StoredPayload, "id"> {
   const expiresAt = new Date(now.getTime() + payloadRetentionMs());
-  const requestBody = input.requestBody;
-  const responseBody = input.responseBody;
-  const clientResponseBody = input.clientResponseBody;
-  const providerRequestBody = input.providerRequestBody;
-  const providerResponseBody = input.providerResponseBody;
-  // Serialize each body exactly once: the text is both measured and stored,
-  // so the hot path pays one JSON.stringify per body instead of five.
-  const bodies = [requestBody, responseBody, clientResponseBody, providerRequestBody, providerResponseBody];
-  const serialized = bodies.map((body) => JSON.stringify(body ?? null));
-  const approxSize = serialized.reduce((total, text) => total + text.length, 0);
-  let storedRequestBody: unknown = requestBody;
-  let storedResponseBody: unknown = responseBody;
-  let storedClientResponseBody: unknown = clientResponseBody;
-  let storedProviderRequestBody: unknown = providerRequestBody;
-  let storedProviderResponseBody: unknown = providerResponseBody;
-  if (approxSize > maxBytes) {
-    const truncated = (): { _truncated: true; _original_bytes: number; _hint: string } => ({
-      _truncated: true,
-      _original_bytes: approxSize,
-      _hint: "Truncated by the capture cap — raise Settings → Telemetry payloads → Capture depth to keep more.",
-    });
-    storedRequestBody = truncated();
-    storedResponseBody = truncated();
-    storedClientResponseBody = truncated();
-    storedProviderRequestBody = truncated();
-    storedProviderResponseBody = truncated();
+  // Each body is serialized once, in drawer order, and only while the running
+  // total still fits the cap. The old path serialized every body up front to
+  // measure them and then serialized the whole record again to store it, so a
+  // capture held two copies of every body at once — measured at 23 MB of heap
+  // for 8 MB of bodies. A body that would cross the cap is never touched: its
+  // text is not built and its object is not walked for signals.
+  const surfaces: ReadonlyArray<readonly [keyof StoredPayload, unknown]> = [
+    ["request_body", input.requestBody],
+    ["response_body", input.responseBody],
+    ["client_response_body", input.clientResponseBody],
+    ["provider_request_body", input.providerRequestBody],
+    ["provider_response_body", input.providerResponseBody],
+  ];
+  const stored: Partial<Record<keyof StoredPayload, unknown>> = {};
+  const serialized: string[] = [];
+  const kept: unknown[] = [];
+  let accounted = 0;
+  let truncated = false;
+  for (const [key, body] of surfaces) {
+    if (truncated || body === undefined || body === null) {
+      stored[key] = null;
+      serialized.push("null");
+      continue;
+    }
+    const text = JSON.stringify(body);
+    if (accounted + text.length > maxBytes) {
+      truncated = true;
+      stored[key] = null;
+      serialized.push("null");
+      continue;
+    }
+    accounted += text.length;
+    stored[key] = body;
+    serialized.push(text);
+    kept.push(body);
+  }
+  const marker = truncated
+    ? {
+        _truncated: true,
+        _original_bytes: accounted,
+        _hint: "Truncated by the capture cap — raise Settings → Telemetry payloads → Capture depth to keep more.",
+      }
+    : undefined;
+  if (marker) {
+    for (const [key] of surfaces) {
+      if (stored[key] === null) stored[key] = marker;
+    }
   }
   return {
     request_id: input.requestId ?? null,
     captured_at: now,
     expires_at: expiresAt,
-    request_body: storedRequestBody,
-    response_body: storedResponseBody,
-    client_response_body: storedClientResponseBody,
-    provider_request_body: storedProviderRequestBody,
-    provider_response_body: storedProviderResponseBody,
-    signals: payloadSignals([
-      requestBody,
-      responseBody,
-      clientResponseBody,
-      providerRequestBody,
-      providerResponseBody,
-    ]),
+    request_body: stored.request_body ?? null,
+    response_body: stored.response_body ?? null,
+    client_response_body: stored.client_response_body ?? null,
+    provider_request_body: stored.provider_request_body ?? null,
+    provider_response_body: stored.provider_response_body ?? null,
+    signals: payloadSignals(kept),
+    _serialized: serialized,
   };
 }
 
@@ -179,7 +201,14 @@ export class TelemetryPayloadCapture {
       });
     }
     const record = buildPayloadRecord(input, new Date(), input.maxBytes ?? resolveTelemetryPayloadMaxBytes());
-    const reference = await writePayloadFrame(record, record.expires_at);
+    const reference = await writePayloadFrame(record, record.expires_at, record._serialized
+      ? {
+          requestId: record.request_id,
+          capturedAt: record.captured_at.toISOString(),
+          signals: record.signals,
+          bodies: record._serialized,
+        }
+      : undefined);
     // Typed columns only — bodies live in the frame file. The schema has no
     // jsonb body column, so a body cannot be written to Postgres here.
     return this.store.insertPayload({

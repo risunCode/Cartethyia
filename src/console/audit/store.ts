@@ -1,4 +1,5 @@
-import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { caseInsensitiveLike } from "../../persistence/dialect";
 import { globalOrOwnedBy, ownedByOnly } from "../../persistence/tenant-scope";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { adminAuditLog, consoleUsers } from "../../persistence/schema";
@@ -58,9 +59,9 @@ export class DrizzleAuditReadStore implements AuditReadStore {
       .from(consoleUsers)
       .where(
         or(
-          ilike(consoleUsers.username, pattern),
-          ilike(consoleUsers.email, pattern),
-          ilike(consoleUsers.displayName, pattern),
+          caseInsensitiveLike(sql`${consoleUsers.username}`, sql`${pattern}`),
+          caseInsensitiveLike(sql`${consoleUsers.email}`, sql`${pattern}`),
+          caseInsensitiveLike(sql`${consoleUsers.displayName}`, sql`${pattern}`),
         ),
       )
       .limit(50);

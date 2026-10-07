@@ -2,6 +2,7 @@
 import type { WireFamily } from "../../protocol/canonical-model";
 
 import { and, eq, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
+import { mergeJson } from "../../persistence/dialect";
 import { GatewayError } from "../../protocol/gateway-error";
 import { isBundledProviderId, parseProviderId, type ProviderId } from "../contracts";
 import type { ModelDefinition } from "../model-definition";
@@ -51,7 +52,10 @@ export async function seedBundledProviders(db: CartethyiaDatabase): Promise<void
       set: {
         wireFamilyDefault: sql`excluded.wire_family_default`,
         requiresAccount: sql`excluded.requires_account`,
-        compatibilityProfile: sql`COALESCE(${providers.compatibilityProfile}, '{}'::jsonb) || COALESCE(excluded.compatibility_profile, '{}'::jsonb)`,
+        compatibilityProfile: mergeJson(
+          sql`COALESCE(${providers.compatibilityProfile}, '{}')`,
+          sql`COALESCE(excluded.compatibility_profile, '{}')`,
+        ),
       },
     });
 }

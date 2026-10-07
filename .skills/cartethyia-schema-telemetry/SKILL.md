@@ -13,10 +13,16 @@ Migrations run in filename order and are recorded by filename. Never edit a
 migration already recorded by a database.
 
 1. Update `src/persistence/schema.ts`.
-2. Update `migrations/0000_baseline.sql` for fresh installs.
-3. Add the next numbered forward migration with idempotent SQL and statement
-   breakpoints. The shipped set is the baseline plus `0001`, `0002`, and `0003`;
-   the next file is `0004`. Do not delete a shipped forward file.
+2. Update `migrations/full-postgres/0000_baseline.sql` for fresh installs.
+3. Regenerate the SQLite baseline: `bun scripts/generate/sqlite-ddl.ts`. It
+   derives `migrations/lite-sqlite3/0000_baseline.sql` from the PostgreSQL
+   baseline, and `test/persistence/sqlite-baseline.test.ts` fails when the two
+   disagree. Do not edit the SQLite baseline by hand.
+4. Add the next numbered forward migration with idempotent SQL and statement
+   breakpoints. The shipped set is the baseline plus `0001`, `0002`, `0003`,
+   and `0004`; the next file is `0005`. Do not delete a shipped forward file.
+   A forward migration needs a SQLite twin in `migrations/lite-sqlite3/` only when
+   an existing SQLite database must converge; a fresh baseline does not.
 4. Verify the live schema and migration ledger on an isolated database.
 
 Drizzle numeric columns may require string persistence. Use bigint number mode

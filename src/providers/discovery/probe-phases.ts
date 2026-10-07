@@ -479,6 +479,7 @@ export async function loadProbePreferences(args: {
     const raw = preferences?.responsesReasoningSummary;
     const mode: "auto" | "concise" | "detailed" =
       raw === "auto" || raw === "concise" || raw === "detailed" ? raw : "detailed";
+    // Unset matches the settings default: off. Only an explicit choice captures.
     payloadCaptureEnabled =
       preferences?.telemetryPayloads === "full" ||
       preferences?.telemetryPayloads === "metadata";

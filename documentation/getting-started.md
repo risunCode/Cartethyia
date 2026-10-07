@@ -15,7 +15,7 @@ The database requirement depends on the selected mode:
 
 | Mode | Required database infrastructure |
 |---|---|
-| **Lite** | None. Cartethyia runs embedded PGlite locally. |
+| **Lite** | None. Cartethyia runs embedded SQLite locally. |
 | **Full** | A reachable PostgreSQL database configured with `DATABASE_URL`. |
 
 Redis is optional in both modes. Set `REDIS_URL` when coordination must be
@@ -29,7 +29,7 @@ persistence backend and deployment profile change.
 
 | | Lite | Full |
 |---|---|---|
-| Database | Embedded PGlite | External PostgreSQL |
+| Database | Embedded SQLite | External PostgreSQL |
 | Best for | Personal use, local development, one casual process | VPS, sharing, selling, sustained or high workload |
 | Extra services | No database service; Redis optional | PostgreSQL required; Redis optional |
 | Trade-off | Single-process and lower concurrency ceiling | Requires operating or reaching PostgreSQL |
@@ -39,10 +39,10 @@ persistence backend and deployment profile change.
 Lite is the default in `.env.example` and is the recommended starting point for
 personal or local use. It does not require PostgreSQL or Redis.
 
-PGlite stores the database under:
+SQLite stores the database at:
 
 ```text
-<CARTETHYIA_DATA_DIR>/pglite
+<CARTETHYIA_DATA_DIR>/cartethyia.sqlite
 ```
 
 When `CARTETHYIA_DATA_DIR` is unset, the default is:

@@ -1,5 +1,46 @@
 ## Unreleased
 
+- Payload capture is off by default. A tenant with no stored choice, and a
+  preference read that fails, keeps nothing — previously both fell back to
+  metadata capture. Depth still defaults to Minimum (1 MiB) once an operator
+  turns capture on.
+
+- Payload capture keeps less in memory, and its depth caps are smaller.
+  Minimum stays 1 MiB; Moderate drops from 16 to 8 MiB and Maximum from 32 to
+  16 MiB, in Settings → Capture depth. The capture used to serialize every
+  body twice — once to measure, again to store — and a body past the cap was
+  serialized and walked anyway before being thrown away. It now serializes
+  each body once, stops at the first one that crosses the cap, and writes the
+  frame from that text, so a capture holds one copy of what it keeps instead
+  of two copies of everything. Reading a captured payload back reads that one
+  frame instead of the whole hourly file. `CARTETHYIA_TELEMETRY_PAYLOAD_MAX_BYTES`
+  now defaults to 16 MiB and rejects anything above it.
+
+- Lite's auth lookup no longer rebuilds its query per call. The three reads a
+  cache miss makes — the key by hash, its parent by id, and the children's
+  consumed sum — are prepared once when the SQLite handle is built and mapped
+  back to the row shape auth reads. Measured on this machine against 200 keys,
+  the hash lookup went from 0.118 ms through the query builder to 0.008 ms
+  prepared. A file database also opens with WAL, `synchronous=NORMAL`, a 64 MB
+  cache, and a 5 second busy timeout. PostgreSQL is untouched: it has no
+  prepared statement here and still uses the builder.
+
+- Migrations are split by backend. `migrations/full-postgres/` holds the
+  PostgreSQL chain and `migrations/lite-sqlite3/` the derived SQLite baseline.
+  The old `migrations/` directory is gone; runners, the supervisor, and the
+  generator read the new paths.
+
+- Lite mode now runs on embedded SQLite instead of PGlite. The database is a
+  single file at `<data dir>/cartethyia.sqlite`, opened through `bun:sqlite`,
+  and it carries the same tables, constraints, and indexes as the PostgreSQL
+  schema — derived from it by `scripts/generate/sqlite-ddl.ts`, not written a
+  second time by hand. The SQL that differs between the two backends (JSON
+  merge, cooldown pruning, case-insensitive match, the usage-flush batch
+  update) lives in `src/persistence/dialect.ts` and is chosen per statement.
+  PGlite, its WASM assets, and the build step that copied them are gone.
+  An existing PGlite data directory is not migrated: Lite has to be set up
+  again. Full mode is unchanged.
+
 - The default gateway API key is now mandatory, renamable, and undeletable.
   Three separate defects made it unmanageable, and they surfaced as one symptom
   from the console — a key that could not be touched:

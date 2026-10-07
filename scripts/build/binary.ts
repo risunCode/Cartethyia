@@ -70,17 +70,6 @@ export async function buildBinary(
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     compile: {
       outfile,
-      // PGlite loads pglite.data, pglite.wasm, and initdb.wasm relative to the
-      // bundle. A compiled binary resolves that inside its virtual filesystem,
-      // which is empty unless the files are embedded — otherwise Lite mode dies
-      // with ENOENT on /$bunfs/root/pglite.data. Embedding is the fix; copying
-      // the files beside the binary is not, because the binary never reads them
-      // from there.
-      assets: [
-        "node_modules/@electric-sql/pglite/dist/pglite.data",
-        "node_modules/@electric-sql/pglite/dist/pglite.wasm",
-        "node_modules/@electric-sql/pglite/dist/initdb.wasm",
-      ],
     },
   });
 

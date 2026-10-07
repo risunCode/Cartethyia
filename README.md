@@ -15,7 +15,7 @@ keeps its native protocol; Cartethyia normalizes the request, selects a viable
 route, dispatches upstream, and returns the response in the contract the client
 expects.
 
-Built with Bun, TypeScript, Elysia, embedded PGlite or external PostgreSQL, and
+Built with Bun, TypeScript, Elysia, embedded SQLite or external PostgreSQL, and
 optional Redis coordination.
 
 > [!WARNING]
@@ -36,7 +36,7 @@ optional Redis coordination.
 | **Provider-aware dispatch** | Keep authentication, headers, endpoint behavior, quota semantics, and streaming rules specific to each provider. |
 | **End-to-end visibility** | Inspect Client Request → Provider Request → Provider Response → Client Response instead of debugging a black box. |
 | **Explicit health semantics** | Keep healthy, cooling, cooldown, exhausted, disabled, and unavailable states distinct. |
-| **Deployment flexibility** | Run self-contained with PGlite, use external PostgreSQL for higher workloads, and add Redis when coordination must be shared. |
+| **Deployment flexibility** | Run self-contained with SQLite, use external PostgreSQL for higher workloads, and add Redis when coordination must be shared. |
 
 Cartethyia is more than a router. It gives the gateway a consistent operational
 model for provider accounts, routing policy, quotas, proxies, security, telemetry,
@@ -58,7 +58,7 @@ on the details that make a multi-provider setup dependable in daily use:
 | **Failover that preserves state** | Retries do not bypass admission, usage accounting, quota metering, telemetry, or terminal error semantics. |
 | **Four-stage request visibility** | Inspect the client request, translated provider request, raw provider response, and final client response with bounded, redacted capture. |
 | **Honest failure semantics** | A disabled account, exhausted quota, unavailable provider, missing model, and network/pool failure remain different operational states. |
-| **Portable deployment model** | Start locally with embedded PGlite, move to external PostgreSQL through JSON backup/restore, and add Redis only when coordination must be shared. |
+| **Portable deployment model** | Start locally with embedded SQLite, move to external PostgreSQL through JSON backup/restore, and add Redis only when coordination must be shared. |
 
 These are not cosmetic dashboard features. They exist so an operator can answer
 the questions that usually require reading upstream logs: **what did the client
@@ -94,7 +94,7 @@ intend to run Cartethyia:
 
 | Recommended setup | Choose this when | Why |
 |---|---|---|
-| **Lite** | Personal use, local development, or one casual gateway process | Embedded PGlite; no PostgreSQL server to install or maintain |
+| **Lite** | Personal use, local development, or one casual gateway process | Embedded SQLite; no PostgreSQL server to install or maintain |
 | **Full** | Sharing, selling, VPS deployment, or sustained/high workload | External PostgreSQL is better suited to independent database operations and heavier concurrency |
 
 Lite is not a reduced feature edition. It changes the database backend and keeps

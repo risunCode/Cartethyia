@@ -1,5 +1,4 @@
 import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
 import {
   ENV_PATH,
   getLocalPlatform,
@@ -157,15 +156,15 @@ async function doctor(): Promise<void> {
   console.log();
 
   // Step 3: Check database. Full mode probes the TCP service; lite verifies
-  // the data dir is writable (the PGlite driver creates it at boot too).
+  // the data dir is writable (the SQLite backend creates the file at boot too).
   if (dbMode === "lite") {
-    const pgliteDir = join(resolveDataDir({ ...process.env, ...envVars }), "pglite");
+    const dataDir = resolveDataDir({ ...process.env, ...envVars });
     try {
-      mkdirSync(pgliteDir, { recursive: true });
-      accessSync(pgliteDir, constants.W_OK);
-      console.log(`  ✓ Lite data dir is writable (${pgliteDir})`);
+      mkdirSync(dataDir, { recursive: true });
+      accessSync(dataDir, constants.W_OK);
+      console.log(`  ✓ Lite data dir is writable (${dataDir})`);
     } catch {
-      console.log(`  ✗ Lite data dir is not writable (${pgliteDir})`);
+      console.log(`  ✗ Lite data dir is not writable (${dataDir})`);
       process.exit(1);
     }
   } else {

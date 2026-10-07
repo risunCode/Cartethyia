@@ -3,13 +3,14 @@ import type { ConsoleCredentialService } from "./credentials";
 import { readUsers } from "./user-store";
 // Console authentication, sessions, lockouts, first-boot setup, and audit.
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   apiKeys,
   consoleUsers,
   tenants,
 } from "../../persistence/schema";
 
+import { firstBootSetupLock } from "../../persistence/dialect";
 import { hashSecret, encryptCredential } from "../../security/crypto";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { DEFAULT_API_KEY_LABEL, DEFAULT_API_KEY_PREFIX } from "../api-keys/contracts";
@@ -20,7 +21,8 @@ import { BackupService } from "../backup/service";
 import type { BackupInspection } from "../backup/service";
 import type { RestoreWarning } from "../backup/contracts";
 
-const FIRST_BOOT_SETUP_LOCK = sql`SELECT pg_advisory_xact_lock(hashtext('cartethyia:first_boot_setup'))`;
+// Resolved at call time, not import time: the dialect depends on the mode,
+// and the mode is read from the environment the process was started with.
 
 /** The administrator to create when a restored backup left none to sign in with. */
 export interface AdminBootstrap {
@@ -156,7 +158,7 @@ export class FirstBootSetupService {
     // handle that cannot take the lock must fail closed — the previous
     // `typeof` probe skipped the lock and ran the setup unserialized.
     await this.db.transaction(async (transaction) => {
-      await transaction.execute(FIRST_BOOT_SETUP_LOCK);
+      await transaction.execute(firstBootSetupLock());
       await create(transaction as unknown as CartethyiaDatabase);
     });
   }

@@ -2,11 +2,12 @@ import { expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { UsageFlushBuffer } from "../../src/persistence/usage-flush";
 import type { CartethyiaDatabase } from "../../src/persistence/db-handle";
+import { Database } from "bun:sqlite";
 import {
-  applyPgliteMigrations,
-  buildPgliteHandle,
-  createPgliteClient,
-} from "../../src/persistence/db-pglite";
+  applySqliteMigrations,
+  buildSqliteHandle,
+  createSqliteDatabase,
+} from "../../src/persistence/db-sqlite";
 import { apiKeys, tenants } from "../../src/persistence/schema";
 import { dbDescribe } from "../helpers/database";
 
@@ -71,23 +72,25 @@ test("retries a key whose write failed and keeps deltas enqueued during the fail
  * either way — so without this the regression is invisible until the embedded
  * backend is measured under load.
  *
- * It counts statements by wrapping the client's `query`, which is what
- * Drizzle's pglite session calls for an `execute()`.
+ * It counts statements by wrapping `exec`, which is what `db.execute` reaches
+ * on this backend. A flush that fans back out to one UPDATE per key still
+ * passes every mocked test above, so without this count the regression is
+ * invisible.
  */
 dbDescribe("UsageFlushBuffer on the embedded backend", () => {
   test("one flush of many keys is a single statement, and every delta lands", async () => {
-    const client = await createPgliteClient("memory://");
+    const sqlite = createSqliteDatabase(":memory:");
     try {
-      await applyPgliteMigrations(client);
+      await applySqliteMigrations(sqlite);
 
       let statements = 0;
-      const realQuery = client.query.bind(client);
-      client.query = async (...args: Parameters<typeof realQuery>) => {
+      const realExec = sqlite.exec.bind(sqlite);
+      sqlite.exec = ((sql: string) => {
         statements += 1;
-        return realQuery(...args);
-      };
+        return realExec(sql);
+      }) as Database["exec"];
 
-      const { db } = buildPgliteHandle(client);
+      const { db } = buildSqliteHandle(sqlite);
       const [tenant] = await db
         .insert(tenants)
         .values({ name: "usage-flush-embedded", status: "active" })
@@ -118,15 +121,15 @@ dbDescribe("UsageFlushBuffer on the embedded backend", () => {
       const total = rows.reduce((sum, row) => sum + Number(row.lifetimeTokensConsumed ?? 0), 0);
       expect(total).toBe(keys.length * 7);
     } finally {
-      await client.close();
+      sqlite.close();
     }
   });
 
   test("a bad key cannot cost the others their delta", async () => {
-    const client = await createPgliteClient("memory://");
+    const sqlite = createSqliteDatabase(":memory:");
     try {
-      await applyPgliteMigrations(client);
-      const { db } = buildPgliteHandle(client);
+      await applySqliteMigrations(sqlite);
+      const { db } = buildSqliteHandle(sqlite);
       const [tenant] = await db
         .insert(tenants)
         .values({ name: "usage-flush-fallback", status: "active" })
@@ -159,7 +162,7 @@ dbDescribe("UsageFlushBuffer on the embedded backend", () => {
       const total = rows.reduce((sum, row) => sum + Number(row.lifetimeTokensConsumed ?? 0), 0);
       expect(total).toBe(keys.length * 7);
     } finally {
-      await client.close();
+      sqlite.close();
     }
   });
 });

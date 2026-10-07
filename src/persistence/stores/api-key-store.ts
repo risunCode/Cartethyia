@@ -2,6 +2,7 @@
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { nextSortIndex, reorderSortIndex } from "../../lib/sort-order";
+import { getDbHandle } from "../boot";
 import type { CartethyiaDatabase } from "../db-handle";
 import { apiKeys, shareLinks, sharePopups, type ApiKeyMode, type ApiKeyModelAccessMode } from "../schema";
 import type { AccessScope } from "../../security/access-control";
@@ -438,8 +439,12 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
     });
   }
   async findActiveByHash(hash: string): Promise<typeof apiKeys.$inferSelect | undefined> {
-    // Filter revoked in the DB, not in JS: the hot auth path must not fetch
-    // revoked rows it immediately discards.
+    // The SQLite backend holds this lookup prepared. The builder path rebuilds
+    // the query per call, which measured 60x the lookup itself, so the hot
+    // path skips it. PostgreSQL has no prepared statement here and uses the
+    // builder, whose plan is cached server-side.
+    const prepared = getDbHandle().auth;
+    if (prepared) return this.authRow(prepared.byHash.get(hash));
     const rows = await this.db
       .select()
       .from(apiKeys)
@@ -449,12 +454,77 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
   }
 
   async findActiveById(keyId: string): Promise<typeof apiKeys.$inferSelect | undefined> {
+    const prepared = getDbHandle().auth;
+    if (prepared) return this.authRow(prepared.byId.get(keyId));
     const rows = await this.db
       .select()
       .from(apiKeys)
       .where(and(eq(apiKeys.id, keyId), eq(apiKeys.enabled, true), isNull(apiKeys.revokedAt)))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * Maps a raw SQLite auth row to the shape drizzle returns.
+   *
+   * The prepared statement selects the table's own column names, which are
+   * snake_case, while every reader of this row — `resolveApiKeyAuthorization`
+   * included — reads the camelCase `$inferSelect` fields. Copying the raw
+   * keys and casting would typecheck and then hand auth `undefined` for
+   * `parentKeyId`, `tenantId`, and every limit. SQLite also stores JSON as
+   * text and booleans as integers, so those are converted here too. The SQL
+   * stays a plain select.
+   */
+  private authRow(raw: Record<string, unknown> | null): typeof apiKeys.$inferSelect | undefined {
+    if (raw === null) return undefined;
+    const text = (key: string): string | null => {
+      const value = raw[key];
+      return typeof value === "string" ? value : null;
+    };
+    const date = (key: string): Date | null => {
+      const value = text(key);
+      return value === null ? null : new Date(value);
+    };
+    const integer = (key: string): number | null => {
+      const value = raw[key];
+      return typeof value === "number" ? value : null;
+    };
+    const json = (key: string): unknown => {
+      const value = raw[key];
+      return typeof value === "string" ? JSON.parse(value) : (value ?? null);
+    };
+    const flag = (key: string): boolean => raw[key] === 1 || raw[key] === true;
+    return {
+      id: text("id") ?? "",
+      tenantId: text("tenant_id") ?? "",
+      keyHash: text("key_hash"),
+      keyMode: (text("key_mode") ?? "personal") as ApiKeyMode,
+      parentKeyId: text("parent_key_id"),
+      issuedClientIp: text("issued_client_ip"),
+      issuedClientIpKey: text("issued_client_ip_key"),
+      label: text("label") ?? "",
+      scopes: json("scopes"),
+      requestsPerMinute: integer("requests_per_minute"),
+      dailyTokenLimit: integer("daily_token_limit"),
+      monthlyTokenLimit: integer("monthly_token_limit"),
+      lifetimeTokenBudget: integer("lifetime_token_budget"),
+      lifetimeTokensConsumed: integer("lifetime_tokens_consumed") ?? 0,
+      maxConcurrentRequests: integer("max_concurrent_requests"),
+      modelAccessMode: (text("model_access_mode") ?? "whitelist") as ApiKeyModelAccessMode,
+      modelList: json("model_list"),
+      clientRouterDenylist: json("client_router_denylist"),
+      modelPrefix: text("model_prefix"),
+      createdAt: date("created_at") ?? new Date(0),
+      enabled: flag("enabled"),
+      revokedAt: date("revoked_at"),
+      keyPrefix: text("key_prefix"),
+      keyEncrypted: raw["key_encrypted"] ?? null,
+      notesTitle: text("notes_title"),
+      notesSubtitle: text("notes_subtitle"),
+      notesBody: text("notes_body"),
+      isDefault: flag("is_default"),
+      sortIndex: integer("sort_index") ?? 0,
+    } as unknown as typeof apiKeys.$inferSelect;
   }
 
   /**
@@ -473,6 +543,8 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
    * quota" the share dialog reports, which counts every recipient.
    */
   async sumChildrenConsumed(parentKeyId: string): Promise<number> {
+    const prepared = getDbHandle().auth;
+    if (prepared) return Number(prepared.childrenConsumed.get(parentKeyId)?.total ?? 0);
     const rows = await this.db
       .select({ total: sql<number>`coalesce(sum(${apiKeys.lifetimeTokensConsumed}), 0)` })
       .from(apiKeys)

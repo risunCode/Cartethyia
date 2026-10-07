@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { CartethyiaDatabase, DatabaseHandle } from "./db-handle";
 import { resolveDataDir, resolveDbMode } from "./db-mode";
 import { applySqlMigrations, createPgHandle, getPool, isPgHandle } from "./db-pg";
-import { applyPgliteMigrations, buildPgliteHandle, createPgliteClient } from "./db-pglite";
+import { applySqliteMigrations, buildSqliteHandle, createSqliteDatabase } from "./db-sqlite";
 
 /**
  * True when `error` is a Postgres unique-violation (SQLSTATE 23505).
@@ -37,8 +37,8 @@ declare global {
 }
 
 /**
- * Builds the active backend handle once. Async because the embedded backend
- * opens its data dir asynchronously; the pg path builds synchronously inside.
+ * Builds the active backend handle once. Async because the PostgreSQL path
+ * migrates asynchronously; the SQLite path opens synchronously inside.
  * Safe to call repeatedly — the first handle wins for the process lifetime.
  *
  * Lite boots (open, migrate, handle) in one step: the ledger makes repeat
@@ -47,16 +47,16 @@ declare global {
 export async function bootDatabase(): Promise<DatabaseHandle> {
   if (globalThis.__cartethyiaHandle) return globalThis.__cartethyiaHandle;
   if (resolveDbMode() === "lite") {
-    const client = await createPgliteClient(join(resolveDataDir(), "pglite"));
+    const sqlite = createSqliteDatabase(join(resolveDataDir(), "cartethyia.sqlite"));
     try {
-      await applyPgliteMigrations(client);
+      await applySqliteMigrations(sqlite);
     } catch (error) {
-      await client.close();
+      sqlite.close();
       throw error;
     }
-    const handle = buildPgliteHandle(client);
+    const handle = buildSqliteHandle(sqlite);
     globalThis.__cartethyiaHandle = handle;
-    log.warn("[db] lite mode: embedded PGlite, single process only");
+    log.warn("[db] lite mode: embedded SQLite, single process only");
     return handle;
   }
   const handle = createPgHandle();

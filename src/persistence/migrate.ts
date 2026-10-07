@@ -16,7 +16,7 @@ export const LEDGER_DDL = `CREATE TABLE IF NOT EXISTS ${MIGRATION_LEDGER_TABLE} 
 )`;
 
 export function resolveMigrationsFolder(): string {
-  const folder = resolve(process.cwd(), "migrations");
+  const folder = resolve(process.cwd(), "migrations", "full-postgres");
   if (!existsSync(folder)) {
     throw new Error(`Migrations folder not found: ${folder}`);
   }
@@ -100,9 +100,9 @@ export async function readMigrationLedgerStatus(
 
 /**
  * True when `error` is a missing-extension failure for a `CREATE EXTENSION`
- * statement — the one tolerated divergence between backends (PGlite does not
- * bundle `pgcrypto`, and no migration or query calls its functions; every
- * hash is `node:crypto`). Anything else, or any other statement, still throws.
+ * statement. No query calls the extension's functions — every hash is
+ * `node:crypto` — so a backend that does not ship it still migrates.
+ * Anything else, or any other statement, still throws.
  */
 export function isToleratedMissingExtension(statement: string, error: unknown): boolean {
   return /^CREATE EXTENSION/i.test(statement) && String(error).includes("is not available");
