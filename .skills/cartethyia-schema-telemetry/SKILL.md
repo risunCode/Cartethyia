@@ -21,9 +21,20 @@ migration already recorded by a database.
 4. Add the next numbered forward migration with idempotent SQL and statement
    breakpoints. The shipped set is the baseline plus `0001`, `0002`, `0003`,
    and `0004`; the next file is `0005`. Do not delete a shipped forward file.
-   A forward migration needs a SQLite twin in `migrations/lite-sqlite3/` only when
-   an existing SQLite database must converge; a fresh baseline does not.
-4. Verify the live schema and migration ledger on an isolated database.
+5. Write the SQLite twin of that forward file at the same name in
+   `migrations/lite-sqlite3/`. Both runners apply every `*.sql` in their folder
+   in filename order and record it by filename, so a PostgreSQL file with no
+   twin is a change an existing SQLite database never receives.
+   `test/persistence/sqlite-baseline.test.ts` fails when a file in
+   `migrations/full-postgres/` has no same-named file in
+   `migrations/lite-sqlite3/`. The twin is SQLite SQL, not a copy: no `DO $$`,
+   no `ALTER TYPE`, no `IF NOT EXISTS` on `ADD COLUMN`, no `jsonb` or
+   `boolean`. Spell a column add as plain `ADD COLUMN`: the runner skips it
+   when the column already exists, because this SQLite build rejects
+   `ADD COLUMN IF NOT EXISTS`. Use
+   the rewrites in `scripts/generate/sqlite-ddl.ts` (`jsonb` → `text`,
+   `boolean` → `integer`, `timestamptz` → `text`, `bytea` → `blob`).
+6. Verify the live schema and migration ledger on an isolated database.
 
 Drizzle numeric columns may require string persistence. Use bigint number mode
 for absolute epoch milliseconds. Manual migrations are not applied by the boot

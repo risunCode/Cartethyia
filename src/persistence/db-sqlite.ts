@@ -229,6 +229,19 @@ export async function applySqliteMigrations(
           // rejects both, so only text that still contains SQL is sent.
           const sql = statement.replace(/--[^\n]*/g, "").trim();
           if (sql.length === 0) continue;
+          // `ADD COLUMN IF NOT EXISTS` is not accepted by this SQLite build, so
+          // a forward file spells a column add as `ADD COLUMN`. Skip it when
+          // the column is already there: a fresh baseline has it, an older
+          // file does not.
+          const addColumn = /^ALTER TABLE "(\w+)" ADD COLUMN "(\w+)" /i.exec(sql);
+          if (addColumn) {
+            const table = addColumn[1];
+            const column = addColumn[2];
+            const present = sqlite
+              .prepare(`SELECT 1 AS present FROM pragma_table_info('${table}') WHERE name = ?`)
+              .get(column) as { present: number } | null;
+            if (present !== null) continue;
+          }
           sqlite.exec(sql);
         }
         record.run(migrationId);

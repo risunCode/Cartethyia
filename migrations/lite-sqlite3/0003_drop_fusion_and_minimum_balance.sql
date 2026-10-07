@@ -1,0 +1,7 @@
+-- SQLite twin of migrations/full-postgres/0003_drop_fusion_and_minimum_balance.sql.
+--
+-- The PostgreSQL file rebuilds the combo-strategy enum to drop `fusion` and
+-- drops the minimum-balance columns. SQLite has no enum type, and its baseline
+-- never created those columns, so there is nothing to drop. The file exists so
+-- the two migration sets stay paired by name; the runner records it and runs
+-- no statement.

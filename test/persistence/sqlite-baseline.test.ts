@@ -12,7 +12,7 @@
  */
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { deriveSqliteBaseline } from "../../scripts/generate/sqlite-ddl";
 
@@ -28,6 +28,15 @@ function migratedDatabase(): Database {
   }
   return db;
 }
+
+test("every PostgreSQL migration has a same-named SQLite file", () => {
+  const postgres = readdirSync(resolve(process.cwd(), "migrations", "full-postgres")).filter((name) => name.endsWith(".sql")).sort();
+  const sqlite = readdirSync(resolve(process.cwd(), "migrations", "lite-sqlite3")).filter((name) => name.endsWith(".sql")).sort();
+  // Both runners apply every file in their own folder and record it by
+  // filename. A PostgreSQL file with no twin is a change an existing SQLite
+  // database never receives, and the baseline's parity check cannot see it.
+  expect(sqlite).toEqual(postgres);
+});
 
 test("the committed SQLite baseline matches the generator output", () => {
   const source = readFileSync(resolve(process.cwd(), "migrations", "full-postgres", "0000_baseline.sql"), "utf8");

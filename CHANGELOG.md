@@ -1,5 +1,14 @@
 ## Unreleased
 
+- A schema change now has to land in both migration sets. Every file in
+  `migrations/full-postgres/` needs a same-named file in
+  `migrations/lite-sqlite3/`, and `test/persistence/sqlite-baseline.test.ts`
+  fails when one is missing — the baseline parity check only compared
+  `0000`, so a forward migration could ship for PostgreSQL and never reach an
+  existing SQLite database. The SQLite runner skips an `ADD COLUMN` whose
+  column already exists, because this SQLite build rejects `ADD COLUMN IF NOT
+  EXISTS`. The procedure is in the `cartethyia-schema-telemetry` skill.
+
 - Payload capture is off by default. A tenant with no stored choice, and a
   preference read that fails, keeps nothing — previously both fell back to
   metadata capture. Depth still defaults to Minimum (1 MiB) once an operator
