@@ -1,4 +1,4 @@
-import { Terminal, Wrench } from "lucide-react";
+import { Terminal } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
@@ -69,7 +69,6 @@ export default function CliTools(): ReactNode {
         <SectionHeading
           title={`File-injected tools (${fileTools.length})`}
           description="Direct config file writing and preset model mappings"
-          icon={<Wrench size={14} />}
         />
 
         <div className="provider-grid">
@@ -160,7 +159,6 @@ export default function CliTools(): ReactNode {
         <SectionHeading
           title={`Guide-only tools (${guideTools.length})`}
           description="Manual setup steps and exportable config templates"
-          icon={<Terminal size={14} />}
         />
 
         <div className="provider-grid">
