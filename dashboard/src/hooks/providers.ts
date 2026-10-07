@@ -4,7 +4,7 @@ import type { ApiErrorShape } from "../data/api";
 import type { AccountHealthEventRecord, ByokConnectionTestRequest, ByokConnectionTestResult, CreateProviderAccountRequest, CreateProviderRequest, OAuthDevicePollResponse as OAuthDevicePollResult, ProbeAllAccountsResult, ProbeModelRequest, ProbeModelResult, ProviderAccountResponse, ProviderAccountsExportResponse, ProviderResponse, SetModelEnabledRequest, UpdateProviderAccountRequest, UpdateProviderRequest } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
 import { assertModels, assertProviders, querySignal } from "../lib/api/validators";
-import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
+import { DASHBOARD_QUERY_OPTIONS, POLL } from "../data/query-policy";
 import { getErrorMessage } from "../lib/helpers";
 import { toast } from "../lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -26,7 +26,7 @@ export function useProviders() {
     ...DASHBOARD_QUERY_OPTIONS,
     staleTime: 60_000,
     gcTime: 600_000,
-    refetchInterval: 60_000,
+    refetchInterval: POLL.catalog,
   });
 }
 
@@ -264,7 +264,7 @@ export function useAccountHealthEvents(
       ),
     enabled: Boolean(providerId) && Boolean(accountId),
     ...DASHBOARD_QUERY_OPTIONS,
-    refetchInterval: 10_000,
+    refetchInterval: POLL.status,
   });
 }
 

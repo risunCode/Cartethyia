@@ -15,7 +15,7 @@ import type {
 } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
 import { assertNetworkPools, assertPoolStrategy, querySignal } from "../lib/api/validators";
-import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
+import { DASHBOARD_QUERY_OPTIONS, POLL } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 
@@ -131,7 +131,7 @@ export function useNetworkPoolHealthEvents(poolId: string | undefined) {
       ),
     enabled: Boolean(poolId),
     ...DASHBOARD_QUERY_OPTIONS,
-    refetchInterval: 10_000,
+    refetchInterval: POLL.status,
   });
 }
 

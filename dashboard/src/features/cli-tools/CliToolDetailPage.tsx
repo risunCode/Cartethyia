@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2, Download, Search, XCircle } from "lucide-react";
+import { ArrowLeft, BookOpen, CheckCircle2, Download, FileCode2, Route, Search, Settings2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
@@ -382,6 +382,7 @@ function CliToolDetailBody({
         <CardHeader
           title="Setup"
           subtitle="Pick the Apikey Name and endpoint, set the models, then download. The key's secret is read server-side — you never paste it."
+          icon={<Settings2 size={16} />}
         />
         <CardBody>
           <Stack gap="12px">
@@ -448,6 +449,7 @@ function CliToolDetailBody({
       <Card>
         <CardHeader
           title="Model routing"
+          icon={<Route size={16} />}
           subtitle={
             tool.mappingSupported
               ? "Left is the model name the CLI asks for. Right is the route Cartethyia sends it to. Leave a target empty to send that slot straight to the provider."
@@ -710,6 +712,7 @@ function CliToolDetailBody({
           <CardHeader
             title="Guide"
             subtitle="Manual setup steps for tools that do not support file injection."
+            icon={<BookOpen size={16} />}
           />
           <CardBody>
             <ol
@@ -751,6 +754,7 @@ function CliToolDetailBody({
         <CardHeader
           title="Config file"
           subtitle="Download the config file for this CLI tool. The selected API key secret is decrypted automatically into the download."
+          icon={<FileCode2 size={16} />}
         />
         <CardBody style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>

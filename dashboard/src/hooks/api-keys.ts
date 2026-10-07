@@ -10,7 +10,7 @@ import type {
 } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
 import { assertApiKeys, querySignal } from "../lib/api/validators";
-import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
+import { DASHBOARD_QUERY_OPTIONS, POLL } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 
@@ -153,7 +153,7 @@ export function useSharedKeys(parentKeyId: string | null) {
         { signal: querySignal(context) },
       ),
     enabled: parentKeyId !== null,
-    refetchInterval: 5_000,
+    refetchInterval: POLL.live,
     refetchIntervalInBackground: false,
   });
 }
@@ -168,7 +168,7 @@ export function useSharedKeyActivity(parentKeyId: string | null, childKeyId: str
         { signal: querySignal(context) },
       ),
     enabled: parentKeyId !== null && childKeyId !== null,
-    refetchInterval: 5_000,
+    refetchInterval: POLL.live,
     refetchIntervalInBackground: false,
   });
 }

@@ -12,7 +12,7 @@
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --font-head: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --radius-control: 10px;
-  --radius-card: 18px;
+  --radius-card: 14px;
   --radius-sidebar: 20px;
   --radius-pill: 9999px;
   /* App topbar height (38px control + 8px padding ×2 + 1px border ×2). Pages
@@ -173,7 +173,7 @@
 .dialog-panel .modal-body::-webkit-scrollbar-thumb,
 .scroll-region::-webkit-scrollbar-thumb {
   background: var(--inner-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .app-sidebar nav::-webkit-scrollbar-track,
@@ -475,12 +475,27 @@ html[data-glass-enabled="true"] .card-solid {
 .card-header-icon {
   width: 28px;
   height: 28px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: grid;
   place-items: center;
   background: var(--accent-soft);
   color: var(--accent);
   flex-shrink: 0;
+}
+/* One glyph size for every header well, whatever the caller passed. */
+.card-header-icon svg {
+  width: 15px;
+  height: 15px;
+}
+/* A header well defaults to the accent. A tone is the exception, for a card
+   whose subject has its own color (memory, proxy). */
+.card-header-icon[data-tone="purple"] {
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+.card-header-icon[data-tone="orange"] {
+  background: var(--orange-soft);
+  color: var(--orange);
 }
 
 .card-header-titles {
@@ -583,6 +598,17 @@ html[data-glass-enabled="true"] .card-solid {
   padding: 0;
   display: grid;
   place-items: center;
+}
+.btn-icon svg {
+  width: 15px;
+  height: 15px;
+}
+/* Toolbar and row actions sit inside a labeled button; one size, not the
+   caller's. A spinning loader is the same glyph, so it follows too. */
+.btn-sm svg,
+.btn-labeled svg {
+  width: 13px;
+  height: 13px;
 }
 
 /*

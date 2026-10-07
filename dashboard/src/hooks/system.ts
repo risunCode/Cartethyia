@@ -3,7 +3,7 @@ import type { ApiErrorShape } from "../data/api";
 import { queryKeys } from "../data/query-keys";
 import type { SessionUser, UsageDimension } from "../data/contracts";
 import { assertAuditListPage, assertLatestRelease, assertSystemHealth, assertUsageBy, assertUsageChart, assertUsageRequestDetail, assertUsageRequests, assertUsageSummary, querySignal } from "../lib/api/validators";
-import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
+import { DASHBOARD_QUERY_OPTIONS, POLL } from "../data/query-policy";
 import { useQuery } from "@tanstack/react-query";
 
 
@@ -30,7 +30,7 @@ export function useSystemHealth() {
         assertSystemHealth,
       ),
     ...DASHBOARD_QUERY_OPTIONS,
-    refetchInterval: 15_000,
+    refetchInterval: POLL.status,
   });
 }
 
@@ -65,7 +65,7 @@ export function useUsageSummary(period: string) {
         signal: querySignal(context),
       }).then(assertUsageSummary),
     ...DASHBOARD_QUERY_OPTIONS,
-    refetchInterval: 10_000,
+    refetchInterval: POLL.status,
   });
 }
 
@@ -78,7 +78,7 @@ export function useUsageChart(period: string) {
         signal: querySignal(context),
       }).then(assertUsageChart),
     ...DASHBOARD_QUERY_OPTIONS,
-    refetchInterval: 10_000,
+    refetchInterval: POLL.status,
   });
 }
 
@@ -92,7 +92,7 @@ export function useUsageBy(period: string, dimension: UsageDimension) {
         { signal: querySignal(context) },
       ).then(assertUsageBy),
     ...DASHBOARD_QUERY_OPTIONS,
-    refetchInterval: 10_000,
+    refetchInterval: POLL.status,
   });
 }
 
@@ -113,7 +113,7 @@ export function useUsageRequests(
         { signal: querySignal(context) },
       ).then(assertUsageRequests),
     ...DASHBOARD_QUERY_OPTIONS,
-    refetchInterval: 5_000,
+    refetchInterval: POLL.live,
   });
 }
 

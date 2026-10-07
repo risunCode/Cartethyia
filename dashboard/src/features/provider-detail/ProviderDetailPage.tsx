@@ -1,6 +1,7 @@
 import {
   Boxes,
   Cable,
+  Globe,
   Download,
   ExternalLink,
   KeyRound,
@@ -660,7 +661,7 @@ export default function ProviderDetail(): ReactNode {
           <CardHeader
             title="Web Search"
             subtitle="Run a real search request through the selected provider."
-            icon={<Boxes size={16} />}
+            icon={<Globe size={16} />}
           />
           <CardBody style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {modelsQuery.isPending ? (

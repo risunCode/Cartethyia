@@ -1,6 +1,7 @@
 import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import { queryKeys } from "../data/query-keys";
+import { POLL } from "../data/query-policy";
 import { querySignal } from "../lib/api/validators";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -96,8 +97,8 @@ export function useQuotaOverview(options?: {
   readonly refreshingMs?: number;
   readonly idleMs?: number;
 }) {
-  const refreshingMs = options?.refreshingMs ?? 2_000;
-  const idleMs = options?.idleMs ?? 60_000;
+  const refreshingMs = options?.refreshingMs ?? POLL.warming;
+  const idleMs = options?.idleMs ?? POLL.catalog;
   return useQuery<QuotaOverview>({
     queryKey: queryKeys.quota.all,
     queryFn: (context) => fetchQuotaOverview(querySignal(context)),

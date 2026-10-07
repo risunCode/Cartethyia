@@ -84,19 +84,7 @@ function SystemOverviewPanel({
           <section className="health-card-resource">
             <div className="overview-card-header">
               <Inline gap="8px">
-                <span
-                  style={{
-                    width: "28px",
-                    height: "28px",
-                    borderRadius: "8px",
-                    background: "var(--purple-soft)",
-                    color: "var(--purple)",
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  <MemoryStick size={14} />
-                </span>
+                <span className="card-header-icon" data-tone="purple"><MemoryStick size={14} /></span>
                 <div style={{ minWidth: 0 }}>
                   <h3 style={{ fontSize: "12px", fontWeight: 700, whiteSpace: "nowrap" }}>
                     RAM & Memory
@@ -149,19 +137,7 @@ function SystemOverviewPanel({
           <section className="health-card-resource">
             <div className="overview-card-header">
               <Inline gap="8px">
-                <span
-                  style={{
-                    width: "28px",
-                    height: "28px",
-                    borderRadius: "8px",
-                    background: "var(--accent-soft)",
-                    color: "var(--accent)",
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  <Timer size={14} />
-                </span>
+                <span className="card-header-icon"><Timer size={14} /></span>
                 <div>
                   <h3 style={{ fontSize: "12px", fontWeight: 700 }}>Request Latency</h3>
                   <p style={{ fontSize: "9.5px", color: "var(--text-tertiary)" }}>
@@ -222,19 +198,7 @@ function SystemOverviewPanel({
           <section className="health-card-resource">
             <div className="overview-card-header">
               <Inline gap="8px">
-                <span
-                  style={{
-                    width: "28px",
-                    height: "28px",
-                    borderRadius: "8px",
-                    background: "var(--orange-soft)",
-                    color: "var(--orange)",
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  <Server size={14} />
-                </span>
+                <span className="card-header-icon" data-tone="orange"><Server size={14} /></span>
                 <div>
                   <h3 style={{ fontSize: "12px", fontWeight: 700 }}>Proxy Pool</h3>
                   <p style={{ fontSize: "9.5px", color: "var(--text-tertiary)" }}>
@@ -338,19 +302,7 @@ function SystemOverviewPanel({
           <section className="health-card-resource">
             <div className="overview-card-header">
               <Inline gap="8px">
-                <span
-                  style={{
-                    width: "28px",
-                    height: "28px",
-                    borderRadius: "8px",
-                    background: "var(--accent-soft)",
-                    color: "var(--accent)",
-                    display: "grid",
-                    placeItems: "center",
-                  }}
-                >
-                  <Clock size={14} />
-                </span>
+                <span className="card-header-icon"><Clock size={14} /></span>
                 <div>
                   <h3 style={{ fontSize: "12px", fontWeight: 700 }}>Uptime</h3>
                   <p style={{ fontSize: "9.5px", color: "var(--text-tertiary)" }}>
