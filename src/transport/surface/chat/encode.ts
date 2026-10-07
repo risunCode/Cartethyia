@@ -8,7 +8,7 @@ import {
   type ToolCallState,
 } from "../../../protocol/tool-identity";
 import { usageToChatWire, type OpenAiUsage } from "../../../providers/usage";
-import { TEXT_ENCODER } from "../../../lib/sse-frame";
+import { TEXT_ENCODER } from "../../../protocol/sse-frame";
 import { SurfaceStreamEncoder } from "../stream-frame";
 import type { ChatEncodeOptions, ChunkBase, JsonObject } from "./parse";
 

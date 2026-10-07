@@ -148,7 +148,7 @@ const DRAIN_MAX_ATTEMPTS = 5;
 const DRAIN_RETRY_BASE_MS = 25;
 const DRAIN_RETRY_MAX_MS = 1_000;
 
-import { exponentialBackoff, type BackoffOptions } from "../lib/backoff";
+import { exponentialBackoff, type BackoffOptions } from "../network/backoff";
 
 /** Exponential retry delay for the `attempt`-th retry, clamped to the ceiling. */
 function drainRetryDelayMs(attempt: number): number {

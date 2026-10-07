@@ -20,7 +20,7 @@
  */
 import type { CanonicalRequest } from "../../../protocol/canonical-model";
 import { GatewayError } from "../../../protocol/gateway-error";
-import { decodeMuseCredential } from "../../../lib/credential-codec";
+import { decodeMuseCredential } from "../../../security/credential-codec";
 import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compatible-adapter";
 import type { ProviderDispatchTarget, ProviderDispatchContext, ResolvedCredential } from "../../contracts";
 import { providerBaseUrl } from "../../metadata";
@@ -68,7 +68,7 @@ export interface MuseCodeCredential {
 /**
  * Decodes the stored `{oauthAccessToken, apiKey}` envelope.
  *
- * Envelope parsing and field extraction live in `lib/credential-codec`;
+ * Envelope parsing and field extraction live in `security/credential-codec`;
  * this wrapper keeps the adapter's gateway-error semantics (a bad credential
  * is a sign-in problem, not a dispatch failure) and the Muse shape exported
  * for `muse-oauth.ts` (encoding) and `muse-quota.ts` (quota reads).

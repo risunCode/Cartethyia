@@ -14,7 +14,7 @@
 import { and, eq, getTableColumns, sql, type SQL } from "drizzle-orm";
 import type { AnyColumn } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
-import type { CartethyiaDatabase } from "../persistence/db-handle";
+import type { CartethyiaDatabase } from "./db-handle";
 
 /** A store handle or an open transaction — both can run selects. */
 export type SortOrderDb =

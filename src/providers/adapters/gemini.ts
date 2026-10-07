@@ -4,7 +4,7 @@
 import { GatewayError } from "../../protocol/gateway-error";
 import { mapUpstreamHttpError } from "../../transport/failure-policy";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../protocol/canonical-model";
-import { decodeSseEvents } from "../../lib/sse-decoder";
+import { decodeSseEvents } from "../../protocol/sse-decoder";
 import { usageFromProvider } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ProviderAdapter, type ProviderDispatchContext, type WebSearchOutcome, type WebSearchResult } from "../contracts";
 import type { ModelDefinition } from "../model-definition";

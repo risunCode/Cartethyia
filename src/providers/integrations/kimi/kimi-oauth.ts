@@ -2,7 +2,7 @@
  * Kimi Code (Moonshot) device-code OAuth flow.
  */
 import * as crypto from "node:crypto";
-import { parseEnvelopeRecord } from "../../../lib/credential-codec";
+import { parseEnvelopeRecord } from "../../../security/credential-codec";
 import { devicePollBackoff, expiryFromSeconds, parseDeviceAuthStart, postFormTokenRequest, readJsonResponse } from "../../authentication/oauth-flow-store";
 import type { OAuthDeviceFlowContext, OAuthDevicePollResult, OAuthDeviceStartResult } from "../../authentication/oauth-flow-store";
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";

@@ -6,7 +6,7 @@ import { classifyUpstreamError, extractUpstreamMessage, mapUpstreamHttpError, up
 import { GatewayError } from "../../protocol/gateway-error";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason, ContentPart } from "../../protocol/canonical-model";
 import { toolResultParts } from "../../protocol/canonical-model";
-import { decodeSseEvents } from "../../lib/sse-decoder";
+import { decodeSseEvents } from "../../protocol/sse-decoder";
 import { usageFromProvider, readReasoningText } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ProviderAdapter, type ProviderDispatchContext } from "../contracts";
 import type { ModelDefinition } from "../model-definition";

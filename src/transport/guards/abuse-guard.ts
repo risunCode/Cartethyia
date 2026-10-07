@@ -5,7 +5,7 @@ import { GatewayError } from "../../protocol/gateway-error";
 import type { TrustedProxyBoundary } from "../../config/network";
 import { resolveClientIdentity } from "../../security/ip-boundary";
 import type { ProxyRequestStateStore } from "../request/state";
-import { fastPathname } from "../../lib/pathname";
+import { fastPathname } from "../../transport/pathname";
 import type { IpAbuseProtectionService } from "../../security/abuse";
 
 /**

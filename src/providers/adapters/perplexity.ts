@@ -6,7 +6,7 @@ import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext }
 import { providerBaseUrl } from "../metadata";
 import { abortGatewayError, createUpstreamDeadlineLifecycle } from "../operations/upstream-deadline";
 import { normalizeBearerToken } from "../../protocol/codecs";
-import { accessTokenFromSecret } from "../../lib/credential-codec";
+import { accessTokenFromSecret } from "../../security/credential-codec";
 
 export const PERPLEXITY_BASE_URL = providerBaseUrl("perplexity");
 export const PERPLEXITY_PROVIDER_ID = "perplexity" as const;

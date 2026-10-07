@@ -1,6 +1,6 @@
 import type { CanonicalEvent, SourceSurface } from "../../protocol/canonical-model";
 import { GatewayError } from "../../protocol/gateway-error";
-import { formatSseData, formatSseEvent } from "../../lib/sse-frame";
+import { formatSseData, formatSseEvent } from "../../protocol/sse-frame";
 import { ChatStreamEncoder } from "../surface/chat/encode";
 import { ResponsesEventEncoder } from "../surface/responses/encode";
 import { MessagesStreamEncoder } from "../surface/messages/stream";

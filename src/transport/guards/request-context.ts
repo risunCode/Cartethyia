@@ -4,7 +4,7 @@ import { GatewayError } from "../../protocol/gateway-error";
 import type { TrustedProxyBoundary } from "../../config/network";
 import { resolveUpstreamTimeoutMs } from "../../config/timeouts";
 import type { ProxyRequestStateStore } from "../request/state";
-import { fastPathname } from "../../lib/pathname";
+import { fastPathname } from "../../transport/pathname";
 import type { ProxyRequestPreparer } from "../request/preparer";
 import type { CanonicalAdapter } from "../contracts";
 import type { SurfaceAdapterRegistry } from "../surface/adapters";

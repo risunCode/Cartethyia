@@ -1,8 +1,8 @@
 /**
  * Pure SSE frame builders — shared by the transport streaming encoders
- * and the console dashboard SSE endpoints. Lives in `src/lib/` because
- * the frame format is a wire detail with no layer ownership: both the
- * data plane (`transport/surface/*`) and the control plane
+ * and the console dashboard SSE endpoints. Lives in `protocol/` because
+ * the frame format is a wire detail: both the data plane
+ * (`transport/surface/*`) and the control plane
  * (`console/observability/sse.ts`) need the same bytes, and keeping it in
  * `transport/` forced console code to reach across the layer boundary.
  *

@@ -22,7 +22,7 @@ import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget }
 import type { CanonicalRequest } from "../../../protocol/canonical-model";
 import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compatible-adapter";
 import { providerBaseUrl } from "../../metadata";
-import { decodeKiloCredential } from "../../../lib/credential-codec";
+import { decodeKiloCredential } from "../../../security/credential-codec";
 
 export const KILO_PROVIDER_ID = "kilo" as const;
 export const KILO_BASE_URL = providerBaseUrl("kilo");

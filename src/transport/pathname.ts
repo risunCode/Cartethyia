@@ -5,10 +5,9 @@
  * dashboard static handlers. Constructing a `URL` cost roughly a microsecond
  * each on Bun, so the path is sliced straight out of the raw URL string.
  *
- * Lives in `src/lib/` because it is a generic URL utility consumed by both
- * `transport/` (every ingress guard) and `console/` (CSRF and mutation
- * limiter guards). Keeping it in `transport/` forced console code to import
- * across the layer boundary for a pure string helper.
+ * The console guards import it too: CSRF and the mutation limiter read the
+ * same path the ingress guards do, and one extractor keeps the two from
+ * drifting.
  */
 export function fastPathname(url: string): string {
   // Skip scheme.

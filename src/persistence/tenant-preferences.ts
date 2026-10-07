@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { CartethyiaDatabase } from "./db-handle";
 import { consoleSettings } from "./schema";
 import type { ConsoleSettingsPreferences } from "./schema";
-import { TtlCache } from "../lib/ttl-cache";
+import { TtlCache } from "../persistence/ttl-cache";
 
 /**
  * Preference readers for tenant runtime settings. Cached reads are bounded by

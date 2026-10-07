@@ -20,7 +20,7 @@ import { boundedUpstreamArray, boundedUpstreamNumber, sanitizeUpstreamLabel } fr
 import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
 import { KILO_ENDPOINT_PATH, KILO_PROVIDER_ID } from "./kilo";
-import { decodeKiloCredential } from "../../../lib/credential-codec";
+import { decodeKiloCredential } from "../../../security/credential-codec";
 
 /** Kilo Code's published model directory. */
 export const KILO_MODELS_URL = "https://api.kilo.ai/api/gateway/models" as const;

@@ -5,7 +5,7 @@ import { parseCustomProviderId, isBundledProviderId } from "../../../providers/c
 import type { ModelDefinition } from "../../../providers/model-definition";
 import type { ProviderRegistry } from "../../../providers/registry";
 import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
-import { nextSortIndex, reorderSortIndex } from "../../../lib/sort-order";
+import { nextSortIndex, reorderSortIndex } from "../../../persistence/sort-order";
 import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import { models, providerAccounts, providerOauthStates, providers, telemetryUsageTotals, tenantDisabledModels } from "../../../persistence/schema";
 import { queryTelemetryEvents } from "../../../observability/event-log";

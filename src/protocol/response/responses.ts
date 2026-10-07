@@ -5,7 +5,7 @@ import { canonicalTerminal } from "../../protocol/codecs";
 import type { CanonicalEvent, CanonicalRequest, ContentPart } from "../../protocol/canonical-model";
 import { GatewayError } from "../../protocol/gateway-error";
 import { isRecord, readOutputIndex } from "../codecs";
-import { decodeSseEvents } from "../../lib/sse-decoder";
+import { decodeSseEvents } from "../../protocol/sse-decoder";
 import { gatewayErrorFromStreamError } from "../stream-error-frames";
 import { usageFromProvider, readResponsesReasoningDelta } from "../../providers/usage";
 import { createToolEmitLedger } from "../../protocol/tool-identity";

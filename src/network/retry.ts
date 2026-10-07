@@ -6,7 +6,7 @@
  * Callers that must not retry (non-idempotent requests) simply don't use it.
  */
 
-import { exponentialBackoff, type BackoffOptions } from "../lib/backoff";
+import { exponentialBackoff, type BackoffOptions } from "../network/backoff";
 
 export interface RetryOptions {
   readonly maxRetries?: number;

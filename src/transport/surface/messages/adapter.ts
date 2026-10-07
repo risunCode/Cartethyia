@@ -2,7 +2,7 @@ import type { CanonicalEvent, CanonicalRequest, GenerationControls, ReasoningInt
 import type { SurfaceAdapter } from "../adapters";
 import { requiredObject } from "../adapters";
 import { isRecord } from "../../../protocol/codecs";
-import { TEXT_ENCODER } from "../../../lib/sse-frame";
+import { TEXT_ENCODER } from "../../../protocol/sse-frame";
 import type { MessagesEncodingContext, MessagesErrorResponse, MessagesParseOptions, MessagesResponse } from "./parse";
 import {
   asSurfaceBody,

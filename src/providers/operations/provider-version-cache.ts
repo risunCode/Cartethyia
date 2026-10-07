@@ -2,7 +2,7 @@
  * TTL cache for best-effort version discovery. Successful values are cached;
  * null results and failures remain retryable. Concurrent misses share a load.
  */
-import { TtlCacheFamily } from "../../lib/ttl-cache";
+import { TtlCacheFamily } from "../../persistence/ttl-cache";
 import { retryWithBackoff } from "../../network/retry";
 
 const VERSION_CACHE_TTL_MS = 5 * 60 * 1000;

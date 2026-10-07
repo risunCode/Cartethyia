@@ -3,7 +3,7 @@ import { Elysia } from "elysia";
 import { GatewayError } from "../../protocol/gateway-error";
 import { assertBoundedJsonDepth } from "../../protocol/codecs";
 import type { ProxyRequestStateStore } from "../request/state";
-import { fastPathname } from "../../lib/pathname";
+import { fastPathname } from "../../transport/pathname";
 import { NATIVE_SERVICE_PATHS } from "../contracts";
 
 function isProxyRequest(request: Request): boolean {

@@ -50,7 +50,7 @@ const DEVICE_INTERVAL_SECONDS = 3;
 const NO_EXPIRY_FALLBACK_MS = 365 * 24 * 60 * 60 * 1000;
 
 /**
- * Encodes the access secret. Decoding lives in `lib/credential-codec.ts`
+ * Encodes the access secret. Decoding lives in `src/security/credential-codec.ts`
  * (`decodeKiloCredential`) so the adapter and the discovery flow share one
  * envelope implementation.
  */

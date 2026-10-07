@@ -1,6 +1,6 @@
 // Drizzle-backed console persistence for model routing (aliases + combos).
 import { and, eq, inArray, or } from "drizzle-orm";
-import { nextSortIndex, reorderSortIndex } from "../../../lib/sort-order";
+import { nextSortIndex, reorderSortIndex } from "../../../persistence/sort-order";
 import { globalOrOwnedBy } from "../../../persistence/tenant-scope";
 import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import {

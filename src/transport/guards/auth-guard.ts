@@ -3,7 +3,7 @@
 import { Elysia } from "elysia";
 import { GatewayError } from "../../protocol/gateway-error";
 import type { ProxyRequestStateStore } from "../request/state";
-import { fastPathname } from "../../lib/pathname";
+import { fastPathname } from "../../transport/pathname";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { requestToken, resolveApiKeyAuthorization } from "../../security/api-key-auth";
 import {

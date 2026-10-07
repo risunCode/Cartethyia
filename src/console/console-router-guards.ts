@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 import { Elysia } from "elysia";
 import { GatewayError } from "../protocol/gateway-error";
-import { fastPathname } from "../lib/pathname";
+import { fastPathname } from "../transport/pathname";
 import { parseCookieValue, SESSION_COOKIE_NAME, isCsrfValid } from "../security/csrf";
 
 /**

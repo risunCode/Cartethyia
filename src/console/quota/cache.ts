@@ -12,7 +12,7 @@
 // `invalidateQuotaCacheForAccount`. No third shape may be added.
 import type { ProviderQuotaResult } from "../../providers/quota/quota-contracts";
 import type { RedisClient } from "../../persistence/redis";
-import { TtlCache } from "../../lib/ttl-cache";
+import { TtlCache } from "../../persistence/ttl-cache";
 import { log } from "../../observability/logger";
 import { metrics } from "../../observability/metrics";
 

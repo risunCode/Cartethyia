@@ -7,7 +7,7 @@
 import { canonicalTerminal } from "../../protocol/codecs";
 import { GatewayError } from "../../protocol/gateway-error";
 import { type CanonicalEvent, type CanonicalRequest, type CanonicalStopReason, type ContentPart, type UsageRecord } from "../../protocol/canonical-model";
-import { decodeSseEvents } from '../../lib/sse-decoder';
+import { decodeSseEvents } from "../sse-decoder";
 import { usageFromProvider } from '../../providers/usage';
 import { mapClaudeStreamError } from '../../protocol/messages-errors';
 import {

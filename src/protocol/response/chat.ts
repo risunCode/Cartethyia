@@ -4,7 +4,7 @@
 import { canonicalTerminal } from "../../protocol/codecs";
 import { GatewayError } from "../../protocol/gateway-error";
 import { type CanonicalEvent, type CanonicalRequest } from "../../protocol/canonical-model";
-import { decodeSseEvents } from "../../lib/sse-decoder";
+import { decodeSseEvents } from "../../protocol/sse-decoder";
 import { gatewayErrorFromStreamError } from "../stream-error-frames";
 import { mergeResponsesUsage } from "./responses";
 import { usageFromProvider, readReasoningText } from "../../providers/usage";

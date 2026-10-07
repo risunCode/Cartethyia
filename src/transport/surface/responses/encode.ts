@@ -1,7 +1,7 @@
 import type { CanonicalEvent, CanonicalStopReason, ContentPart, UsageRecord } from "../../../protocol/canonical-model";
 import { isRecord } from "../../../protocol/codecs";
 import { usageToResponsesWire } from "../../../providers/usage";
-import { TEXT_ENCODER } from "../../../lib/sse-frame";
+import { TEXT_ENCODER } from "../../../protocol/sse-frame";
 import { SurfaceStreamEncoder } from "../stream-frame";
 import { ResponsesLifecycleError, ResponsesSequenceError } from "./errors";
 import type { ResponsesEncodingContext, ResponsesWireEvent } from "./contracts";

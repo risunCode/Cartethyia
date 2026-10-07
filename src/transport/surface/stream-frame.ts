@@ -1,7 +1,7 @@
 // Streaming-encoder surface contract.
 //
 // The pure SSE frame builders (`buildSseEventFrame`, `formatSseEvent`,
-// `formatSseData`, `TEXT_ENCODER`) live in `src/lib/sse-frame.ts` — both the
+// `formatSseData`, `TEXT_ENCODER`) live in `src/protocol/sse-frame.ts` — both the
 // data plane (surface encoders here) and the control plane
 // (`console/observability/sse.ts`) consume them, and the frame format is a
 // wire detail with no layer ownership. This file keeps only the encoder

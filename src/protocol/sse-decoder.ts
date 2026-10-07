@@ -1,4 +1,4 @@
-import { GatewayError } from "../protocol/gateway-error";
+import { GatewayError } from "./gateway-error";
 
 /**
  * Single shared SSE event decoder for all provider wire families.

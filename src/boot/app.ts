@@ -21,12 +21,12 @@ import { resolveRedisClient } from "../persistence/redis";
 import type { CartethyiaDatabase } from "../persistence/db-handle";
 import type { ProviderAdapter } from "../providers/contracts";
 import type { OAuthTokenRefresher, OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
-import { withTimeout } from "../lib/timeout";
+import { withTimeout } from "../boot/timeout";
 import type { ByokUpstreamHost } from "../providers/operations/provider-catalog-service";
 import type { NetworkPoolSelector } from "../network/pool/selector";
 import type { ProxyRequestPreparer } from "../transport/request/preparer";
 import { ProxyRequestStateStore } from "../transport/request/state";
-import { fastPathname } from "../lib/pathname";
+import { fastPathname } from "../transport/pathname";
 import {
   handleProviderProxyRequest,
   type ProviderProxyHandlerDeps,

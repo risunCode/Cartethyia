@@ -2,7 +2,7 @@
 // while dependencies are unhealthy or the process is draining.
 import { Elysia } from "elysia";
 import { GatewayError } from "../../protocol/gateway-error";
-import { fastPathname } from "../../lib/pathname";
+import { fastPathname } from "../../transport/pathname";
 import { shutdownNotice } from "../shutdown-notice";
 import type { ReadinessMiddlewareDeps } from "../contracts";
 

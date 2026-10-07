@@ -4,7 +4,7 @@
  * Only non-null, non-empty results are cached, so failed discovery stays
  * retryable. Concurrent misses for one key share one load through TtlCache.
  */
-import { TtlCacheFamily } from "../../lib/ttl-cache";
+import { TtlCacheFamily } from "../../persistence/ttl-cache";
 import type { ModelDefinition } from "../model-definition";
 
 const MODEL_DISCOVERY_CACHE_TTL_MS = 10 * 60 * 1000;
