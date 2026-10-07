@@ -35,6 +35,12 @@ const DEFAULT_QUOTA_COOLDOWN_MS = resolveAccountQuotaCooldownMs;
 const MODEL_CAPACITY_COOLDOWN_MS = resolveAccountModelCapacityCooldownMs;
 const TRANSIENT_ERROR_COOLDOWN_MS = resolveAccountTransientCooldownMs;
 /**
+ * Accounts one cooldown-recovery pass brings back. The sweep ticks every 30s,
+ * so a larger backlog drains over successive passes rather than one statement
+ * covering every expired row.
+ */
+const COOLDOWN_RECOVERY_BATCH = 500;
+/**
  * Backoff for a failure no rule matched. Short on purpose: an unclassified
  * error is more likely a new upstream shape than a broken account, so the
  * account returns to rotation quickly.
@@ -164,10 +170,24 @@ export function classifyAccountError(
     (typeof errorRecord?.status === "number" ? errorRecord.status : null);
   const origin = options?.origin ?? "cartethyia";
   const scope = options?.scope ?? "unknown";
+  // Providers write the same phrase with different separators: codex reports
+  // `token_revoked`, others `token revoked` or `token-revoked`. Folding the
+  // separators once lets every match below see one spelling.
+  const folded = lower.replace(/[_-]+/g, " ");
+  // A revocation named in the message is evidence about the credential itself,
+  // whichever scope the caller could establish. A stream error frame carries
+  // no `credentialEvidence` detail and classifies at provider scope, so without
+  // this the account stays in rotation: the phrase is recognised and then
+  // discarded because nothing mutates on provider scope.
+  const revocationNamed = folded.includes("token revoked") || folded.includes("invalidated oauth token");
   const accountEvidence =
     options?.credentialEvidence === true ||
+    revocationNamed ||
     (options?.origin === "upstream" && options.scope === "account");
-  const canMutate = origin === "upstream" && scope === "account" && accountEvidence;
+  // A named revocation mutates even at provider scope: the message is the
+  // evidence, and provider scope is what a frame with no credential detail
+  // classifies as. Every other signal still needs account scope.
+  const canMutate = origin === "upstream" && (revocationNamed || (scope === "account" && accountEvidence));
   const providerCode = options?.providerCode?.toLowerCase() ?? "";
 
   const getHeader = (name: string): string | null => {
@@ -324,12 +344,13 @@ export function classifyAccountError(
     !hostedToolFailure &&
     !modelEntitlementFailure &&
     (providerCode === "authentication_failed" ||
-      lower.includes("invalid_api_key") ||
-      lower.includes("incorrect api key") ||
-      lower.includes("invalid token") ||
-      lower.includes("token revoked") ||
-      lower.includes("reauthorization required") ||
-      lower.includes("account deactivated") ||
+      folded.includes("invalid api key") ||
+      folded.includes("incorrect api key") ||
+      folded.includes("invalid token") ||
+      folded.includes("token revoked") ||
+      folded.includes("invalidated oauth token") ||
+      folded.includes("reauthorization required") ||
+      folded.includes("account deactivated") ||
       ((statusCode === 401 || statusCode === 403) && accountEvidence));
   if (authSignal) {
     // A static token has no refresh to run, so an auth rejection must not park
@@ -778,7 +799,12 @@ export async function sweepExpiredCooldowns(db: CartethyiaDatabase): Promise<num
           isNotNull(providerAccounts.cooldownUntil),
           lte(providerAccounts.cooldownUntil, now),
         ),
-      );
+      )
+      // One pass recovers a bounded batch. The sweep runs every 30s, so a
+      // backlog larger than this drains over successive ticks instead of one
+      // statement covering every expired row — that statement holds its locks
+      // for as long as the backlog takes.
+      .limit(COOLDOWN_RECOVERY_BATCH);
     if (expired.length > 0) {
       await client
         .update(providerAccounts)
