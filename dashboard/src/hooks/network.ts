@@ -198,8 +198,16 @@ export function useHealthCheckNetworkPool() {
   });
 }
 
-/** Measures download throughput through a network pool. */
+/**
+ * Measures download throughput through a network pool.
+ *
+ * Invalidates the pools list on success so the egress address the measurement
+ * read reaches the Proxy page's address column. No toast here: the page runs
+ * this per selected pool and reports one outcome for the batch, so a toast in
+ * the hook would fire once per pool.
+ */
 export function useSpeedTestNetworkPool() {
+  const queryClient = useQueryClient();
   return useMutation<
     PoolSpeedTestResult,
     ApiErrorShape,
@@ -210,6 +218,9 @@ export function useSpeedTestNetworkPool() {
         `/network/pools/${encodeURIComponent(poolId)}/speed-test`,
         { method: "POST", body: JSON.stringify({ bytes }) },
       ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.network.pools });
+    },
   });
 }
 

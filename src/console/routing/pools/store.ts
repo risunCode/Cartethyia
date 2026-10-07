@@ -110,6 +110,26 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
     };
   }
 
+  /**
+   * Reads the pool's egress address through an already-resolved agent.
+   *
+   * Separate from `dialPoolCanary` because a caller that already measured
+   * something (the speed test) needs the address without paying for another
+   * timed probe: the canary body is a few hundred bytes, so this is cheap, and
+   * a failure yields no address rather than failing the caller's operation.
+   */
+  private async readEgressIp(agent: PoolAgent): Promise<string | undefined> {
+    try {
+      const response = await createValidatedFetch({ agent })(NETWORK_POOL_HEALTH_CANARY, {
+        method: "GET",
+        signal: AbortSignal.timeout(8000),
+      });
+      return parseEgressIp(await response.text());
+    } catch {
+      return undefined;
+    }
+  }
+
   private async dialPoolCanary(agent: PoolAgent): Promise<{ response: Response; latencyMs: number; egressIp?: string }> {
     const started = performance.now();
     const response = await createValidatedFetch({ agent })(NETWORK_POOL_HEALTH_CANARY, {
@@ -361,7 +381,9 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
     // The measurement costs real bytes off the operator's proxy plan, so the
     // outcome is banked on the pool row (not only returned): the Proxy page
     // reads the last known throughput from the server after any reload.
-    const persist = async (result: PoolSpeedTestResult): Promise<PoolSpeedTestResult> => {
+    const persist = async (
+      result: PoolSpeedTestResult & { egressIp?: string },
+    ): Promise<PoolSpeedTestResult> => {
       const measuredAt = new Date();
       const delta = drainPoolByteDelta(poolId);
       await this.db
@@ -372,6 +394,10 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
           lastSpeedtestStatus: result.status,
           lastSpeedtestError: result.errorMessage ?? null,
           lastSpeedtestAt: measuredAt,
+          // The Proxy page reads the egress address off the pool row, so a
+          // measurement that read one banks it — otherwise the Test button
+          // leaves the address column showing "not probed" forever.
+          ...(result.egressIp ? { egressIp: result.egressIp } : {}),
           ...(delta.sent > 0 || delta.received > 0
             ? {
                 bytesSentTotal: sql`${networkPools.bytesSentTotal} + ${delta.sent}`,
@@ -419,7 +445,14 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
       // it is counted before banking: the quota bar must include the bytes the
       // measurement consumed.
       recordPoolBytes(poolId, "received", transferred);
-      if (durationMs <= 0) return persist({ poolId, status: "ok", bytes: transferred, durationMs });
+      // Read the egress address only after the clock has stopped. The speed
+      // payload carries no address of its own, so the probe uses the same
+      // canary a health check dials; doing it after the timing means the
+      // measurement still covers the download alone. A failure here is not a
+      // failed speed test — it only costs the address.
+      const egressIp = await this.readEgressIp(agent);
+      if (durationMs <= 0)
+        return persist({ poolId, status: "ok", bytes: transferred, durationMs, ...(egressIp ? { egressIp } : {}) });
       const bytesPerSecond = transferred / (durationMs / 1000);
       return persist({
         poolId,
@@ -428,6 +461,7 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
         durationMs,
         bytesPerSecond,
         megabitsPerSecond: (bytesPerSecond * 8) / 1_000_000,
+        ...(egressIp ? { egressIp } : {}),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Speed test failed";
