@@ -1051,7 +1051,7 @@ export const telemetryPayloads = pgTable(
     index("telemetry_payloads_request_id_idx").on(table.requestId),
     index("telemetry_payloads_tenant_request_idx").on(table.tenantId, table.requestId),
     index("telemetry_payloads_expires_idx").on(table.expiresAt),
-    check("telemetry_payloads_storage_check", sql`${table.storage} = 'jsonb-file'`),
+    check("telemetry_payloads_storage_check", sql`${table.storage} IN ('jsonb-file', 'jsonl-file')`),
     check("telemetry_payloads_version_check", sql`${table.version} = 1`),
     check("telemetry_payloads_offset_check", sql`${table.offset} >= 0`),
     check("telemetry_payloads_length_check", sql`${table.length} > 0`),

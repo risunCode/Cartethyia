@@ -204,8 +204,10 @@ stats read those files through `queryTelemetryEvents`. Lifetime totals stay in
 transaction commits. A rejected batch is not written once per retry. `tenantId`
 must be a UUID or the batch is dropped.
 
-`payload-capture.ts` writes bodies to frame files. `telemetry_payloads` is the
-index. Retention prunes event files by hour prefix and does not touch the
+`payload-capture.ts` writes bodies to frame files, one gzipped JSON frame per
+capture. A row names its encoding: `jsonl-file` for a gzipped frame,
+`jsonb-file` for a frame written before compression. `telemetry_payloads` is
+the index. Retention prunes event files by hour prefix and does not touch the
 current hour.
 
 ## Console API

@@ -393,7 +393,7 @@ CREATE TABLE "telemetry_payloads" (
   "checksum" text NOT NULL,
   "version" integer NOT NULL,
   CONSTRAINT "telemetry_payloads_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade,
-  CONSTRAINT "telemetry_payloads_storage_check" CHECK ("storage" = 'jsonb-file'),
+  CONSTRAINT "telemetry_payloads_storage_check" CHECK ("storage" IN ('jsonb-file', 'jsonl-file')),
   CONSTRAINT "telemetry_payloads_version_check" CHECK ("version" = 1),
   CONSTRAINT "telemetry_payloads_offset_check" CHECK ("offset" >= 0),
   CONSTRAINT "telemetry_payloads_length_check" CHECK ("length" > 0)
