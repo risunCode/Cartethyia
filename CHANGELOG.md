@@ -5,16 +5,19 @@
   they serve was absent from the console and unavailable to routing until a
   discovery run happened to fetch them. Mistral gets its current
   large/medium/small families plus the two Magistral reasoning rows; DeepSeek
-  gets its six V4 families (`v4-pro`, `v4-pro-max`, `v4-pro-none`,
-  `v4.1-flash`, `v4-flash`, `v4-flash-vision-exp`), taken from 9router's
-  provider registry because the base catalog files only four of them under
-  `deepseek`. `v4-pro-max` and `v4-pro-none` are upstream aliases of
-  `deepseek-v4-pro` with no catalog row of their own, so their limits are
-  stated explicitly instead of falling back to the generic 200k/64k default;
-  their price stays `unknown` rather than borrowing `v4-pro`'s rate. The V3.2
-  families (`deepseek-chat`, `deepseek-reasoner`) are deliberately excluded.
-  Limits and pricing otherwise resolve from the base catalog via `providerId`,
-  so no number is restated in the catalogs to drift.
+  gets only the two V4 families still live upstream, `deepseek-v4-pro` and
+  `deepseek-v4.1-flash`. 9router's capability tables — newer than its provider
+  registry, which still lists eight ids — record that `v4.1-flash` replaces
+  `v4-flash`, dropped from the published server list, and that
+  `v4-flash-vision-exp` routes to it; `v4-pro-max` and `v4-pro-none` are
+  aliases of `v4-pro`, not models of their own. All four are gone rather than
+  marked. There is no `v4.1-pro` row: neither 9router nor the base catalog
+  carries that id, so `v4-pro` remains the Pro row. The V3.2 families
+  (`deepseek-chat`, `deepseek-reasoner`) are excluded as V3, not V4. Limits and
+  pricing resolve from the base catalog via `providerId`, so no number is
+  restated in the catalogs to drift — `v4-pro` reads 1000000/384000 from
+  DeepSeek's own row, and `v4.1-flash`, which the base catalog files under other
+  providers, resolves to 1048576/384000 through the majority row.
 - Fireworks, GMI, and B.AI intentionally carry no static catalog. The base
   catalog has zero rows for all three, and 9router — the other reference — has
   none for `gmi` and gives `bai` no ids either (it serves `bai` by fetching

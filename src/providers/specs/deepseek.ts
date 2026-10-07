@@ -3,39 +3,29 @@ import { defineModel } from "../model-definition";
 
 const DEEPSEEK_PROVIDER_ID = "deepseek" as const;
 
-/** Limits every V4 family shares, as the base catalog files `deepseek-v4-pro`. */
-const V4_CONTEXT = 1_000_000;
-const V4_OUTPUT = 384_000;
-
 /**
- * DeepSeek's V4 chat families.
+ * The DeepSeek V4 families that are still live upstream.
  *
  * The provider has live `/v1/models` discovery, so this catalog is not the only
  * source — it is the floor that keeps these models listed when discovery has not
  * run or the endpoint does not answer.
  *
- * Two of these rows are routing aliases rather than separate models: 9router
- * files `deepseek-v4-pro-max` and `deepseek-v4-pro-none` against
- * `upstreamModelId: deepseek-v4-pro`, and the base catalog has no row for
- * either. Their limits are therefore stated explicitly as the `deepseek-v4-pro`
- * limits rather than left to `defineModel`'s fallback, which would publish the
- * generic 200k/64k default — a number that is not DeepSeek's and reads as
- * measured. `v4-pro-none` is the no-thinking variant, so it is the one row here
- * that does not claim reasoning.
+ * Only two rows, and the retired ones are gone rather than marked: 9router's
+ * capability tables record that `deepseek-v4.1-flash` replaces `v4-flash` — it
+ * was dropped from the published server list and, with `v4-flash-vision-exp`,
+ * now routes to `v4.1-flash` upstream. `v4-pro-max` and `v4-pro-none` are
+ * likewise routing aliases of `deepseek-v4-pro`, not models of their own.
  *
- * `v4-flash` and its vision-experimental sibling take image input; `v4-pro` and
- * the aliases do not. The two alias rows publish `cost: unknown`: the base
- * catalog has no row under their ids, and `costFor` resolves by id, so there is
- * no honest rate to attach — billing them at `v4-pro`'s rate would be a guess
- * presented as a measurement.
+ * Limits and pricing resolve from the base catalog via `providerId`, so no
+ * number is restated here to drift. `deepseek-v4.1-flash` is the exception: the
+ * base catalog does not file it under `deepseek` (it files it under aihubmix,
+ * alibaba, …), so it resolves through the majority row instead of a
+ * provider-scoped one. That is the honest resolution — inventing limits here
+ * would publish a guess as a measurement.
  *
- * Note on naming: the base catalog does not file `deepseek-v4.1-flash` under
- * `deepseek` (it files it under aihubmix, alibaba, …), but the id is a real
- * DeepSeek id — 9router lists it as such — so it is included and resolves its
- * limits through the majority row rather than a provider-scoped one.
- *
- * Deliberately excluded: `deepseek-chat` and `deepseek-reasoner`, which are the
- * V3.2 families rather than V4.
+ * There is no `v4.1-pro`: neither 9router nor the base catalog carries that id,
+ * so `v4-pro` stays as the Pro row. `deepseek-chat` and `deepseek-reasoner` are
+ * excluded as V3.2 families, not V4.
  */
 export const DEEPSEEK_MODELS: readonly ModelDefinition[] = [
   defineModel({
@@ -45,44 +35,8 @@ export const DEEPSEEK_MODELS: readonly ModelDefinition[] = [
     reasoning: true,
     toolCall: true,
   }),
-  // Alias of `deepseek-v4-pro` upstream, so it carries that model's limits.
-  defineModel({
-    id: "deepseek-v4-pro-max",
-    providerId: DEEPSEEK_PROVIDER_ID,
-    wireFamily: "chat",
-    ctx: V4_CONTEXT,
-    out: V4_OUTPUT,
-    reasoning: true,
-    toolCall: true,
-  }),
-  // Alias of `deepseek-v4-pro` upstream, in its non-thinking mode.
-  defineModel({
-    id: "deepseek-v4-pro-none",
-    providerId: DEEPSEEK_PROVIDER_ID,
-    wireFamily: "chat",
-    ctx: V4_CONTEXT,
-    out: V4_OUTPUT,
-    reasoning: false,
-    toolCall: true,
-  }),
   defineModel({
     id: "deepseek-v4.1-flash",
-    providerId: DEEPSEEK_PROVIDER_ID,
-    wireFamily: "chat",
-    vision: true,
-    reasoning: true,
-    toolCall: true,
-  }),
-  defineModel({
-    id: "deepseek-v4-flash",
-    providerId: DEEPSEEK_PROVIDER_ID,
-    wireFamily: "chat",
-    vision: true,
-    reasoning: true,
-    toolCall: true,
-  }),
-  defineModel({
-    id: "deepseek-v4-flash-vision-exp",
     providerId: DEEPSEEK_PROVIDER_ID,
     wireFamily: "chat",
     vision: true,

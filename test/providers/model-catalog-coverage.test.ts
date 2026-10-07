@@ -87,11 +87,20 @@ describe("mistral catalog", () => {
 });
 
 describe("deepseek catalog", () => {
-  test("carries the V4 families", async () => {
+  test("carries only the live V4 families", async () => {
     const ids = (await catalogFor("deepseek")).map((m) => m.modelId);
-    expect(ids).toContain("deepseek-v4-pro");
-    expect(ids).toContain("deepseek-v4-flash");
-    expect(ids).toContain("deepseek-v4.1-flash");
+    expect(ids).toEqual(["deepseek-v4-pro", "deepseek-v4.1-flash"]);
+  });
+
+  test("drops the retired and alias ids", async () => {
+    // 9router records `v4.1-flash` as replacing `v4-flash` — dropped from the
+    // published server list — and `v4-flash-vision-exp` routes to it upstream.
+    // `v4-pro-max` / `v4-pro-none` are aliases of `v4-pro`, not models.
+    const ids = (await catalogFor("deepseek")).map((m) => m.modelId);
+    expect(ids).not.toContain("deepseek-v4-flash");
+    expect(ids).not.toContain("deepseek-v4-flash-vision-exp");
+    expect(ids).not.toContain("deepseek-v4-pro-max");
+    expect(ids).not.toContain("deepseek-v4-pro-none");
   });
 
   test("excludes the V3.2 families", async () => {
@@ -102,36 +111,29 @@ describe("deepseek catalog", () => {
 
   test("no row falls back to the generic default limits", async () => {
     // 200k/64k is `defineModel`'s fallback for an id the catalog cannot resolve.
-    // Two of these rows are upstream aliases with no catalog row of their own,
-    // so they state their limits explicitly rather than publishing a default
-    // that reads as measured but is not DeepSeek's.
     for (const model of await catalogFor("deepseek")) {
       expect(model.contextLimit).toBeGreaterThan(200_000);
+      expect(model.outputLimit).toBeGreaterThan(64_000);
     }
   });
 
-  test("resolves limits from the provider's own rows", async () => {
-    for (const model of await catalogFor("deepseek")) {
-      expect(model.outputLimit).toBe(384_000);
-      expect(model.toolCall).toBe(true);
-    }
-  });
-
-  test("the flash families take vision and pro does not", async () => {
-    const models = await catalogFor("deepseek");
-    const byId = new Map(models.map((m) => [m.modelId, m]));
-    expect(byId.get("deepseek-v4-flash")?.modalities.input).toContain("image");
-    expect(byId.get("deepseek-v4.1-flash")?.modalities.input).toContain("image");
-    expect(byId.get("deepseek-v4-pro")?.modalities.input).not.toContain("image");
-  });
-
-  test("v4-pro-none is the non-thinking alias", async () => {
-    const models = await catalogFor("deepseek");
-    const none = models.find((m) => m.modelId === "deepseek-v4-pro-none");
-    expect(none).toBeDefined();
-    expect(none?.reasoning).toBe(false);
-    // Same limits as the model it aliases.
-    expect(none?.contextLimit).toBe(1_000_000);
-    expect(none?.outputLimit).toBe(384_000);
+  test("resolves limits from the base catalog, not restated numbers", async () => {
+    const byId = new Map((await catalogFor("deepseek")).map((m) => [m.modelId, m]));
+    // `v4-pro` has a provider-scoped row: 1M in, 384k out, tools, no vision.
+    const pro = byId.get("deepseek-v4-pro");
+    expect(pro?.contextLimit).toBe(1_000_000);
+    expect(pro?.outputLimit).toBe(384_000);
+    expect(pro?.toolCall).toBe(true);
+    expect(pro?.modalities.input).not.toContain("image");
+    // `v4.1-flash` is filed under other providers upstream, so it resolves
+    // through the majority row — 1048576, which is how that row is published,
+    // rather than the 1000000 9router's capability table states. Both are the
+    // same 1M window expressed differently; the catalog's number is what the
+    // client sees, so it is what is pinned here.
+    const flash = byId.get("deepseek-v4.1-flash");
+    expect(flash?.contextLimit).toBe(1_048_576);
+    expect(flash?.outputLimit).toBe(384_000);
+    expect(flash?.modalities.input).toContain("image");
+    expect(flash?.toolCall).toBe(true);
   });
 });
