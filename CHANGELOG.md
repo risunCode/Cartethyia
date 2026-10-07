@@ -1,5 +1,22 @@
 ## Unreleased
 
+- A Cursor `not_found` now cools the model down instead of being reported and
+  retried forever. Cursor answers it for a model the credential's plan does not
+  reach, and the adapter collapsed it into a generic 502 with no provider code,
+  so the classifier filed it as `server_error` with nothing to mutate: every
+  probe of an unreachable model failed and the next request dialed it again.
+  It is now surfaced as `model_not_found` carrying the Connect code, and
+  classified as `model_unreachable` — a verdict on one (account, model) pair,
+  written to that pair's cooldown while the account stays active and routable
+  for every other model it holds. Every Cursor error also carries an upstream
+  origin now; the local default had made even `resource_exhausted` unable to
+  cool anything.
+
+- The Cursor catalog exposes Auto and Composer only. Grok and Claude Opus are
+  dropped on evidence rather than taste: this account's plan answers
+  `resource_exhausted` for the Grok rows and `not_found` for the Opus rows, so
+  a catalog that listed them advertised a model no request could ever reach.
+
 - Cursor is a bundled provider. A signed-in account dispatches chat through
   Cursor's own `agent.v1.AgentService` backend over Connect-RPC/HTTP2, with
   the deep-link login and automatic token refresh the console already drives

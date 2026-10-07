@@ -67,6 +67,14 @@ const POLICY_BLOCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  * follows a request the account itself made.
  */
 const CHANNEL_BLOCK_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+/**
+ * Backoff for a model the upstream says does not exist for this account
+ * (Cursor answers Connect `not_found` for a model the credential's plan does
+ * not reach). Long, because the verdict is a property of the plan and will not
+ * change on the next request — but bounded, so a plan upgrade is picked up
+ * without an operator clearing it by hand.
+ */
+const MODEL_UNREACHABLE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 // ===== health/account-recorder.ts =====
 export interface AccountHealthEventRecord {
@@ -84,6 +92,7 @@ export type AccountErrorCategory =
   | "quota_exhausted"
   | "rate_limit_transient"
   | "model_capacity"
+  | "model_unreachable"
   | "auth_invalidated"
   | "policy_blocked"
   | "server_error"
@@ -430,14 +439,45 @@ export function classifyAccountError(
     lower.includes("temporarily unavailable");
   if (capacitySignal) {
     const cooldownMs = headerCooldown ?? messageCooldown ?? MODEL_CAPACITY_COOLDOWN_MS();
-    const modelScopedMutation =
-      origin === "upstream" && scope === "account" && options?.modelId !== undefined;
+    const modelScopedMutation = origin === "upstream" && options?.modelId !== undefined;
     return result(
       "model_capacity",
       "cooldown",
       cooldownMs,
       new Date(Date.now() + cooldownMs),
       reason("Provider model capacity"),
+      modelScopedMutation,
+    );
+  }
+
+  // A model the upstream says does not exist for this account is a verdict on
+  // the (account, model) pair, not on the credential. Cursor answers Connect
+  // `not_found` for a model the plan does not reach (`claude-opus-5` on a plan
+  // without it) while every other model on that same account serves normally,
+  // so parking the account would take healthy models down with it. Detected
+  // before the 5xx branch: the adapter surfaces it as a 404 carrying
+  // `providerCode: "not_found"`, and nothing else in the 5xx band is
+  // model-scoped.
+  // Keyed on the provider's own code rather than on the 404: a 404 also means
+  // an upstream *route* that does not exist (`upstream_not_found`), which says
+  // nothing about any model and must not cool one.
+  const modelUnreachable = providerCode === "not_found";
+  if (modelUnreachable) {
+    const cooldownMs = MODEL_UNREACHABLE_COOLDOWN_MS;
+    // Not credential evidence, so `classifyUpstreamFailure` scopes this to the
+    // provider and the `scope === "account"` gate the throttles use would
+    // forbid the mutation outright — leaving the probe reporting a failure that
+    // cooled nothing. The verdict is still about one (account, model) pair:
+    // `persistAccountFailure` writes `modelCooldowns[modelId]` and leaves the
+    // account's own status untouched, so all that is required is a model to
+    // write against.
+    const modelScopedMutation = origin === "upstream" && options?.modelId !== undefined;
+    return result(
+      "model_unreachable",
+      "cooldown",
+      cooldownMs,
+      new Date(Date.now() + cooldownMs),
+      reason("Model unreachable for this account"),
       modelScopedMutation,
     );
   }
@@ -507,9 +547,15 @@ async function persistAccountFailure(
     const now = new Date();
 
     const modelId = options?.modelId;
+    // Every category here is a verdict about one (account, model) pair rather
+    // than about the credential, so all three back off that pair and leave the
+    // account routable for every other model. `model_unreachable` joins the two
+    // throttles on the same reasoning: an upstream that reports the model does
+    // not exist for this account will report it again on the next request.
     const isThrottle =
       effective.category === "rate_limit_transient" ||
-      effective.category === "model_capacity";
+      effective.category === "model_capacity" ||
+      effective.category === "model_unreachable";
     const shouldModelCooldown = modelId !== undefined && isThrottle;
 
     if (shouldModelCooldown) {

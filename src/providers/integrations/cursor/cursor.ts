@@ -124,18 +124,73 @@ function usageRecord(event: Extract<TurnEvent, { type: "usage" }>): UsageRecord 
   };
 }
 
-function gatewayErrorForCode(code: string | undefined, message: string | undefined): GatewayError {
+/**
+ * Maps a Connect status code onto the gateway contract.
+ *
+ * Every branch carries `origin: "upstream"`: these are Cursor's own verdicts on
+ * a real request, and a local origin made `classifyAccountError` treat them as
+ * Cartethyia's, so even a `resource_exhausted` never cooled anything down.
+ *
+ * `not_found` is the one that matters most. Cursor answers it for a model the
+ * credential's plan does not reach — `claude-opus-5` for a plan without it —
+ * and the verdict is about that (account, model) pair alone: every other model
+ * on the same account still works. It is therefore surfaced as
+ * `model_not_found` with the Connect code as `providerCode`, which is what the
+ * health machine reads to cool the *model* instead of parking the account.
+ */
+export function gatewayErrorForCode(code: string | undefined, message: string | undefined): GatewayError {
   const detail = message ?? "Cursor upstream error";
-  if (code === "resource_exhausted") return new GatewayError("quota_exceeded", 429, detail, { providerId: CURSOR_PROVIDER_ID });
-  if (code === "unauthenticated") return new GatewayError("authentication_failed", 401, detail, { providerId: CURSOR_PROVIDER_ID });
-  if (code === "permission_denied") return new GatewayError("policy_rejected", 403, detail, { providerId: CURSOR_PROVIDER_ID });
-  return new GatewayError("platform_unavailable", 502, detail, { providerId: CURSOR_PROVIDER_ID });
+  if (code === "not_found")
+    return new GatewayError(
+      "model_not_found",
+      404,
+      detail,
+      { providerId: CURSOR_PROVIDER_ID, providerCode: "not_found" },
+      "upstream",
+    );
+  if (code === "resource_exhausted")
+    return new GatewayError(
+      "quota_exceeded",
+      429,
+      detail,
+      { providerId: CURSOR_PROVIDER_ID },
+      "upstream",
+    );
+  if (code === "unauthenticated")
+    return new GatewayError(
+      "authentication_failed",
+      401,
+      detail,
+      { providerId: CURSOR_PROVIDER_ID },
+      "upstream",
+    );
+  if (code === "permission_denied")
+    return new GatewayError(
+      "policy_rejected",
+      403,
+      detail,
+      { providerId: CURSOR_PROVIDER_ID },
+      "upstream",
+    );
+  return new GatewayError(
+    "platform_unavailable",
+    502,
+    detail,
+    { providerId: CURSOR_PROVIDER_ID },
+    "upstream",
+  );
 }
 
 function gatewayErrorFor(error: unknown): GatewayError {
   if (error instanceof GatewayError) return error;
   const message = error instanceof Error ? error.message : String(error);
-  return new GatewayError("platform_unavailable", 502, `Cursor transport failed: ${message}`, { providerId: CURSOR_PROVIDER_ID });
+  return new GatewayError(
+    "platform_unavailable",
+    502,
+    `Cursor transport failed: ${message}`,
+    { providerId: CURSOR_PROVIDER_ID },
+    "upstream",
+  );
 }
 
 export const cursorAdapter: ProviderAdapter = new CursorAdapter();

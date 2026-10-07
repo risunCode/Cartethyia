@@ -9,10 +9,13 @@ import { decodeMessage, encodeVarint as encodeVarintBytes, firstBytes, firstStri
 import { decodeServerMessage, decodeUsableModels, encodeRunRequest } from "../../src/providers/integrations/cursor/cursor-messages";
 import { buildTurnInput } from "../../src/providers/integrations/cursor/cursor-translate";
 import { decodeArgValue, safeToolCallId } from "../../src/providers/integrations/cursor/cursor-turn";
+import { gatewayErrorForCode } from "../../src/providers/integrations/cursor/cursor";
 import { exposedModelId, isExposedCursorModel, upstreamModelId } from "../../src/providers/integrations/cursor/cursor-catalog";
+import { classifyAccountError } from "../../src/providers/operations/account-health-service";
+import { classifyUpstreamFailure } from "../../src/transport/failure-policy";
 import type { CanonicalMessage } from "../../src/protocol/canonical-model";
 
-test("the catalog keeps auto, grok, opus, and composer, and drops the rest", () => {
+test("the catalog keeps auto and composer, and drops the rest", () => {
   // Ids as `GetUsableModels` returned them for a live account.
   const upstream = [
     "default",
@@ -31,18 +34,51 @@ test("the catalog keeps auto, grok, opus, and composer, and drops the rest", () 
     "glm-5.2-high",
   ];
   const kept = upstream.filter(isExposedCursorModel).map(exposedModelId);
-  expect(kept).toEqual([
-    "auto",
-    "composer-2.5",
-    "composer-2.5-fast",
-    "claude-opus-5-thinking-high",
-    "claude-opus-4-8-low",
-    "cursor-grok-4.6-high",
-    "grok-4.7-low",
-  ]);
+  expect(kept).toEqual(["auto", "composer-2.5", "composer-2.5-fast"]);
   // `auto` is the exposed name; the wire still speaks `default`.
   expect(upstreamModelId("auto")).toBe("default");
   expect(upstreamModelId("composer-2.5")).toBe("composer-2.5");
+});
+
+test("a `not_found` cools the model down instead of parking the account", () => {
+  // Cursor answers Connect `not_found` for a model the plan does not reach
+  // (`claude-opus-5`), while every other model on that account serves. The
+  // adapter used to collapse it into a generic 502 with no provider code, so
+  // the classifier filed it as `server_error` with `mutatesAccount: false` —
+  // the probe reported the failure and nothing ever cooled, so the next request
+  // dialed the same unreachable model again.
+  const error = gatewayErrorForCode("not_found", "not_found: Error");
+  expect(error.code).toBe("model_not_found");
+  expect(error.status).toBe(404);
+  // The provider code is what the classifier keys on, and the upstream origin
+  // is what lets a cooldown land at all.
+  expect(error.details.providerCode).toBe("not_found");
+  expect(error.origin).toBe("upstream");
+
+  // Model-scoped, not account-wide: the health-routing rule for a
+  // `model_cooldown` is a hard exclusion per (account, model) that leaves the
+  // account routable for everything else it holds. The evidence is built the
+  // way the probe builds it — `classifyUpstreamFailure` on the adapter's own
+  // error, plus the model and status.
+  const classification = classifyAccountError(error, {
+    ...classifyUpstreamFailure(error),
+    modelId: "claude-opus-5",
+  });
+  expect(classification.category).toBe("model_unreachable");
+  // `recordAccountFailure` writes `modelCooldowns[modelId]` only when the
+  // classification mutates AND a modelId was supplied.
+  expect(classification.mutatesAccount).toBe(true);
+  expect(classification.retryAt).not.toBeNull();
+  expect(classification.retryAt!.getTime()).toBeGreaterThan(Date.now());
+
+  // Narrow: a real 5xx is nobody's model problem and must not cool a model.
+  const serverError = gatewayErrorForCode("internal", "socket hang up");
+  expect(serverError.code).toBe("platform_unavailable");
+  const serverClassification = classifyAccountError(serverError, {
+    ...classifyUpstreamFailure(serverError),
+    modelId: "composer-2.5",
+  });
+  expect(serverClassification.category).toBe("server_error");
 });
 
 test("a varint wider than 28 bits round-trips", () => {
