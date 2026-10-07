@@ -1,6 +1,7 @@
 /** Embedded backend: bun:sqlite in the gateway's data dir. */
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { getTableColumns } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -70,6 +71,62 @@ export function createSqliteDatabase(file: string): Database {
 }
 
 /**
+ * Teaches the shared pg-core columns to read what bun:sqlite returns.
+ *
+ * The schema is written for node-postgres, whose driver hands booleans back
+ * as booleans and timestamps as `Date`. bun:sqlite hands back the stored
+ * value unchanged: an integer for a boolean, text for a timestamp. A
+ * column's `mapFromDriverValue` is what turns a driver value into the type
+ * the schema declares, and Drizzle calls it for every read — a select, a
+ * join, a `returning()`. The pg-core boolean column returns its value
+ * unchanged and the timestamp column only converts strings, so neither
+ * produces what the schema promises from bun:sqlite's values. Replacing the
+ * mapper on each column instance fixes every read at once. Writes are
+ * untouched: booleans already bind as integers, and `Date` bindings are
+ * converted to ISO strings in `createSqliteDatabase`.
+ */
+function installSqliteColumnMapping(schema: Record<string, unknown>): void {
+  for (const value of Object.values(schema)) {
+    const columns = tableColumns(value);
+    if (columns === undefined) continue;
+    for (const column of Object.values(columns)) {
+      if (column.columnType === "PgBoolean") {
+        column.mapFromDriverValue = (read) => read === null ? null : read === 1 || read === true;
+      } else if (column.columnType === "PgTimestamp") {
+        const convert = column.mapFromDriverValue.bind(column);
+        column.mapFromDriverValue = (read) => {
+          // A column declared `text` keeps whatever it was bound as, so a
+          // timestamp can come back as the ISO string the writer produces, or
+          // as a number — or the digits of one — when a row was restored from
+          // a source that stored epoch milliseconds. `new Date` reads the
+          // digits as a year and returns an invalid date, so those are
+          // handled before the string conversion.
+          if (typeof read === "number") return new Date(read);
+          if (typeof read === "string" && /^\d+$/.test(read)) return new Date(Number(read));
+          return convert(read);
+        };
+      }
+    }
+  }
+}
+
+interface MappedColumn {
+  readonly columnType: string;
+  mapFromDriverValue: (value: unknown) => unknown;
+}
+
+/** The columns of one Drizzle table, or undefined for everything else in the schema. */
+function tableColumns(value: unknown): Record<string, MappedColumn> | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  try {
+    const columns = getTableColumns(value as Parameters<typeof getTableColumns>[0]);
+    return Object.keys(columns).length > 0 ? columns as Record<string, MappedColumn> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The handle stores run on.
  *
  * `db` is the bun-sqlite Drizzle instance. It is not the node-postgres
@@ -119,6 +176,7 @@ export function prepareAuthStatements(sqlite: Database): SqliteAuthStatements {
 }
 
 export function buildSqliteHandle(sqlite: Database): DatabaseHandle {
+  installSqliteColumnMapping(fullSchema);
   const built = drizzle(sqlite, { schema: fullSchema });
   // node-postgres exposes `execute` for raw SQL. bun-sqlite exposes `run` and
   // `all` instead, and the stores were written against `execute`. The alias
