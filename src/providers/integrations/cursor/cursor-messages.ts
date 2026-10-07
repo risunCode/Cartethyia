@@ -82,6 +82,8 @@ export function encodeSetBlobResult(id: number): Uint8Array {
 
 export interface CursorRequestContext {
   readonly tools: readonly CursorTool[];
+  /** Cursor gates its own web search on this flag inside the request context. */
+  readonly webSearchEnabled: boolean;
 }
 
 export function encodeRequestContextResult(id: number, execId: string | undefined, context: CursorRequestContext): Uint8Array {
@@ -96,7 +98,11 @@ export function encodeRequestContextResult(id: number, execId: string | undefine
     encodeVarintField(5, 0),
     encodeString(10, "UTC"),
   );
-  const body = concat(encodeMessage(4, env), ...tools);
+  const body = concat(
+    encodeMessage(4, env),
+    ...tools,
+    ...(context.webSearchEnabled ? [encodeVarintField(17, 1)] : []),
+  );
   const success = encodeMessage(1, encodeMessage(1, body));
   return encodeMessage(2, concat(
     encodeVarintField(1, id),
@@ -116,10 +122,11 @@ export type CursorServerEvent =
   | { readonly type: "set_blob"; readonly id: number; readonly blobId: Uint8Array; readonly blobData: Uint8Array }
   | { readonly type: "request_context"; readonly id: number; readonly execId: string | undefined }
   | { readonly type: "tool_call"; readonly call: CursorToolCall }
+  | { readonly type: "native_tool"; readonly name: string; readonly detail: string }
   | { readonly type: "text"; readonly delta: string }
   | { readonly type: "thinking"; readonly delta: string }
   | { readonly type: "usage"; readonly tokens: number }
-  | { readonly type: "turn_ended" }
+  | { readonly type: "turn_ended"; readonly usage: CursorTurnUsage }
   | { readonly type: "ignored" };
 
 /** Read one `AgentServerMessage`. Unknown branches come back as `ignored`. */
@@ -141,7 +148,8 @@ function decodeInteraction(fields: WireFields): CursorServerEvent {
   if (thinking) return { type: "thinking", delta: firstString(decodeMessage(thinking), 1) ?? "" };
   const tokens = firstBytes(fields, 8);
   if (tokens) return { type: "usage", tokens: firstVarint(decodeMessage(tokens), 1) ?? 0 };
-  if (firstBytes(fields, 14) !== undefined) return { type: "turn_ended" };
+  const ended = firstBytes(fields, 14);
+  if (ended !== undefined) return { type: "turn_ended", usage: decodeTurnUsage(decodeMessage(ended)) };
   return { type: "ignored" };
 }
 
@@ -149,6 +157,11 @@ function decodeExec(fields: WireFields): CursorServerEvent {
   const id = firstVarint(fields, 1) ?? 0;
   const execId = firstString(fields, 15);
   if (firstBytes(fields, 10) !== undefined) return { type: "request_context", id, execId };
+  const webSearch = firstBytes(fields, 20);
+  if (webSearch) {
+    const args = decodeMessage(firstBytes(decodeMessage(webSearch), 1) ?? new Uint8Array());
+    return { type: "native_tool", name: "web_search", detail: firstString(args, 1) ?? "" };
+  }
   const mcp = firstBytes(fields, 11);
   if (mcp) {
     const args = decodeMessage(mcp);
@@ -162,6 +175,22 @@ function decodeExec(fields: WireFields): CursorServerEvent {
     };
   }
   return { type: "ignored" };
+}
+
+function decodeTurnUsage(fields: WireFields): CursorTurnUsage {
+  // int64 fields. A counter the frame omits stays undefined; one it reports,
+  // even as zero, is kept.
+  const read = (field: number): number | undefined => {
+    const value = firstVarint(fields, field);
+    return value === undefined ? undefined : value;
+  };
+  return {
+    inputTokens: read(1),
+    outputTokens: read(2),
+    cacheReadTokens: read(3),
+    cacheWriteTokens: read(4),
+    reasoningTokens: read(5),
+  };
 }
 
 function decodeKv(fields: WireFields): CursorServerEvent {
@@ -179,6 +208,22 @@ function decodeKv(fields: WireFields): CursorServerEvent {
     };
   }
   return { type: "ignored" };
+}
+
+/**
+ * The authoritative per-turn counters Cursor sends on `TurnEndedUpdate`.
+ *
+ * `inputTokens` counts the whole prompt, cache hits and writes included, so
+ * fresh input is what remains after both are taken out. A counter the frame
+ * does not report stays undefined rather than zero, because zero would
+ * overwrite the streamed estimate with a number Cursor never stated.
+ */
+export interface CursorTurnUsage {
+  readonly inputTokens: number | undefined;
+  readonly outputTokens: number | undefined;
+  readonly cacheReadTokens: number | undefined;
+  readonly cacheWriteTokens: number | undefined;
+  readonly reasoningTokens: number | undefined;
 }
 
 export interface CursorModel {

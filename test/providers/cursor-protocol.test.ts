@@ -5,7 +5,7 @@
  * caller's agent loop.
  */
 import { expect, test } from "bun:test";
-import { decodeMessage, encodeVarint, firstBytes, firstString } from "../../src/providers/integrations/cursor/cursor-wire";
+import { decodeMessage, encodeVarint as encodeVarintBytes, firstBytes, firstString } from "../../src/providers/integrations/cursor/cursor-wire";
 import { decodeServerMessage, decodeUsableModels, encodeRunRequest } from "../../src/providers/integrations/cursor/cursor-messages";
 import { buildTurnInput } from "../../src/providers/integrations/cursor/cursor-translate";
 import { decodeArgValue, safeToolCallId } from "../../src/providers/integrations/cursor/cursor-turn";
@@ -49,9 +49,9 @@ test("a varint wider than 28 bits round-trips", () => {
   // A blob id length and a frame length both exceed 28 bits, and the probe
   // died on exactly that with `varint too long`.
   const value = 0x8000_0000;
-  const encoded = encodeVarint(value);
+  const encoded = encodeVarintBytes(value);
   expect(encoded.length).toBeGreaterThan(4);
-  const key = encodeVarint((1 << 3) | 0);
+  const key = encodeVarintBytes((1 << 3) | 0);
   const fields = decodeMessage(concatFields(key, encoded));
   expect(fields.get(1)?.[0]).toEqual({ kind: "varint", value });
 });
@@ -134,6 +134,31 @@ test("a resume turn carries no user message", () => {
   expect(firstBytes(action, 2)).toBeDefined();
 });
 
+test("a turn-ended frame carries the authoritative token counters", () => {
+  // TurnEndedUpdate is field 14 of InteractionUpdate, which is field 1 of the
+  // server message. Its counters are int64: input, output, cache read, cache
+  // write, reasoning, in that order.
+  const ended = concatFields(
+    encodeVarintField(1, 1000),
+    encodeVarintField(2, 36),
+    encodeVarintField(3, 800),
+    encodeVarintField(4, 50),
+    encodeVarintField(5, 12),
+  );
+  const frame = encodeNested(1, encodeNested(14, ended));
+  const decoded = decodeServerMessage(frame);
+  expect(decoded.type).toBe("turn_ended");
+  if (decoded.type === "turn_ended") {
+    expect(decoded.usage).toEqual({
+      inputTokens: 1000,
+      outputTokens: 36,
+      cacheReadTokens: 800,
+      cacheWriteTokens: 50,
+      reasoningTokens: 12,
+    });
+  }
+});
+
 test("server messages decode to the event the turn acts on", () => {
   // interaction_update (field 1) > text_delta (field 1) > text (field 1)
   const text = encodeNested(1, encodeNested(1, encodeStringField(1, "hi")));
@@ -194,7 +219,7 @@ test("a request ending on a tool result resumes instead of inventing a user mess
   expect(input.rootMessages).toHaveLength(2);
 });
 
-function encodeVarint(value: number): Uint8Array {
+function encodeVarintLocal(value: number): Uint8Array {
   const out: number[] = [];
   let rest = value >>> 0;
   while (rest > 0x7f) {
@@ -210,11 +235,11 @@ function encodeStringField(field: number, value: string): Uint8Array {
 }
 
 function encodeBytesField(field: number, value: Uint8Array): Uint8Array {
-  return concatFields(encodeVarint((field << 3) | 2), encodeVarint(value.length), value);
+  return concatFields(encodeVarintLocal((field << 3) | 2), encodeVarintLocal(value.length), value);
 }
 
 function encodeVarintField(field: number, value: number): Uint8Array {
-  return concatFields(encodeVarint((field << 3) | 0), encodeVarint(value));
+  return concatFields(encodeVarintLocal((field << 3) | 0), encodeVarintLocal(value));
 }
 
 function encodeNested(field: number, body: Uint8Array): Uint8Array {

@@ -7,7 +7,7 @@
  * as canonical tool calls for the caller to execute. The wire is Connect-RPC
  * over HTTP/2 to `api2.cursor.sh`.
  */
-import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
+import type { CanonicalEvent, CanonicalRequest, UsageRecord } from "../../../protocol/canonical-model";
 import { GatewayError } from "../../../protocol/gateway-error";
 import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
 import { CURSOR_PROVIDER_ID, upstreamModelId } from "./cursor-catalog";
@@ -57,7 +57,10 @@ export class CursorAdapter implements ProviderAdapter {
         userText: input.userText,
         tools: input.tools,
         timeoutMs: TURN_TIMEOUT_MS,
-        allowedNativeTools: [],
+        // Cursor's own web search. The allow-list hides every other native
+        // tool, so the model cannot shell out or edit files on the caller's
+        // behalf, but it can still search.
+        allowedNativeTools: ["web_search_tool_call"],
       });
     } catch (error) {
       throw gatewayErrorFor(error);
@@ -78,23 +81,7 @@ export class CursorAdapter implements ProviderAdapter {
             arguments_delta: JSON.stringify(event.args),
           };
         } else if (event.type === "usage") {
-          // The wire reports one counter with no prompt/completion split, so
-          // it is reported as output and the input fields stay unavailable
-          // rather than being invented.
-          yield {
-            type: "usage",
-            sequence_number: next(),
-            usage: {
-              input_tokens: 0,
-              cached_input_tokens: "unavailable",
-              cache_write_tokens: "unavailable",
-              uncached_input_tokens: "unavailable",
-              output_tokens: event.outputTokens,
-              reasoning_tokens: "unavailable",
-              estimated_cost: null,
-              total_tokens: event.outputTokens,
-            },
-          };
+          yield { type: "usage", sequence_number: next(), usage: usageRecord(event) };
         } else if (event.type === "done") {
           if (event.reason === "error") throw gatewayErrorForCode(event.code, event.error);
           yield {
@@ -111,6 +98,30 @@ export class CursorAdapter implements ProviderAdapter {
       throw gatewayErrorFor(error);
     }
   }
+}
+
+/**
+ * Cursor's final frame counts the whole prompt as input, cache included, so
+ * fresh input is what remains after the cache read and write are taken out.
+ * A counter the frame did not report stays `unavailable` rather than zero:
+ * zero would claim Cursor measured nothing, which is a different fact.
+ */
+function usageRecord(event: Extract<TurnEvent, { type: "usage" }>): UsageRecord {
+  const cacheRead = event.cacheReadTokens ?? 0;
+  const cacheWrite = event.cacheWriteTokens ?? 0;
+  const input = event.inputTokens;
+  const fresh = input === undefined ? undefined : Math.max(input - cacheRead - cacheWrite, 0);
+  const output = event.outputTokens ?? 0;
+  return {
+    input_tokens: fresh ?? 0,
+    cached_input_tokens: event.cacheReadTokens ?? "unavailable",
+    cache_write_tokens: event.cacheWriteTokens ?? "unavailable",
+    uncached_input_tokens: fresh ?? "unavailable",
+    output_tokens: output,
+    reasoning_tokens: event.reasoningTokens ?? "unavailable",
+    estimated_cost: null,
+    total_tokens: (fresh ?? 0) + output + cacheRead + cacheWrite,
+  };
 }
 
 function gatewayErrorForCode(code: string | undefined, message: string | undefined): GatewayError {

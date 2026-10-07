@@ -32,6 +32,8 @@ export const CURSOR_RUN_PATH = "/agent.v1.AgentService/Run" as const;
  * fixed window instead, which is what the account actually serves.
  */
 export const CURSOR_CONTEXT_LIMIT = 200_000;
+/** Cursor serves 64k of output on these rows. Leaving it unset let the helper's 16k default through. */
+export const CURSOR_OUTPUT_LIMIT = 64_000;
 
 /** What the catalog exposes for Cursor's automatic routing. */
 export const CURSOR_AUTO_MODEL_ID = "auto" as const;
@@ -75,5 +77,6 @@ export function cursorModel(modelId: string): ModelDefinition {
     providerId: CURSOR_PROVIDER_ID,
     endpoint: CURSOR_RUN_PATH,
     ctx: CURSOR_CONTEXT_LIMIT,
+    out: CURSOR_OUTPUT_LIMIT,
   });
 }

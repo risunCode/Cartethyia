@@ -8,7 +8,7 @@
  * here; the caller replays the result as history on its next request.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { encodeGetBlobResult, encodeRequestContextResult, encodeRunRequest, encodeSetBlobResult, decodeServerMessage, type CursorTool } from "./cursor-messages";
+import { encodeGetBlobResult, encodeRequestContextResult, encodeRunRequest, encodeSetBlobResult, decodeServerMessage, type CursorTool, type CursorTurnUsage } from "./cursor-messages";
 import { encodeMessage } from "./cursor-wire";
 import { openRunStream, type CursorCallContext } from "./cursor-transport";
 
@@ -16,7 +16,15 @@ export type TurnEvent =
   | { readonly type: "text"; readonly delta: string }
   | { readonly type: "thinking"; readonly delta: string }
   | { readonly type: "tool_call"; readonly id: string; readonly name: string; readonly args: Record<string, unknown> }
-  | { readonly type: "usage"; readonly outputTokens: number }
+  | {
+      readonly type: "usage";
+      readonly inputTokens: number | undefined;
+      readonly outputTokens: number | undefined;
+      readonly cacheReadTokens: number | undefined;
+      readonly cacheWriteTokens: number | undefined;
+      readonly reasoningTokens: number | undefined;
+    }
+  | { readonly type: "tool_use"; readonly name: string; readonly detail: string }
   | { readonly type: "done"; readonly reason: "stop" | "tool_calls" | "error"; readonly error?: string; readonly code?: string };
 
 export interface RunTurnOptions extends CursorCallContext {
@@ -60,6 +68,10 @@ export async function* runTurn(options: RunTurnOptions): AsyncGenerator<TurnEven
   })));
 
   let toolCallSeen = false;
+  // `tokenDelta` frames are a running output estimate only. A captured turn
+  // summed 22 against a final 36, and they never carry input or cache, so
+  // they are accumulated as a fallback the final frame replaces.
+  let streamedOutput = 0;
   for await (const frame of stream.frames()) {
     if (frame.end) {
       yield endStreamEvent(frame.payload, toolCallSeen);
@@ -77,13 +89,18 @@ export async function* runTurn(options: RunTurnOptions): AsyncGenerator<TurnEven
       continue;
     }
     if (event.type === "request_context") {
-      stream.send(encodeRequestContextResult(event.id, event.execId, { tools: options.tools }));
+      stream.send(encodeRequestContextResult(event.id, event.execId, {
+        tools: options.tools,
+        webSearchEnabled: options.allowedNativeTools.includes("web_search_tool_call"),
+      }));
       continue;
     }
-    if (event.type === "text" && event.delta !== "") yield { type: "text", delta: event.delta };
+    if (event.type === "native_tool") yield { type: "tool_use", name: event.name, detail: event.detail };
+    else if (event.type === "text" && event.delta !== "") yield { type: "text", delta: event.delta };
     else if (event.type === "thinking" && event.delta !== "") yield { type: "thinking", delta: event.delta };
-    else if (event.type === "usage") yield { type: "usage", outputTokens: event.tokens };
+    else if (event.type === "usage") streamedOutput += event.tokens;
     else if (event.type === "turn_ended") {
+      yield usageEvent(event.usage, streamedOutput);
       yield { type: "done", reason: toolCallSeen ? "tool_calls" : "stop" };
       return;
     } else if (event.type === "tool_call") {
@@ -96,7 +113,26 @@ export async function* runTurn(options: RunTurnOptions): AsyncGenerator<TurnEven
       };
     }
   }
+  yield usageEvent(undefined, streamedOutput);
   yield { type: "done", reason: toolCallSeen ? "tool_calls" : "stop" };
+}
+
+/**
+ * The final frame wins wherever it reports a number. `inputTokens` counts the
+ * whole prompt, cache included, so fresh input is what remains after the
+ * cache read and write are taken out. A frame that reports nothing leaves the
+ * streamed output estimate in place.
+ */
+function usageEvent(final: CursorTurnUsage | undefined, streamedOutput: number): TurnEvent {
+  const reported = final !== undefined && [final.inputTokens, final.outputTokens, final.cacheReadTokens, final.cacheWriteTokens].some((value) => value !== undefined && value > 0);
+  return {
+    type: "usage",
+    inputTokens: reported ? final?.inputTokens : undefined,
+    outputTokens: reported && final?.outputTokens !== undefined ? final.outputTokens : streamedOutput,
+    cacheReadTokens: reported ? final?.cacheReadTokens : undefined,
+    cacheWriteTokens: reported ? final?.cacheWriteTokens : undefined,
+    reasoningTokens: reported ? final?.reasoningTokens : undefined,
+  };
 }
 
 function decodeArgs(raw: ReadonlyMap<string, Uint8Array>): Record<string, unknown> {
