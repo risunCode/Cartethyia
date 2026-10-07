@@ -168,14 +168,30 @@ export function buildActivityReportEvent(args: {
 }
 
 /**
- * Sends one growth-activity report (`POST {base}/v2/report`, i.e. the
- * versioned billing-meter path joined the same way as the status/claim
- * routes: `VERSION_SEGMENT` supplies `/v2` for the bare `workbuddy` base and
- * nothing for `cb`/`cbcn`, which already end in it).
+ * How the growth report is sent.
  *
- * One report per account per day lights the login streak; more is rate-limit
- * bait, so callers enforce the daily budget (ledger + UI gating) and this
- * stays a single-shot sender.
+ * The billing facade scores conversation activity, and one event reads as one
+ * chat send. A single event did not move the growth tasks; four events per
+ * batch, sent twice with a pause between the rounds, is what does. The pause
+ * is what keeps the two rounds from landing as one burst. Both numbers apply
+ * to every buddy variant — the request is built the same way for `cb`,
+ * `cbcn`, and `workbuddy`, so none of them can drift back to a single shot.
+ */
+export const ACTIVITY_REPORT_EVENTS_PER_BATCH = 4;
+export const ACTIVITY_REPORT_ROUNDS = 2;
+export const ACTIVITY_REPORT_ROUND_DELAY_MS = 1_500;
+
+/**
+ * Sends the growth-activity report (`POST {base}/v2/report`, the versioned
+ * billing-meter path joined the same way as the status/claim routes:
+ * `VERSION_SEGMENT` supplies `/v2` for the bare `workbuddy` base and nothing
+ * for `cb`/`cbcn`, which already end in it).
+ *
+ * Two rounds of four events, paused between rounds. Each event carries its
+ * own conversation and request id: the facade drops a repeated id as a
+ * duplicate, so a batch of identical events would score as one. The first
+ * round that fails stops the sequence — a credential or transport failure
+ * will not be fixed by the second round, and sending it only adds load.
  */
 export async function fetchBuddyActivityReport(args: {
   readonly providerId: string;
@@ -184,6 +200,9 @@ export async function fetchBuddyActivityReport(args: {
   readonly userId: string;
   readonly fetcher: typeof fetch;
   readonly conversationId?: string;
+  /** Pause between rounds. Injectable so a test does not wait on the real delay. */
+  readonly roundDelayMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
 }): Promise<BuddyActivityReportResult> {
   const { providerId, accountId, credential, userId, fetcher } = args;
   const base = { providerId, accountId, error: null };
@@ -199,38 +218,49 @@ export async function fetchBuddyActivityReport(args: {
     "X-User-Id": userId,
   };
   const url = `${providerBaseUrl(providerId)}${VERSION_SEGMENT[providerId] ?? ""}${ACTIVITY_REPORT_PATH}`;
-  const event = buildActivityReportEvent({
-    conversationId: args.conversationId ?? `activity-${Date.now()}`,
-    userId,
-  });
-  let payload: unknown;
-  try {
-    const response = await fetcher(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify([event]),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+  const delayMs = args.roundDelayMs ?? ACTIVITY_REPORT_ROUND_DELAY_MS;
+  const sleep = args.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const conversationId = args.conversationId ?? `activity-${Date.now()}`;
+
+  for (let round = 0; round < ACTIVITY_REPORT_ROUNDS; round += 1) {
+    if (round > 0 && delayMs > 0) await sleep(delayMs);
+    const events = Array.from({ length: ACTIVITY_REPORT_EVENTS_PER_BATCH }, (_, index) => {
+      const sequence = round * ACTIVITY_REPORT_EVENTS_PER_BATCH + index;
+      return buildActivityReportEvent({
+        conversationId: `${conversationId}-${sequence}`,
+        requestId: `${conversationId}-req-${sequence}`,
+        userId,
+      });
     });
-    if (response.status === 401 || response.status === 403) {
-      return { ...base, state: "error", error: "Credential invalid or expired." };
+    let payload: unknown;
+    try {
+      const response = await fetcher(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(events),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (response.status === 401 || response.status === 403) {
+        return { ...base, state: "error", error: "Credential invalid or expired." };
+      }
+      if (!response.ok) {
+        return { ...base, state: "error", error: `Activity report API error (${response.status}).` };
+      }
+      payload = await response.text().then((text) => (text ? JSON.parse(text) : null));
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return { ...base, state: "error", error: "Activity report response returned invalid JSON." };
+      }
+      return {
+        ...base,
+        state: "error",
+        error: error instanceof Error ? error.message : "Activity report request failed.",
+      };
     }
-    if (!response.ok) {
-      return { ...base, state: "error", error: `Activity report API error (${response.status}).` };
+    const code = envelopeCode(payload);
+    if (code !== null && code !== 0) {
+      return { ...base, state: "error", error: `Activity report error (code ${code}).` };
     }
-    payload = await response.text().then((text) => (text ? JSON.parse(text) : null));
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return { ...base, state: "error", error: "Activity report response returned invalid JSON." };
-    }
-    return {
-      ...base,
-      state: "error",
-      error: error instanceof Error ? error.message : "Activity report request failed.",
-    };
-  }
-  const code = envelopeCode(payload);
-  if (code !== null && code !== 0) {
-    return { ...base, state: "error", error: `Activity report error (code ${code}).` };
   }
   return { ...base, state: "reported" };
 }
