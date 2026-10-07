@@ -1000,11 +1000,11 @@
   pointer-events: none;
   /* A veil over the key art. The art stays visible enough to read through a
      glass card; the page color keeps text legible. Dark art needs less veil. */
-  --console-backdrop-veil: 0.82;
+  --console-backdrop-veil: 0.45;
   background: color-mix(in srgb, var(--page-bg) calc(var(--console-backdrop-veil) * 100%), transparent);
 }
 html[data-theme="dark"] .app-bg {
-  --console-backdrop-veil: 0.62;
+  --console-backdrop-veil: 0.3;
 }
 @media (max-width: 1024px) {
   .app-sidebar {
