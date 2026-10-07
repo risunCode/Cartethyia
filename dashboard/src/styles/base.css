@@ -366,6 +366,12 @@ html[data-glass-depth="2"] {
   box-shadow: var(--shadow-card);
 }
 
+/* The auth card sits over key art, where the colored card glow reads as a
+   halo. It keeps a flat shadow of its own. */
+.auth-window.card-solid {
+  box-shadow: none;
+}
+
 .card-solid {
   background: var(--surface-1);
 }
@@ -941,7 +947,7 @@ main > .state-viewport {
   /* The login and setup screens carry their own key art. The veil sits over
      the image so the card stays readable; it is the only thing that changes
      between themes. */
-  --auth-backdrop-veil: 0;
+  --auth-backdrop-veil: 0.35;
   background-image:
     linear-gradient(
       color-mix(in srgb, var(--page-bg) calc(var(--auth-backdrop-veil) * 100%), transparent),
@@ -955,14 +961,19 @@ main > .state-viewport {
 }
 
 [data-theme="dark"] .auth-viewport {
-  --auth-backdrop-veil: 0;
+  --auth-backdrop-veil: 0.5;
 }
 
 .auth-window {
   width: min(100%, 420px);
   border-radius: 24px;
   padding: 36px 32px;
-  box-shadow: 0 24px 70px -15px rgba(0, 0, 0, 0.45);
+  /* The key art shows through the card. A flat shadow only — the shared card
+     shadow carries a colored glow that reads as a halo over the art. */
+  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  box-shadow: 0 18px 40px -20px rgba(0, 0, 0, 0.5);
 }
 
 .auth-header {
@@ -981,7 +992,6 @@ main > .state-viewport {
   font-size: 22px;
   font-weight: 800;
   margin: 0 auto 14px;
-  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .auth-title {
