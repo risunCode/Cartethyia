@@ -1,4 +1,4 @@
-import { ChevronDown, Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Eye, EyeOff, Plus, Server, Trash2 } from "lucide-react";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -11,7 +11,7 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { modelCoolingCount } from "../../components/AccountCooldown";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
-import { Card, CardBody } from "../../components/ui/card";
+import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
@@ -1068,6 +1068,9 @@ export default function Providers(): ReactNode {
 
   return (
     <Stack gap="24px">
+      <Card>
+        <CardHeader title="Providers" subtitle="Connected pinned first · A–Z" icon={<Server size={16} />} />
+        <CardBody style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: "4px" }}>
           {(["llm", "search"] as const).map((t) => (
@@ -1140,6 +1143,8 @@ export default function Providers(): ReactNode {
           </section>
         ))
       )}
+        </CardBody>
+      </Card>
     </Stack>
   );
 }
