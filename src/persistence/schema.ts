@@ -606,6 +606,14 @@ export const apiKeys = pgTable(
     createdAt: createdAtColumn(),
     enabled: boolean("enabled").notNull().default(true),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /**
+     * The tenant's mandatory gateway key. Seeded at first boot whether or not
+     * `CARTETHYIA_API_KEY` was configured, and the one key the console refuses
+     * to revoke — it may only be rotated. A column rather than a label match,
+     * so renaming the key cannot break the Studio lookup or let a second
+     * default be created.
+     */
+    isDefault: boolean("is_default").notNull().default(false),
   },
   (table) => [
     uniqueIndex("api_keys_key_hash_idx").on(table.keyHash),

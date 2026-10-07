@@ -192,6 +192,8 @@ export interface ApiKeyFixtureOptions {
   readonly keyMode?: string;
   readonly parentKeyId?: string | null;
   readonly issuedClientIp?: string | null;
+  /** Marks the row as the tenant's mandatory gateway key. */
+  readonly isDefault?: boolean;
 }
 
 export interface ApiKeyFixture {
@@ -218,8 +220,8 @@ export async function createApiKey(
        (tenant_id, key_hash, key_mode, parent_key_id, issued_client_ip, label, scopes,
         requests_per_minute, daily_token_limit, monthly_token_limit, lifetime_token_budget,
         max_concurrent_requests, model_access_mode, model_list, client_router_denylist,
-        revoked_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        revoked_at, is_default)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
      returning id`,
     [
       options.tenantId,
@@ -240,6 +242,7 @@ export async function createApiKey(
         ? null
         : JSON.stringify(options.clientRouterDenylist),
       options.revokedAt ?? null,
+      options.isDefault ?? false,
     ],
   );
   const id = result.rows[0]!.id;

@@ -2,7 +2,7 @@ import { returningRows, assertMutationApplied } from "./row-coercion";
 import type { ConsoleCredentialService } from "./credentials";
 import { readUsers } from "./user-store";
 // Console authentication, sessions, lockouts, first-boot setup, and audit.
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import {
   apiKeys,
@@ -12,7 +12,7 @@ import {
 
 import { hashSecret, encryptCredential } from "../../security/crypto";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
-import { DEFAULT_API_KEY_LABEL } from "../api-keys/contracts";
+import { DEFAULT_API_KEY_LABEL, DEFAULT_API_KEY_PREFIX } from "../api-keys/contracts";
 import { resolveDefaultGatewayApiKey } from "../../config/runtime";
 import { TENANT_KEY_SCOPES } from "../../security/access-control";
 import { isRecord } from "../../protocol/codecs";
@@ -122,26 +122,31 @@ export class FirstBootSetupService {
 
       await this.createConsoleUser(db, tenantId, password, username, displayName);
       const defaultApiKey = resolveDefaultGatewayApiKey();
-      if (defaultApiKey) {
-        const keyHash = hashSecret(defaultApiKey);
-        const existingApiKey = await db
-          .select()
-          .from(apiKeys)
-          .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.keyHash, keyHash)))
-          .limit(1);
-        if (existingApiKey.length === 0) {
-          const prefix = defaultApiKey.slice(0, 3);
-          await db.insert(apiKeys).values({
-            id: randomUUID(),
-            tenantId,
-            keyHash,
-            label: DEFAULT_API_KEY_LABEL,
-            scopes: TENANT_KEY_SCOPES,
-            keyPrefix: prefix,
-            keyEncrypted: encryptCredential(defaultApiKey),
-            requestsPerMinute: 240,
-          });
-        }
+      // The gateway key is mandatory, not optional: routing keys every request
+      // off it, and Studio hands it to the CLI. When `CARTETHYIA_API_KEY` is
+      // unset the secret is generated here with the same strength as the
+      // encryption key, so an install that never touched the variable still
+      // boots with a usable key instead of failing later with
+      // "the default gateway API key is missing".
+      const secret = defaultApiKey ?? `${DEFAULT_API_KEY_PREFIX}${randomBytes(32).toString("base64url")}`;
+      const keyHash = hashSecret(secret);
+      const existingApiKey = await db
+        .select({ id: apiKeys.id })
+        .from(apiKeys)
+        .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.isDefault, true)))
+        .limit(1);
+      if (existingApiKey.length === 0) {
+        await db.insert(apiKeys).values({
+          id: randomUUID(),
+          tenantId,
+          keyHash,
+          label: DEFAULT_API_KEY_LABEL,
+          scopes: TENANT_KEY_SCOPES,
+          keyPrefix: secret.slice(0, 3),
+          keyEncrypted: encryptCredential(secret),
+          requestsPerMinute: 240,
+          isDefault: true,
+        });
       }
     };
 

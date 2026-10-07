@@ -75,6 +75,8 @@ export interface ApiKeyResponse {
   readonly enabled: boolean;
   readonly keyMode: ApiKeyMode;
   readonly scopes: readonly AccessScope[];
+  /** The tenant's mandatory gateway key: rotatable, never revocable. */
+  readonly isDefault: boolean;
   readonly keyPrefix?: string;
   readonly parentKeyId?: string;
   readonly requestsPerMinute?: number;
@@ -316,6 +318,12 @@ export function sanitizeApiKeyResponse(record: ApiKeyRecord): ApiKeyResponse {
     enabled: record.enabled,
     keyMode: record.keyMode,
     scopes: record.scopes,
+    /**
+     * Drives the console: the default key offers rotate only, every other key
+     * can be renamed and revoked. Without this the UI would have to guess from
+     * the label, which stops being meaningful the moment the key is renamed.
+     */
+    isDefault: record.isDefault === true,
     ...(record.keyPrefix === undefined ? {} : { keyPrefix: record.keyPrefix }),
     ...(record.parentKeyId === undefined ? {} : { parentKeyId: record.parentKeyId }),
     ...(record.notesTitle === undefined ? {} : { notesTitle: record.notesTitle }),

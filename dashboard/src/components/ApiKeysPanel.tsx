@@ -171,6 +171,11 @@ export function ApiKeysPanel(): ReactNode {
                     <Badge tone={key.keyMode === "share" ? "accent" : "default"}>
                       {key.keyMode === "share" ? "share template" : "personal"}
                     </Badge>
+                    {key.isDefault ? (
+                      <Badge tone="warn" title="Required by the gateway. Rotate it; it cannot be deleted.">
+                        default · rotate only
+                      </Badge>
+                    ) : null}
                   </div>
                   <code
                     style={{
@@ -265,15 +270,17 @@ export function ApiKeysPanel(): ReactNode {
                       Rotate
                     </Button>
                   )}
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    icon={<Trash2 size={13} />}
-                    onClick={() => setRevokeTarget(key)}
-                    disabled={Boolean(key.revokedAt) || revokeKey.isPending}
-                  >
-                    Revoke
-                  </Button>
+                  {!key.revokedAt && !key.isDefault && (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      icon={<Trash2 size={13} />}
+                      onClick={() => setRevokeTarget(key)}
+                      disabled={revokeKey.isPending}
+                    >
+                      Revoke
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

@@ -223,6 +223,7 @@ CREATE TABLE "api_keys" (
   "notes_title" text,
   "notes_subtitle" text,
   "notes_body" text,
+  "is_default" boolean DEFAULT false NOT NULL,
   "sort_index" integer DEFAULT 0 NOT NULL,
   CONSTRAINT "api_keys_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade,
   CONSTRAINT "api_keys_parent_key_id_api_keys_id_fk" FOREIGN KEY ("parent_key_id") REFERENCES "api_keys"("id") ON DELETE cascade,
@@ -401,6 +402,8 @@ CREATE INDEX "api_keys_enabled_tenant_idx" ON "api_keys" USING btree ("tenant_id
 CREATE INDEX "api_keys_parent_key_id_idx" ON "api_keys" USING btree ("parent_key_id");
 --> statement-breakpoint
 CREATE UNIQUE INDEX "api_keys_active_shared_ip_uidx" ON "api_keys" USING btree ("issued_client_ip_key") WHERE "parent_key_id" IS NOT NULL AND "revoked_at" IS NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX "api_keys_one_default_per_tenant_uidx" ON "api_keys" USING btree ("tenant_id") WHERE "is_default" = true AND "revoked_at" IS NULL;
 --> statement-breakpoint
 CREATE UNIQUE INDEX "models_provider_model_route_uidx" ON "models" USING btree ("provider_id", "model_id", "endpoint_path");
 --> statement-breakpoint

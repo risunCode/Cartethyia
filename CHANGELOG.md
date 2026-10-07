@@ -1,5 +1,27 @@
 ## Unreleased
 
+- The default gateway API key is now mandatory, renamable, and undeletable.
+  Three separate defects made it unmanageable, and they surfaced as one symptom
+  from the console — a key that could not be touched:
+  - **It was sometimes never created.** Seeding was gated on
+    `CARTETHYIA_API_KEY` being set, so an install that never configured it
+    booted with no gateway key and failed later, at Studio, with "the default
+    gateway API key is missing". It is now always seeded, and when the variable
+    is unset the secret is generated at the same strength as the encryption key
+    (32 random bytes) instead of being skipped.
+  - **It could not be renamed.** `label` was accepted and validated by the PATCH
+    body but never copied into the patch sent to the store, so saving a new name
+    was a silent no-op.
+  - **It could be revoked.** Revoke did not distinguish it, so the one key
+    routing depends on could be removed, stranding the installation with no way
+    to authenticate. Revoke is now refused for it; rotate replaces the secret
+    and keeps the key present, which is what the console offers instead.
+  It is identified by a new `is_default` column rather than by its label, so
+  renaming cannot break the Studio lookup and a partial unique index rejects a
+  second live default per tenant. Migration `0004_api_keys_is_default.sql`
+  promotes a key seeded by an earlier build, so an existing installation keeps
+  its key rather than seeding a duplicate.
+
 - Mistral and DeepSeek now carry a model catalog. Both were registered as
   generic OpenAI-compatible providers with no catalog at all, so every model
   they serve was absent from the console and unavailable to routing until a

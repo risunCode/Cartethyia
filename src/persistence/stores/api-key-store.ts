@@ -18,6 +18,8 @@ export interface ApiKeyRecord {
   readonly label: string;
   readonly enabled: boolean;
   readonly scopes: readonly AccessScope[];
+  /** The tenant's mandatory gateway key: rotatable, never revocable. */
+  readonly isDefault: boolean;
   /** Non-secret prefix configured on a key or used to identify a share child. */
   readonly keyPrefix?: string;
   /** Encrypted copy exists only for personal keys used by Studio handoff. */
@@ -211,6 +213,7 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
       tenantId: row.tenantId,
       keyHash: row.keyHash,
       keyMode: row.keyMode,
+      isDefault: row.isDefault,
       ...(row.parentKeyId === null ? {} : { parentKeyId: row.parentKeyId }),
       ...(row.issuedClientIp === null ? {} : { issuedClientIp: row.issuedClientIp }),
       ...(row.issuedClientIpKey === null

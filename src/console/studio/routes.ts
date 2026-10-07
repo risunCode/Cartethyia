@@ -12,7 +12,6 @@ import type { AuditSink } from "../audit/contracts";
 import { isRecord } from "../../protocol/codecs";
 import type { ValidatedFetch } from "../../network/outbound-fetch";
 import { decryptCredentialToString } from "../../security/crypto";
-import { DEFAULT_API_KEY_LABEL } from "../api-keys/contracts";
 import {
   boundedString,
   normalizeStudioMessages,
@@ -241,9 +240,9 @@ export function createStudioOperations(config: StudioConfig) {
     ): Promise<{ key: string; keyId: string; prefix: string }> {
       const authorized = requireTenantScope(access, "dashboard:write");
       const keys = await config.keyStore.list(authorized.tenantId);
-      const defaultKey = keys.find(
-        (key) => key.label === DEFAULT_API_KEY_LABEL && key.revokedAt === undefined,
-      );
+      // Matched on the column, not the label: the key is renamable, so a label
+      // match would lose it the moment an operator gave it a real name.
+      const defaultKey = keys.find((key) => key.isDefault === true && key.revokedAt === undefined);
       if (!defaultKey) {
         throw new ConsoleDomainError(
           "default_key_missing",

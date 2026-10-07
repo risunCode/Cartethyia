@@ -120,6 +120,9 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
         keyHash: generated?.hash ?? null,
         keyMode,
         scopes,
+        // Only first boot seeds the default; a key created from the console is
+        // never it, so it stays renamable and revocable.
+        isDefault: false,
         keyPrefix: generated?.prefix ?? resolveKeyPrefix(request.keyPrefix),
         ...(generated ? { keyEncrypted: encryptCredential(generated.secret) } : {}),
         ...(request.notesTitle === undefined ? {} : { notesTitle: request.notesTitle }),
@@ -228,6 +231,13 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
         ...(patchRequest.enabled === undefined ? {} : { enabled: patchRequest.enabled }),
         ...credentialPatch,
         ...(scopes === undefined ? {} : { scopes }),
+        // Rename. The label was accepted by the body schema and validated, but
+        // never copied into the patch — so "save" silently kept the old name and
+        // the key looked unrenamable. Blank falls back to the existing label
+        // rather than wiping it, since `label` is NOT NULL.
+        ...(patchRequest.label === undefined
+          ? {}
+          : { label: patchRequest.label.trim() === "" ? current.label : patchRequest.label.trim() }),
         ...(patchRequest.notesTitle === undefined
           ? {}
           : { notesTitle: patchRequest.notesTitle.trim() === "" ? null : patchRequest.notesTitle }),
@@ -336,6 +346,18 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
     },
     async revokeKey(access: AccessDecision | undefined, keyId: string): Promise<{ success: true }> {
       const authorized = requireTenantScope(access, "dashboard:write");
+      const target = await config.store.get(authorized.tenantId, keyId);
+      if (!target || target.revokedAt !== undefined)
+        throw new ConsoleDomainError("key_not_found", 404, "Key not found");
+      // The gateway routes every request off this key and Studio hands it to
+      // the CLI, so removing it would strand the installation with no way to
+      // authenticate. Rotation replaces the secret and keeps the key present.
+      if (target.isDefault === true)
+        throw new ConsoleDomainError(
+          "default_key_not_revocable",
+          409,
+          "The default gateway API key cannot be deleted. Rotate it instead.",
+        );
       const revoked = await config.store.revoke(authorized.tenantId, keyId, new Date());
       if (!revoked) throw new ConsoleDomainError("key_not_found", 404, "Key not found");
       const children = await config.store.listChildren(authorized.tenantId, keyId);
