@@ -47,6 +47,13 @@ export type {
   UsageSummaryTotals,
 } from "../../../src/console/observability/contracts";
 
+// The update badge compares the running version against the latest public
+// release tag. Both the payload shape and the comparison live in the backend's
+// `updates/` domain — the version module is pure, so importing it as a value
+// keeps the dashboard from carrying a second, drifted copy of the ordering.
+export type { LatestRelease } from "../../../src/console/updates/repository-updates";
+export { isNewerRelease } from "../../../src/console/updates/version-compare";
+
 export type {
   AccountInflightReading,
   ProviderResponse,

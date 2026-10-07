@@ -32,9 +32,11 @@ import { consoleRequest } from "../data/api";
 import { queryClient } from "../data/query-client";
 import { prefetchRouteIntent } from "../data/route-prefetch";
 import { usePullToRefresh } from "../hooks/use-pull-to-refresh";
-import { useSystemHealth } from "../hooks/system";
+import { useSystemHealth, useLatestRelease } from "../hooks/system";
 import { useProviders } from "../hooks/providers";
-import { DASHBOARD_RELEASE_LABEL } from "../lib/version";
+import { DASHBOARD_RELEASE_LABEL, DASHBOARD_VERSION } from "../lib/version";
+import { GITHUB_RELEASES_URL } from "../lib/constants";
+import { isNewerRelease } from "../data/contracts";
 import type { SessionUser } from "../data/contracts";
 import { formatUptime } from "../lib/format";
 
@@ -689,6 +691,13 @@ export function DashboardShell({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const healthQuery = useSafeSystemHealth();
+  const releaseQuery = useLatestRelease();
+  // The running version is the gateway's, not the bundled dashboard's: the
+  // badge answers "is the install behind", and the install is what an operator
+  // upgrades. Falls back to the dashboard label so the badge still reads.
+  const localVersion = healthQuery.data?.version ?? DASHBOARD_VERSION;
+  const latestTag = releaseQuery.data?.tag_name?.replace(/^v/, "");
+  const updateAvailable = isNewerRelease(localVersion, latestTag);
   const providersQuery = useProviders();
   const drawerPresence = usePresence(drawerOpen);
   const pull = usePullToRefresh(() => queryClient.invalidateQueries());
@@ -780,6 +789,22 @@ export function DashboardShell({
               </div>
               <div className="brand-version-badge">
                 <span>{DASHBOARD_RELEASE_LABEL}</span>
+                {updateAvailable ? (
+                  <a
+                    href={releaseQuery.data?.html_url ?? GITHUB_RELEASES_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="brand-update-badge"
+                    title={
+                      latestTag === undefined
+                        ? "A newer Cartethyia release is available on GitHub"
+                        : `Update available on GitHub: v${latestTag}`
+                    }
+                  >
+                    <Rocket size={9} className="shrink-0" aria-hidden="true" />
+                    update
+                  </a>
+                ) : null}
               </div>
             </div>
           </div>

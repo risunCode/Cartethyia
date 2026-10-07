@@ -34,6 +34,7 @@ import { DrizzleAuditReadStore } from "./audit/store";
 import { createStudioRoutes } from "./studio/routes";
 import { DrizzleStudioSessionStore } from "./studio/store";
 import { createPerformanceRoutes } from "./observability/performance";
+import { createUpdateRoutes } from "./updates/routes";
 import { createBackupRoutes } from "./backup/routes";
 import { BackupService } from "./backup/service";
 import type { ConsoleCredentialService } from "./auth/credentials";
@@ -227,6 +228,7 @@ export function registerConsoleDomains(
   }));
   console.use(createLogRoutes({ accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder }));
   console.use(createPerformanceRoutes({ accessResolver: ctx.accessResolver }));
+  console.use(createUpdateRoutes());
   console.use(createAuditRoutes({ store: auditReadStore, accessResolver: ctx.accessResolver }));
   if (ctx.modelStrikes) {
     console.use(createModelAbuseRoutes({

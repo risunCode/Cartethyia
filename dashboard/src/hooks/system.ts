@@ -2,7 +2,7 @@ import { consoleRequest, fetchSessionUser } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import { queryKeys } from "../data/query-keys";
 import type { SessionUser, UsageDimension } from "../data/contracts";
-import { assertAuditListPage, assertSystemHealth, assertUsageBy, assertUsageChart, assertUsageRequestDetail, assertUsageRequests, assertUsageSummary, querySignal } from "../lib/api/validators";
+import { assertAuditListPage, assertLatestRelease, assertSystemHealth, assertUsageBy, assertUsageChart, assertUsageRequestDetail, assertUsageRequests, assertUsageSummary, querySignal } from "../lib/api/validators";
 import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
 import { useQuery } from "@tanstack/react-query";
 
@@ -31,6 +31,28 @@ export function useSystemHealth() {
       ),
     ...DASHBOARD_QUERY_OPTIONS,
     refetchInterval: 15_000,
+  });
+}
+
+/**
+ * Loads the latest public GitHub release, or `null` when none is known.
+ *
+ * Proxied through the console API rather than fetched from the browser, so a
+ * GitHub outage or rate limit is not one operator's console error. Checked on
+ * a slow cadence and never retried: a release is published rarely, and a failed
+ * check has no answer to retry into existence.
+ */
+export function useLatestRelease() {
+  return useQuery({
+    queryKey: queryKeys.releases.githubLatest,
+    queryFn: (context) =>
+      consoleRequest<unknown>("/updates/release", { signal: querySignal(context) }).then(
+        assertLatestRelease,
+      ),
+    ...DASHBOARD_QUERY_OPTIONS,
+    staleTime: 30 * 60_000,
+    refetchInterval: 30 * 60_000,
+    retry: false,
   });
 }
 

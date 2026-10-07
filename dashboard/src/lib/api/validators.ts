@@ -15,6 +15,7 @@ import type {
   ProviderResponse,
   ProviderRoutingResponse,
   SystemHealthResponse,
+  LatestRelease,
   UsageByResponse,
   UsageChartResponse,
   UsageRequestDetail,
@@ -32,6 +33,23 @@ function invalidResponse(message: string): ApiErrorShape {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+/**
+ * Validates the latest-release payload. `null` is a valid answer — it means no
+ * release is known, which is what the server returns when GitHub is unreachable
+ * — so an absent badge, not an error, is what the operator sees.
+ */
+export function assertLatestRelease(value: unknown): LatestRelease | null {
+  if (value === null) return null;
+  if (
+    !isRecord(value) ||
+    typeof value.tag_name !== "string" ||
+    typeof value.html_url !== "string"
+  ) {
+    throw invalidResponse("Invalid release response");
+  }
+  return { tag_name: value.tag_name, html_url: value.html_url };
 }
 
 export function assertSystemHealth(value: unknown): SystemHealthResponse {
