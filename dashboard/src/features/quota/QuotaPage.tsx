@@ -28,6 +28,7 @@ import { HealthEventsModal } from "../../components/HealthEventsModal";
 import { Select } from "../../components/ui/select";
 import { Toolbar } from "../../components/ui/toolbar";
 import { Stack } from "../../components/ui/stack";
+import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { toast } from "../../lib/toast";
 import {
   useQuotaOverview,
@@ -865,13 +866,10 @@ export default function QuotaPage(): ReactNode {
 
   return (
     <Stack gap="16px" className="dashboard-page" style={{ minHeight: 0, flex: 1 }}>
-      <Toolbar className="page-toolbar-sticky">
-        <SlidersHorizontal
-          size={14}
-          className="mx-1 text-[var(--text-tertiary)]"
-          style={{ color: "var(--text-tertiary)" }}
-          aria-hidden="true"
-        />
+      <Card style={filteredAccounts.length === 0 && !isLoading && !isError ? { minHeight: "min(78dvh, calc(100dvh - 160px))", display: "flex", flexDirection: "column" } : undefined}>
+        <CardHeader title="Quota" subtitle="Provider account limits and what is left of them" icon={<SlidersHorizontal size={16} />} />
+        <CardBody style={filteredAccounts.length === 0 && !isLoading && !isError ? { flex: 1, display: "flex", flexDirection: "column" } : undefined}>
+      <Toolbar>
         <Select
           aria-label="Filter quota by provider"
           value={providerFilter}
@@ -1019,6 +1017,8 @@ export default function QuotaPage(): ReactNode {
           ))}
         </div>
       )}
+        </CardBody>
+      </Card>
 
       {healthTarget && (
         <HealthEventsModal

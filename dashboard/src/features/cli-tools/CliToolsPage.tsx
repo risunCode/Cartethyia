@@ -2,7 +2,7 @@ import { Terminal, Wrench } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
-import { Card, CardHeader } from "../../components/ui/card";
+import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
 import { SectionHeading } from "../../components/ui/layout";
 import { Inline } from "../../components/ui/inline";
@@ -59,13 +59,12 @@ export default function CliTools(): ReactNode {
     <Stack gap="16px">
       <Card>
         <CardHeader
-          title="Overview"
+          title="CLI Tools"
           subtitle={`${configuredCount}/${fileTools.length} file-injected tools configured`}
           icon={<Terminal size={16} />}
           action={<Badge tone="accent">{`${tools.length} tools`}</Badge>}
         />
-      </Card>
-
+        <CardBody style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <section style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         <SectionHeading
           title={`File-injected tools (${fileTools.length})`}
@@ -234,6 +233,8 @@ export default function CliTools(): ReactNode {
           ))}
         </div>
       </section>
+        </CardBody>
+      </Card>
     </Stack>
   );
 }
