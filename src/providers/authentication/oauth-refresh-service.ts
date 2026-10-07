@@ -414,6 +414,12 @@ export async function reconcileStaticTokenAccounts(db: CartethyiaDatabase): Prom
  * Accounts with no recorded expiry are always due — an account the sweep cannot
  * see is one whose token dies silently, which is the failure this guards.
  */
+/**
+ * Rows one due-scan reads. The expiry test runs in JS because the lead is per
+ * provider, so the bound has to sit on the query itself.
+ */
+const OAUTH_DUE_SCAN_LIMIT = 2_000;
+
 export async function loadDueOAuthAccounts(
   db: CartethyiaDatabase,
   skewMs?: number,
@@ -432,7 +438,12 @@ export async function loadDueOAuthAccounts(
         eq(providerAccounts.credentialKind, "oauth"),
         eq(providerAccounts.status, "active"),
       ),
-    );
+    )
+    // The due test is applied in JS, so this limit bounds the scan, not the
+    // result. One pass cannot read the whole table; accounts past the limit
+    // are reached on a later tick once the ones in front have been refreshed
+    // and dropped out of the window.
+    .limit(OAUTH_DUE_SCAN_LIMIT);
   const now = Date.now();
   return rows
     .filter((row) => {

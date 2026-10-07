@@ -232,10 +232,13 @@ export async function listNetworkPoolHealthEvents(db: CartethyiaDatabase, tenant
   return rows.map((row) => ({ id: row.id, networkPoolId: row.networkPoolId ?? poolId, fromStatus: row.fromStatus, toStatus: row.toStatus, reason: row.reason, errorCategory: row.errorCategory, createdAt: row.createdAt.toISOString() }));
 }
 
+/** Pools one recovery pass brings back; a larger backlog drains over successive ticks. */
+const POOL_COOLDOWN_RECOVERY_BATCH = 500;
+
 /** Recover expired cooling pools; operator-disabled pools are never swept. */
 export async function sweepExpiredPoolCooldowns(db: CartethyiaDatabase): Promise<number> {
   const now = new Date();
-  const expired = await db.select({ id: networkPools.id, tenantId: networkPools.tenantId, status: networkPools.status }).from(networkPools).where(and(inArray(networkPools.status, ["cooldown"]), isNotNull(networkPools.cooldownUntil), lte(networkPools.cooldownUntil, now)));
+  const expired = await db.select({ id: networkPools.id, tenantId: networkPools.tenantId, status: networkPools.status }).from(networkPools).where(and(inArray(networkPools.status, ["cooldown"]), isNotNull(networkPools.cooldownUntil), lte(networkPools.cooldownUntil, now))).limit(POOL_COOLDOWN_RECOVERY_BATCH);
   if (expired.length === 0) return 0;
   await db.update(networkPools).set({ status: "active", consecutiveFailures: 0, cooldownUntil: null, lastRecoveredAt: now }).where(inArray(networkPools.id, expired.map((row) => row.id)));
   await db.insert(healthEvents).values(expired.map((row) => ({ entityKind: "pool" as const, networkPoolId: row.id, fromStatus: row.status, toStatus: "active" as const, reason: "Cooldown elapsed — auto-recovered", errorCategory: null, createdAt: now })));
