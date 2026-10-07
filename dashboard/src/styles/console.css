@@ -126,6 +126,22 @@
   min-width: 0;
 }
 
+/* An empty page should read as a panel, not as a blank gap. The dashed edge
+   and the surface are what separate "nothing here yet" from "the page failed
+   to render". */
+.empty-panel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16px;
+  padding: 24px;
+  border: 1px dashed var(--inner-border);
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+  text-align: center;
+}
+
 .card-interactive {
   transition:
     transform var(--dur-micro) var(--ease-spring),

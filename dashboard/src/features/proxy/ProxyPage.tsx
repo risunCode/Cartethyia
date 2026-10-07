@@ -1907,20 +1907,7 @@ export default function Proxy(): ReactNode {
             // Fill the card down to the footer as one full-width panel with the
             // empty state centred inside it, rather than a narrow box hugging
             // the text in the middle of an otherwise blank card.
-            <div
-              style={{
-                flex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                marginTop: "16px",
-                padding: "24px",
-                border: "1px dashed var(--inner-border)",
-                borderRadius: "12px",
-                background: "var(--surface-2)",
-                textAlign: "center",
-              }}
-            >
+            <div className="empty-panel">
               <EmptyState
                 title="No proxy pools configured"
                 message="The summary above is empty because nothing is routing yet. Use Add proxies or Deploy relay in the header to start one."

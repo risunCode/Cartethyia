@@ -1,10 +1,10 @@
-import { CheckCircle2, Download, Terminal, Wrench } from "lucide-react";
+import { Terminal, Wrench } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/badge";
 import { Card, CardHeader } from "../../components/ui/card";
-import { ErrorState, LoadingState } from "../../components/ui/state";
-import { SectionHeading, StatCard } from "../../components/ui/layout";
+import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
+import { SectionHeading } from "../../components/ui/layout";
 import { Inline } from "../../components/ui/inline";
 import { Stack } from "../../components/ui/stack";
 import { useToolRegistry, useToolStatuses } from "../../hooks/cli-tools";
@@ -45,32 +45,18 @@ export default function CliTools(): ReactNode {
   const fileTools = tools.filter((tool) => tool.configType !== "guide");
   const guideTools = tools.filter((tool) => tool.configType === "guide");
   const configuredCount = fileTools.filter((tool) => statusMap.get(tool.id)?.configured).length;
-  const installedCount = tools.filter((tool) => statusMap.get(tool.id)?.installed).length;
-  return (
-    <Stack gap="16px">
-      <div className="metric-grid">
-        <StatCard label="Tools" value={String(tools.length)} detail="In the registry" icon={<Wrench size={13} />} />
-        <StatCard
-          label="Configured"
-          value={`${configuredCount}/${fileTools.length}`}
-          detail="File-injected tools with a config"
-          tone="green"
-          icon={<CheckCircle2 size={13} />}
-        />
-        <StatCard
-          label="Installed"
-          value={String(installedCount)}
-          detail="Detected on this machine"
-          tone="accent"
-          icon={<Download size={13} />}
-        />
-        <StatCard
-          label="Guide only"
-          value={String(guideTools.length)}
-          detail="Manual setup, no file injection"
-          icon={<Terminal size={13} />}
+  if (tools.length === 0) {
+    return (
+      <div className="empty-panel">
+        <EmptyState
+          title="No CLI tools registered"
+          message="The registry is empty, so there is nothing to configure yet."
         />
       </div>
+    );
+  }
+  return (
+    <Stack gap="16px">
       <Card>
         <CardHeader
           title="Overview"

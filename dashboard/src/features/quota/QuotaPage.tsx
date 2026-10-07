@@ -19,7 +19,7 @@ import { Switch } from "../../components/ui/switch";
 import { Button } from "../../components/ui/button";
 import { Dialog } from "../../components/ui/dialog";
 import { Badge } from "../../components/ui/badge";
-import { DataTable, StatCard } from "../../components/ui/layout";
+import { DataTable } from "../../components/ui/layout";
 import { Inline } from "../../components/ui/inline";
 import { StatePanel, EmptyState, LoadingState, ErrorState } from "../../components/ui/state";
 import { ProviderIcon } from "../../components/ProviderIcon";
@@ -862,35 +862,9 @@ export default function QuotaPage(): ReactNode {
         })
       : "Not updated";
   const emptyCount = accounts.filter(isEmpty).length;
-  const trackedCount = accounts.filter((account) => Boolean(account.quota?.windows.length)).length;
-  const activeCount = accounts.filter((account) => account.active).length;
 
   return (
     <Stack gap="16px" className="dashboard-page" style={{ minHeight: 0, flex: 1 }}>
-      <div className="metric-grid">
-        <StatCard label="Accounts" value={String(accounts.length)} detail="Across every provider" icon={<Activity size={13} />} />
-        <StatCard
-          label="Tracked"
-          value={String(trackedCount)}
-          detail="Reporting a quota window"
-          tone="accent"
-          icon={<SlidersHorizontal size={13} />}
-        />
-        <StatCard
-          label="Active"
-          value={String(activeCount)}
-          detail="Enabled for rotation"
-          tone="green"
-          icon={<Check size={13} />}
-        />
-        <StatCard
-          label="Empty"
-          value={String(emptyCount)}
-          detail="No quota left in any window"
-          tone="orange"
-          icon={<TriangleAlert size={13} />}
-        />
-      </div>
       <Toolbar className="page-toolbar-sticky">
         <SlidersHorizontal
           size={14}
@@ -1018,12 +992,12 @@ export default function QuotaPage(): ReactNode {
           }
         />
       ) : filteredAccounts.length === 0 ? (
-        <StatePanel
-          className="min-h-0 flex flex-1 flex-col items-center justify-center"
-          kind="empty"
-          title="No account quota data"
-          description="No tracked provider quota is available yet."
-        />
+        <div className="empty-panel">
+          <EmptyState
+            title="No account quota data"
+            message="Nothing is reporting a quota window yet. Add a provider account and its limits will appear here."
+          />
+        </div>
       ) : (
         <div
           className="grid grid-cols-1 gap-3 lg:grid-cols-2"
