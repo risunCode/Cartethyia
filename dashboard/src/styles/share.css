@@ -25,7 +25,7 @@ html[data-app="share"] body {
       color-mix(in srgb, var(--page-bg) calc(var(--share-backdrop-veil) * 100%), transparent),
       color-mix(in srgb, var(--page-bg) calc(var(--share-backdrop-veil) * 100%), transparent)
     ),
-    url("/when_yah/cartesa.webp");
+    url("/assets/story/cartesa.webp");
   background-position: center, center 28%;
   background-repeat: no-repeat, no-repeat;
   background-size: cover, cover;

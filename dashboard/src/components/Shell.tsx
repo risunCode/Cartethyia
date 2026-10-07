@@ -742,7 +742,7 @@ export function DashboardShell({
   };
 
   const meta = resolveRouteMeta(location.pathname, providersQuery.data ?? []);
-  const defaultLogoUrl = `${import.meta.env.BASE_URL}favicon_love.webp`;
+  const defaultLogoUrl = `${import.meta.env.BASE_URL}assets/brand/favicon_love.webp`;
   const logoUrl = defaultLogoUrl;
   return (
     <>

@@ -140,7 +140,7 @@ export const ProviderIcon = memo(function ProviderIcon({
         </span>
       ) : (
         <img
-          src={`${import.meta.env.BASE_URL}providers/${asset.file}.${asset.ext}`}
+          src={`${import.meta.env.BASE_URL}assets/providers/${asset.file}.${asset.ext}`}
           alt=""
           width={size}
           height={size}

@@ -29,7 +29,7 @@ interface StoryChapter {
 const ASSET_BASE = import.meta.env.BASE_URL;
 const CONSOLE_PATH = "/console";
 
-const storyImage = (name: string): string => `${ASSET_BASE}when_yah/${name}`;
+const storyImage = (name: string): string => `${ASSET_BASE}assets/story/${name}`;
 const titleCase = (value: string): string => value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
 const nextChapterLabel = (index: number): string => {
   const next = CHAPTERS[index + 1];
@@ -256,7 +256,7 @@ export function LandingPage(): ReactElement {
             }}
           >
             <span className="story-brand-mark">
-              <img src={`${ASSET_BASE}favicon.webp`} alt="" />
+              <img src={`${ASSET_BASE}assets/brand/favicon.webp`} alt="" />
             </span>
             <span>
               <strong>Cartethyia</strong>

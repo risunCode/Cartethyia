@@ -381,7 +381,7 @@ export function SharePage(): ReactElement {
           <a className="share-brand" href="/">
             <span className="share-brand-mark" aria-hidden="true">
               <img
-                src={`${import.meta.env.BASE_URL}favicon_love.webp`}
+                src={`${import.meta.env.BASE_URL}assets/brand/favicon_love.webp`}
                 alt=""
                 width={34}
                 height={34}

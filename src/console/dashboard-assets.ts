@@ -55,7 +55,7 @@ export const SHARE_SOCIAL_META: SocialMeta = {
   title: "Cartethyia — Bansos Token",
   description:
     "Come and save your tokens 💖 Shared Cartethyia API key — Bansos Token with live quota, usage and model allowlist.",
-  image: "/og_bansos.webp",
+  image: "/assets/brand/og_bansos.webp",
   imageWidth: 1760,
   imageHeight: 576,
   imageAlt: "Cartethyia Bansos Token — Come and save your tokens",
