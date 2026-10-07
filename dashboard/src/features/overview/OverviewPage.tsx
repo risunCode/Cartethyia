@@ -43,12 +43,13 @@ function SystemOverviewPanel({
     .filter((p) => p.status === "active")
     .reduce((sum, p) => sum + (p.maxInflight || 10), 0);
 
-  // RSS is the kernel's resident set — the only number that matches ps and
-  // /proc. heap and external are reserved allocator pools, not slices of RSS,
-  // so summing them overshoots the real footprint (bug 1).
+  // RSS is the kernel's resident set — the only figure here that matches ps
+  // and /proc. The JS heap and external counters are NOT reported: under a WASM
+  // database Bun reports a heapUsed larger than heapTotal (and larger than RSS
+  // itself), so both numbers are nonsense and were removed rather than shown.
   const rssBytes = health?.memory_bytes ?? 0;
-  const heapUsed = health?.heap_used_bytes ?? 0;
-  const external = health?.external_bytes ?? 0;
+  // Lite embeds PostgreSQL in this process, so most of the RSS is the database.
+  const databaseInProcess = health?.database_in_process === true;
 
   const p95Latency = health?.latency_p95_ms ?? 0;
   const avgLatency = health?.latency_avg_ms ?? 0;
@@ -117,21 +118,27 @@ function SystemOverviewPanel({
               <span className="overview-card-primary-label">RSS</span>
             </div>
             <p className="overview-card-summary">
-              Resident memory, the same figure ps and /proc report. The rows below are
-              reserved allocator pools, not parts of RSS, so they do not add up to it.
+              Resident memory, the same figure ps and /proc report.
+              {databaseInProcess
+                ? " Lite mode embeds PostgreSQL in this process, so most of it is the database — not the gateway."
+                : " The database runs as its own process and is not included here."}
             </p>
             <div className="overview-card-footer">
               <div className="overview-mini-grid">
                 <div className="overview-mini">
                   <div className="overview-mini-label">
-                    <span>JS heap reserved</span>
-                    <span style={{ color: "var(--purple)" }}>{formatBytes(heapUsed)}</span>
+                    <span>Database</span>
+                    <span style={{ color: databaseInProcess ? "var(--amber, #d29922)" : "var(--green)" }}>
+                      {databaseInProcess ? "embedded in this process" : "external process"}
+                    </span>
                   </div>
                 </div>
                 <div className="overview-mini">
                   <div className="overview-mini-label">
-                    <span>Buffers reserved</span>
-                    <span style={{ color: "var(--green)" }}>{formatBytes(external)}</span>
+                    <span>Share of RAM</span>
+                    <span style={{ color: "var(--purple)" }}>
+                      {(health?.memory_percent ?? 0).toFixed(2)}%
+                    </span>
                   </div>
                 </div>
               </div>

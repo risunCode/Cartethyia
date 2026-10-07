@@ -30,6 +30,7 @@ import type {
 } from "./contracts";
 import { maskClientIp } from "../../observability/redaction";
 import { splitEndpointConfig } from "../../network/pool/agent";
+import { resolveDbMode } from "../../persistence/db-mode";
 import { payloadReferenceFromRow, readPayloadFrame } from "../../observability/payload-store";
 import { shouldMaskClientIp } from "../shared/ip-privacy";
 
@@ -317,9 +318,10 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       redis_healthy: redisHealthy,
       memory_bytes: memory.rss,
       memory_percent: Math.round((memory.rss / Math.max(totalmem(), 1)) * 10000) / 100,
-      heap_used_bytes: memory.heapUsed,
-      heap_total_bytes: memory.heapTotal,
-      external_bytes: memory.external,
+      // Reported so the console can explain a large RSS instead of leaving the
+      // operator to read it as the gateway alone. Under PGlite this process
+      // hosts the database too, which is most of the resident set.
+      database_in_process: resolveDbMode() === "lite",
       cpu_percent: cpuPercent,
       cpu_cores: cpus().length,
       pid: process.pid,

@@ -32,9 +32,13 @@ export interface SystemHealthResponse {
   memory_bytes: number;
   /** RSS as a percentage of system memory, not of the JS heap. */
   memory_percent: number;
-  heap_used_bytes: number;
-  heap_total_bytes: number;
-  external_bytes: number;
+  /**
+   * True when the database runs inside this process (PGlite). Then RSS covers
+   * the gateway *and* a whole PostgreSQL build, so it is not comparable with a
+   * driver-only process and the console must say so rather than imply the
+   * gateway itself grew.
+   */
+  database_in_process: boolean;
   cpu_percent: number;
   cpu_cores: number;
   pid: number;
