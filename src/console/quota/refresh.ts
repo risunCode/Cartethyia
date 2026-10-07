@@ -31,6 +31,15 @@ export interface QuotaRefreshOutcome {
 /** Abort budget for one upstream quota fetch. */
 export const QUOTA_REFRESH_TIMEOUT_MS = 15_000;
 
+/**
+ * Consecutive quota refusals before an account is parked. One refusal can be
+ * the provider's own hiccup; three in a row is the quota surface not coming
+ * back, and the account should stop being dialed until the cooldown elapses.
+ */
+export const QUOTA_FAILURE_PARK_THRESHOLD = 3;
+/** How long a quota-parked account stays out of rotation. */
+export const QUOTA_FAILURE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
 export interface QuotaRefreshDeps {
   readonly db: CartethyiaDatabase;
   readonly redis: RedisClient | undefined;
@@ -107,18 +116,45 @@ export async function recordAccountCheck(
   if (outcome.ok) {
     await db
       .update(providerAccounts)
-      .set({ lastSuccessAt: new Date(), lastError: null, lastErrorCategory: null, lastErrorAt: null })
+      .set({
+        lastSuccessAt: new Date(),
+        lastError: null,
+        lastErrorCategory: null,
+        lastErrorAt: null,
+        consecutiveFailures: 0,
+      })
       .where(activeOnly);
     return;
   }
-  await db
+  // Count the failure in the same statement. A quota endpoint that keeps
+  // refusing is an account problem, and the row has to say so: the dashboard
+  // reads `consecutiveFailures` for the pill, and a check that only wrote the
+  // error text left the account looking healthy while every refresh failed.
+  const failing = await db
     .update(providerAccounts)
     .set({
       lastError: (outcome.error ?? "Account check failed").slice(0, 500),
       lastErrorCategory: outcome.category ?? "check_failed",
       lastErrorAt: new Date(),
+      consecutiveFailures: sql`${providerAccounts.consecutiveFailures} + 1`,
     })
-    .where(activeOnly);
+    .where(activeOnly)
+    .returning({ consecutiveFailures: providerAccounts.consecutiveFailures });
+  const failures = failing[0]?.consecutiveFailures ?? 0;
+  // Past the threshold the account is parked, not just annotated. Three
+  // consecutive refusals is a quota surface that is not coming back on its
+  // own, and leaving the account in rotation only repeats the failure every
+  // pass. The cooldown clears itself; a success before it elapses resets the
+  // count above.
+  if (failures >= QUOTA_FAILURE_PARK_THRESHOLD) {
+    await db
+      .update(providerAccounts)
+      .set({
+        status: "cooldown",
+        cooldownUntil: new Date(Date.now() + QUOTA_FAILURE_COOLDOWN_MS),
+      })
+      .where(activeOnly);
+  }
 }
 
 /** One account that a quota refresh can be attempted for. */

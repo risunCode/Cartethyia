@@ -13,6 +13,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { consoleRequest } from "../../../data/api";
+import { accountErrorLabel } from "../../../shared/account-error-labels";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
@@ -120,8 +121,8 @@ export function AccountStatusBadge({
             Re-login required
           </Badge>
         ) : account.lastErrorCategory ? (
-          <Badge tone="warn" title={account.lastError}>
-            {account.lastErrorCategory}
+          <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
+            {accountErrorLabel(account.lastErrorCategory)}
           </Badge>
         ) : null}
         <ModelCooldownChip cooldowns={modelCooldowns} />
@@ -148,6 +149,11 @@ export function AccountStatusBadge({
             no refresh
           </Badge>
         ) : null}
+        {account.lastErrorCategory ? (
+          <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
+            {accountErrorLabel(account.lastErrorCategory)}
+          </Badge>
+        ) : null}
         <ModelCooldownChip cooldowns={modelCooldowns} />
       </Inline>
     );
@@ -160,8 +166,8 @@ export function AccountStatusBadge({
           {account.cooldownUntil ? `(${formatResetDistance(account.cooldownUntil)})` : ""}
         </Badge>
         {account.lastErrorCategory ? (
-          <Badge tone="warn" title={account.lastError}>
-            {account.lastErrorCategory}
+          <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
+            {accountErrorLabel(account.lastErrorCategory)}
           </Badge>
         ) : null}
         <ModelCooldownChip cooldowns={modelCooldowns} />
