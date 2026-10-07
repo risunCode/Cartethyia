@@ -10,7 +10,7 @@
 import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
 import { GatewayError } from "../../../protocol/gateway-error";
 import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
-import { CURSOR_PROVIDER_ID } from "./cursor-catalog";
+import { CURSOR_PROVIDER_ID, upstreamModelId } from "./cursor-catalog";
 import { buildTurnInput, cursorTools } from "./cursor-translate";
 import { runTurn, type TurnEvent } from "./cursor-turn";
 
@@ -52,7 +52,7 @@ export class CursorAdapter implements ProviderAdapter {
         token,
         clientVersion: CLIENT_VERSION,
         signal: context.abort_signal,
-        modelId: candidate.model_id,
+        modelId: upstreamModelId(candidate.model_id),
         rootMessages: input.rootMessages,
         userText: input.userText,
         tools: input.tools,

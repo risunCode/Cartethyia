@@ -9,7 +9,41 @@ import { decodeMessage, firstBytes, firstString } from "../../src/providers/inte
 import { decodeServerMessage, decodeUsableModels, encodeRunRequest } from "../../src/providers/integrations/cursor/cursor-messages";
 import { buildTurnInput } from "../../src/providers/integrations/cursor/cursor-translate";
 import { decodeArgValue, safeToolCallId } from "../../src/providers/integrations/cursor/cursor-turn";
+import { exposedModelId, isExposedCursorModel, upstreamModelId } from "../../src/providers/integrations/cursor/cursor-catalog";
 import type { CanonicalMessage } from "../../src/protocol/canonical-model";
+
+test("the catalog keeps auto, grok, opus, and composer, and drops the rest", () => {
+  // Ids as `GetUsableModels` returned them for a live account.
+  const upstream = [
+    "default",
+    "gpt-5.3-codex",
+    "gpt-5.2",
+    "composer-2.5",
+    "composer-2.5-fast",
+    "claude-opus-5-thinking-high",
+    "claude-opus-4-8-low",
+    "claude-sonnet-5-thinking-high",
+    "claude-fable-5-high",
+    "cursor-grok-4.6-high",
+    "grok-4.7-low",
+    "gemini-3.7-flash-high",
+    "kimi-k3-high",
+    "glm-5.2-high",
+  ];
+  const kept = upstream.filter(isExposedCursorModel).map(exposedModelId);
+  expect(kept).toEqual([
+    "auto",
+    "composer-2.5",
+    "composer-2.5-fast",
+    "claude-opus-5-thinking-high",
+    "claude-opus-4-8-low",
+    "cursor-grok-4.6-high",
+    "grok-4.7-low",
+  ]);
+  // `auto` is the exposed name; the wire still speaks `default`.
+  expect(upstreamModelId("auto")).toBe("default");
+  expect(upstreamModelId("composer-2.5")).toBe("composer-2.5");
+});
 
 test("a run request carries history ids, the model, and the active user text", () => {
   const encoded = encodeRunRequest({

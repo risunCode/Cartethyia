@@ -1,11 +1,17 @@
 /**
  * Cursor model catalog.
  *
- * The live list comes from `GetUsableModels` and reflects what the signed-in
- * account can actually reach, so these rows are only the offline seed: enough
- * for the model list to be non-empty before the first discovery, and the
- * fallback when that call fails. Cursor's limits are not published, so the
- * rows carry no invented context or output cap.
+ * The account's live list is far larger than what we expose. Cursor's own
+ * picker shows four families and we mirror that: Auto (Cursor's `default`
+ * routing), every Grok, every Claude Opus, and every Composer. The GPT line
+ * and everything else upstream returns is dropped — those ids are deprecated
+ * on Cursor's side and keeping them would advertise models the picker itself
+ * no longer offers.
+ *
+ * The exposed id and the upstream id differ in exactly one case. Cursor's
+ * auto routing answers to `default`, which reads as a placeholder in a model
+ * list, so the catalog exposes it as `auto` and the adapter translates back
+ * to `default` on the wire. Every other id is sent upstream unchanged.
  */
 import { defineModel } from "../../model-definition";
 import type { ModelDefinition } from "../../model-definition";
@@ -19,27 +25,42 @@ export const CURSOR_PROVIDER_ID = "cursor" as const;
  */
 export const CURSOR_RUN_PATH = "/agent.v1.AgentService/Run" as const;
 
-/** Seed ids. Discovery replaces these with the account's real list. */
-const SEED_MODEL_IDS = [
-  "auto",
-  "composer-2.5",
-  "claude-sonnet-5-thinking-high",
-  "claude-opus-5-thinking-high",
-  "gpt-5.3-codex",
-] as const;
+/** What the catalog exposes for Cursor's automatic routing. */
+export const CURSOR_AUTO_MODEL_ID = "auto" as const;
+/** What Cursor's backend expects for that same routing. */
+export const CURSOR_AUTO_UPSTREAM_ID = "default" as const;
 
-export const CURSOR_MODELS: readonly ModelDefinition[] = SEED_MODEL_IDS.map((id) =>
-  defineModel({
-    id,
-    providerId: CURSOR_PROVIDER_ID,
-    endpoint: CURSOR_RUN_PATH,
-    // Cursor does not publish per-model limits, and a guessed cap would be a
-    // claim the gateway cannot back. Leave them unset so the row carries the
-    // helper's neutral default rather than a fabricated window.
-  }),
-);
+/** Seed ids, used before the first discovery and when it fails. */
+const SEED_MODEL_IDS = [CURSOR_AUTO_MODEL_ID, "composer-2.5", "claude-opus-5", "cursor-grok-4.6"] as const;
 
-/** One discovered model, projected into a catalog row. */
+export const CURSOR_MODELS: readonly ModelDefinition[] = SEED_MODEL_IDS.map((id) => cursorModel(id));
+
+/**
+ * True for the families the catalog keeps.
+ *
+ * Opus is matched on the `claude-opus` prefix rather than any claude id, so
+ * Sonnet and Fable rows upstream returns are excluded. Grok covers both the
+ * `grok-` and `cursor-grok-` lines.
+ */
+export function isExposedCursorModel(upstreamId: string): boolean {
+  if (upstreamId === CURSOR_AUTO_UPSTREAM_ID) return true;
+  if (upstreamId.startsWith("grok-") || upstreamId.startsWith("cursor-grok-")) return true;
+  if (upstreamId.startsWith("claude-opus")) return true;
+  if (upstreamId.startsWith("composer-")) return true;
+  return false;
+}
+
+/** The id the catalog exposes for an upstream id. */
+export function exposedModelId(upstreamId: string): string {
+  return upstreamId === CURSOR_AUTO_UPSTREAM_ID ? CURSOR_AUTO_MODEL_ID : upstreamId;
+}
+
+/** The id the wire expects for a catalog id. */
+export function upstreamModelId(modelId: string): string {
+  return modelId === CURSOR_AUTO_MODEL_ID ? CURSOR_AUTO_UPSTREAM_ID : modelId;
+}
+
+/** One model row. Limits are left unset: Cursor does not publish them. */
 export function cursorModel(modelId: string): ModelDefinition {
   return defineModel({ id: modelId, providerId: CURSOR_PROVIDER_ID, endpoint: CURSOR_RUN_PATH });
 }

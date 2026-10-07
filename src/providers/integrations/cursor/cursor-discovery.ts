@@ -8,7 +8,7 @@
  */
 import type { ModelDefinition } from "../../model-definition";
 import type { ProviderModelDiscovery } from "../../discovery/discovery-types";
-import { cursorModel } from "./cursor-catalog";
+import { cursorModel, exposedModelId, isExposedCursorModel } from "./cursor-catalog";
 import { decodeUsableModels } from "./cursor-messages";
 import { CURSOR_MODELS_PATH, unaryCall } from "./cursor-transport";
 
@@ -23,9 +23,9 @@ export const fetchCursorModels: ProviderModelDiscovery = async (context): Promis
       clientVersion: CLIENT_VERSION,
     });
     if (!result.payload) return null;
-    const models = decodeUsableModels(result.payload);
+    const models = decodeUsableModels(result.payload).filter((model) => isExposedCursorModel(model.modelId));
     if (models.length === 0) return null;
-    return models.map((model) => cursorModel(model.modelId));
+    return models.map((model) => cursorModel(exposedModelId(model.modelId)));
   } catch {
     return null;
   }
