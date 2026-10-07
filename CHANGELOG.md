@@ -1,5 +1,12 @@
 ## Unreleased
 
+- Console login works on the SQLite backend. A wrong password writes a
+  lockout row whose timestamp Drizzle binds as a `Date`, and bun:sqlite
+  rejects that binding, so the login answered 500 — "the gateway hit an
+  internal error" — instead of "invalid credentials". Every statement the
+  handle prepares now converts a `Date` binding to the ISO string the text
+  timestamp columns store. Reproduced against a real setup, then fixed.
+
 - The Usage page counts cached tokens, not whole requests. A request with any
   cache hit had its entire input counted as cached, so the cached total, the
   cache hit rate, and the per-model and per-bucket breakdowns all read as if

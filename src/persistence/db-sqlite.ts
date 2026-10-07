@@ -1,5 +1,5 @@
 /** Embedded backend: bun:sqlite in the gateway's data dir. */
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -43,7 +43,27 @@ export function createSqliteDatabase(file: string): Database {
   // Installed before anything prepares a statement, so every caller — the
   // handle, Drizzle, a test wrapping `exec` — sees SQL SQLite can run.
   const prepare = db.prepare.bind(db);
-  db.prepare = ((text: string) => prepare(sqliteSql(text))) as Database["prepare"];
+  db.prepare = ((text: string) => {
+    const statement = prepare(sqliteSql(text));
+    // bun:sqlite rejects a Date binding ("Binding expected string, TypedArray,
+    // boolean, number, bigint or null"), and Drizzle's pg-core timestamp
+    // columns bind `Date` objects. The schema is shared with PostgreSQL, so
+    // the conversion lives here: every timestamp column is `text`, and an ISO
+    // string is exactly what those columns store.
+    const bind = (value: unknown): SQLQueryBindings =>
+      value instanceof Date ? value.toISOString() : (value as SQLQueryBindings);
+    const run = statement.run.bind(statement);
+    const all = statement.all.bind(statement);
+    const get = statement.get.bind(statement);
+    // Drizzle's bun-sqlite session reads rows through `values`, not `all`.
+    const values = statement.values.bind(statement);
+    const bound = (args: unknown[]): SQLQueryBindings[] => args.map(bind);
+    statement.run = ((...args: unknown[]) => run(...bound(args))) as typeof statement.run;
+    statement.all = ((...args: unknown[]) => all(...bound(args))) as typeof statement.all;
+    statement.get = ((...args: unknown[]) => get(...bound(args))) as typeof statement.get;
+    statement.values = ((...args: unknown[]) => values(...bound(args))) as typeof statement.values;
+    return statement;
+  }) as Database["prepare"];
   const exec = db.exec.bind(db);
   db.exec = ((text: string) => exec(sqliteSql(text))) as Database["exec"];
   return db;

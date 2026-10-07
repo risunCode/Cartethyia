@@ -16,9 +16,9 @@ import {
   buildSqliteHandle,
   createSqliteDatabase,
 } from "../../src/persistence/db-sqlite";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { DrizzleApiKeyStore } from "../../src/persistence/stores/api-key-store";
-import { apiKeys, tenants } from "../../src/persistence/schema";
+import { apiKeys, consoleLockouts, tenants } from "../../src/persistence/schema";
 
 function freshDir(): string {
   return mkdtempSync(join(tmpdir(), "cartethyia-sqlite-"));
@@ -229,6 +229,33 @@ test("execute returns rows, and a transaction can call it", async () => {
       expect((inside as unknown as { rows: { n: number }[] }).rows).toEqual([{ n: 1 }]);
     });
 
+    await handle.close();
+  } finally {
+    removeDir(dir);
+  }
+});
+
+test("a Date bound by Drizzle is stored, not rejected", async () => {
+  // bun:sqlite refuses a Date binding, and the shared pg-core schema binds
+  // timestamps as Date. A failed login writes one; without the conversion the
+  // whole login answered 500 instead of "invalid credentials".
+  const dir = freshDir();
+  try {
+    const sqlite = createSqliteDatabase(join(dir, "cartethyia.sqlite"));
+    await applySqliteMigrations(sqlite);
+    const handle = buildSqliteHandle(sqlite);
+    const until = new Date("2026-10-07T06:00:00.000Z");
+    await handle.db.insert(consoleLockouts).values({ ip: "203.0.113.7", failureCount: 1 });
+    // The lockout upsert compares the window against `now` inside the SQL
+    // (`CASE WHEN window_until > ${now}`), which is where bun:sqlite rejected
+    // the Date and turned a wrong password into a 500.
+    await handle.db
+      .update(consoleLockouts)
+      .set({ windowUntil: sql`CASE WHEN ${consoleLockouts.windowUntil} > ${until} THEN ${until} ELSE ${until} END` })
+      .where(eq(consoleLockouts.ip, "203.0.113.7"));
+    const rows = await handle.db.select().from(consoleLockouts);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.windowUntil).toEqual(until);
     await handle.close();
   } finally {
     removeDir(dir);
