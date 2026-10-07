@@ -17,11 +17,6 @@ export function Toolbar({ children, meta, className = "" }: ToolbarProps): React
         justifyContent: "space-between",
         gap: "8px",
         flexWrap: "wrap",
-        padding: "8px 12px",
-        border: "1px solid var(--inner-border)",
-        borderRadius: "10px",
-        background: "var(--surface-2)",
-        boxShadow: "var(--shadow-card)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", minWidth: 0 }}>{children}</div>
