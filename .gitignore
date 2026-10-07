@@ -5,6 +5,11 @@ dist/
 !.env.example
 !.env.test
 !.env.test.example
+# A hand-kept environment file: this one holds the Full-mode (external
+# PostgreSQL) configuration. `.env.*` does not match it — that pattern needs a
+# literal dot after `env` — so it is named here. It carries
+# CARTETHYIA_ENCRYPTION_KEY and the database URL, so it must never be staged.
+.envx
 *.log
 .codegraph/
 *.tsbuildinfo
