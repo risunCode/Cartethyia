@@ -31,6 +31,24 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Fallback when a response carries no message of its own.
+ *
+ * The status decides whose failure it is. A 502 is the upstream's refusal
+ * relayed through the gateway, and labelling it "Console request failed" told
+ * the operator the console was broken when the provider had rejected the
+ * account. The console is only blamed for the statuses it actually produces.
+ */
+export function fallbackRequestMessage(status: number, origin?: ApiErrorShape["origin"]): string {
+  const whose =
+    origin === "upstream" || (origin === undefined && status >= 500)
+      ? "Upstream"
+      : origin === "network"
+        ? "Network"
+        : "Console";
+  return `${whose} request failed (${status})`;
+}
+
 function responseMessage(payload: unknown, status: number): string {
   if (isRecord(payload)) {
     if (typeof payload.message === "string") return payload.message;
@@ -38,7 +56,7 @@ function responseMessage(payload: unknown, status: number): string {
     if (isRecord(payload.error) && typeof payload.error.message === "string")
       return payload.error.message;
   }
-  return `Console request failed (${status})`;
+  return fallbackRequestMessage(status, responseOrigin(payload));
 }
 
 function responseCode(payload: unknown): string | undefined {
@@ -77,7 +95,7 @@ async function readJson(response: Response): Promise<unknown> {
     const error: ApiErrorShape = {
       status: response.status,
       code: "invalid_response",
-      message: `Console request failed (${response.status})`,
+      message: `Upstream returned a non-JSON response (${response.status})`,
     };
     throw error;
   }
