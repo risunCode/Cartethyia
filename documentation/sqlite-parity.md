@@ -20,42 +20,15 @@ Measured by inserting through the Drizzle handle and reading the row back.
 | `text` enum | text | string | correct |
 | `bigint` `mode: "number"` | integer | number | correct inside `Number.MAX_SAFE_INTEGER` (2^53). Every bigint column uses `mode: "number"`, and none holds a value that large: token counters and epoch milliseconds both stay under it |
 | `uuid` | text | string | correct |
+| `boolean` | integer 0 or 1 | `true` or `false` | correct, since the column mapping in `db-sqlite.ts` |
+| `timestamp` | ISO text | `Date` | correct, since the same mapping. A row holding epoch milliseconds, as a number or as its digits, reads back as that instant too |
+| `numeric` | real | string | correct. Drizzle's numeric mapper stringifies the value, which is what the column declares. The scale is not stored: `numeric(12, 6)` is a bare type name to SQLite and the value keeps no trailing zeroes, so `"2.50"` reads back as `"2.5"`. The digits survive, including `"0.000001"` |
+| `bytea` | blob | `Uint8Array` | the bytes survive, including a leading `0` and a `255`. The schema declares `Buffer` and bun:sqlite returns a `Uint8Array`, which is not a `Buffer`. Every current reader accepts both: `decryptCredential` branches on `Buffer.isBuffer`, and the popup image path takes a `Uint8Array`. A new reader that calls `Buffer.isBuffer` on a value it read will be wrong |
 
 ## What does not round-trip
 
-### `boolean` reads back as a number
-
-Stored as `integer` 0 or 1, which is what the DDL rewrite intends. Read back,
-Drizzle returns `1` or `0`, not `true` or `false`. Its `PgBoolean.mapFromDriverValue`
-returns the driver value unchanged, and bun:sqlite hands back a number.
-
-Anything that compares a flag with `=== true` is false for a row that is
-enabled. Measured on `cli_tool_mappings.enabled`: inserted `true`, read back
-`1`. This covers all 18 boolean columns.
-
-### `timestamp` reads back as a string
-
-Stored as ISO text, which is correct. Read back, Drizzle returns the string
-`"2026-10-07T06:00:00.000Z"`, not a `Date`. `PgTimestamp.mapFromDriverValue`
-only converts a string to a `Date`; bun:sqlite returns the text as text and the
-branch never runs.
-
-A caller that formats the value or calls a `Date` method on it throws, and one
-that compares it to a `Date` compares a string to an object. This covers all
-24 timestamp columns. The login fix (`Date` bindings converted to ISO strings
-in `createSqliteDatabase`) made the write direction safe; the read direction
-is still wrong.
-
-### `numeric` is not a SQLite type
-
-`rewriteColumn` rewrites `jsonb`, `uuid`, `bytea`, `timestamptz`, and
-`boolean`, and does not mention `numeric`. The generated baseline therefore
-declares `"estimated_cost_usd" numeric(12, 6)`. SQLite accepts the declaration
-and stores the value under the type name `numeric(12, 6)`, which has no
-affinity, so the value keeps whatever type it was bound as. The three columns
-are `telemetry_events.estimated_cost_usd`, `credit_used`, and `tokens_per_sec`.
-The read side was not measured, because the insert needs a tenant row the
-probe did not build. The declaration is the defect; the read is unverified.
+Nothing measured on 2026-10-07 fails to round-trip. The `bytea` type difference
+above is the one that will bite a future reader; it does not bite a current one.
 
 ## What is not a defect
 
@@ -73,12 +46,38 @@ from the statement entirely, which is the path the raw migration SQL uses.
 spelling: `mergeJson`, `pruneExpiredCooldowns`, `caseInsensitiveLike`,
 `byteLength`, `laterOf`, `currentTimestamp`, `differsFrom`, and the first-boot
 lock. `db-sqlite.ts` rewrites `gen_random_uuid()` and `now()` per statement,
-converts `Date` bindings to ISO strings, skips an `ADD COLUMN` whose column
-already exists, and exposes `execute` (with rows) on both the handle and the
-transaction. The generator rewrites the DDL types listed above and drops
+converts `Date` bindings to ISO strings, maps boolean and timestamp
+columns back to the types the schema declares (`installSqliteColumnMapping`),
+skips an `ADD COLUMN` whose column already exists, and exposes `execute` (with
+rows) on both the handle and the transaction. The generator rewrites the DDL types listed above and drops
 `CREATE EXTENSION`, `CREATE TYPE`, `USING btree`, and `DESC`.
 
 A caller that interpolates its own `::jsonb`, `::uuid`, or `octet_length`
-bypasses `dialect.ts` and fails on SQLite. `usage-flush.ts` spells
-`id::uuid` and `delta::bigint` in its raw statement; that path is not exercised
-by the probe above and is unverified on SQLite.
+bypasses `dialect.ts` and fails on SQLite. `usage-flush.ts` is the one caller
+that spells those casts, and it branches: PostgreSQL gets
+`UPDATE ... FROM (VALUES ...)` with `::uuid` and `::bigint`, SQLite gets a
+`SELECT ... UNION ALL` with neither, because SQLite rejects `UPDATE ... FROM`.
+That branch is exercised by `test/persistence/usage-flush.test.ts`, which
+flushes 25 keys in one statement on a migrated SQLite file and reads the
+totals back.
+
+## Measured and ruled out
+
+Each of these was a suspected gap. All were measured on a migrated SQLite
+file, and the tests in `test/persistence/sqlite-type-parity.test.ts` and
+`test/console/sqlite-login-readback.test.ts` lock the ones that can regress.
+
+- A boolean stored as `NULL` reads back as `null`, not as `0` or `false`. The
+  mapping only rewrites `1` and `0`.
+- A timestamp holding epoch milliseconds reads back as that instant. The
+  column is `text`, so the number is stored as its digits, and `new Date`
+  reads a digit string as a year and returns an invalid date. The mapping
+  treats an all-digit string as milliseconds before the ISO conversion.
+- `numeric` reads back as a string with its significant digits intact. The
+  declaration `numeric(12, 6)` gives SQLite no affinity and no scale, which
+  looks like a defect and is not one: the value is what the column promises,
+  and only the trailing zeroes are lost.
+- `usage-flush.ts` does not send `::uuid` or `::bigint` to SQLite. See above.
+- The payload frame store is not a database column. `telemetry_payloads`
+  holds a pointer; the body is a gzipped frame in a file, named `jsonl-file`,
+  and a frame written before compression stays readable as `jsonb-file`.

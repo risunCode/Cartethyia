@@ -1,5 +1,23 @@
 ## Unreleased
 
+- Telemetry payload frames are gzipped. Each capture wrote its JSON to disk
+  uncompressed, and the bodies are the same prompt and tool schema repeated
+  per request, so the files were almost entirely repetition. A frame is now
+  compressed once, at the write, and the row names that encoding as
+  `jsonl-file`. A frame written before this stays `jsonb-file` and still
+  reads back. The storage check accepted only the old name, so the forward
+  migration widens it; on SQLite, which cannot alter a check, the table is
+  rebuilt and its rows are kept.
+
+- Console login accepts a correct password on the SQLite backend. The user
+  row stores its flags as integers, and the login check requires booleans, so
+  a valid account read back as no account at all and every login answered
+  "Invalid credentials". The same read handed timestamps back as text where
+  the schema declares `Date`. The SQLite handle now maps both on read, for
+  every boolean and timestamp column, not just the login row. Reproduced with
+  a user written through the setup insert and read back through the login
+  query, and confirmed against the live database.
+
 - Console login works on the SQLite backend. A wrong password writes a
   lockout row whose timestamp Drizzle binds as a `Date`, and bun:sqlite
   rejects that binding, so the login answered 500 — "the gateway hit an
