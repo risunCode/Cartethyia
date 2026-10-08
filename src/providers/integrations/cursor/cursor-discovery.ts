@@ -11,8 +11,7 @@ import type { ProviderModelDiscovery } from "../../discovery/discovery-types";
 import { cursorModel, exposedModelId, isExposedCursorModel } from "./cursor-catalog";
 import { decodeUsableModels } from "./cursor-messages";
 import { CURSOR_MODELS_PATH, unaryCall } from "./cursor-transport";
-
-const CLIENT_VERSION = "cli-2026.08.11";
+import { getCursorVersion } from "../../operations/client-versions";
 
 export const fetchCursorModels: ProviderModelDiscovery = async (context): Promise<readonly ModelDefinition[] | null> => {
   const token = context.credential.trim();
@@ -20,7 +19,7 @@ export const fetchCursorModels: ProviderModelDiscovery = async (context): Promis
   try {
     const result = await unaryCall(CURSOR_MODELS_PATH, new Uint8Array(), {
       token,
-      clientVersion: CLIENT_VERSION,
+      clientVersion: getCursorVersion(),
     });
     if (!result.payload) return null;
     const models = decodeUsableModels(result.payload).filter((model) => isExposedCursorModel(model.modelId));

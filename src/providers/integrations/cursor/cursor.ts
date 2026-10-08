@@ -11,10 +11,10 @@ import type { CanonicalEvent, CanonicalRequest, UsageRecord } from "../../../pro
 import { GatewayError } from "../../../protocol/gateway-error";
 import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
 import { CURSOR_PROVIDER_ID, upstreamModelId } from "./cursor-catalog";
+import { getCursorVersion } from "../../operations/client-versions";
 import { buildTurnInput, cursorTools } from "./cursor-translate";
 import { runTurn, type TurnEvent } from "./cursor-turn";
 
-const CLIENT_VERSION = "cli-2026.08.11";
 const TURN_TIMEOUT_MS = 300_000;
 
 export class CursorAdapter implements ProviderAdapter {
@@ -50,7 +50,7 @@ export class CursorAdapter implements ProviderAdapter {
     try {
       turn = runTurn({
         token,
-        clientVersion: CLIENT_VERSION,
+        clientVersion: getCursorVersion(),
         signal: context.abort_signal,
         modelId: upstreamModelId(candidate.model_id),
         rootMessages: input.rootMessages,
