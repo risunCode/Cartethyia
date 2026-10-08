@@ -337,30 +337,12 @@ export function AddModelModal({
           </div>
         )}
         {testState === "passed" && (
-          <div
-            style={{
-              borderRadius: "10px",
-              border: "1px solid color-mix(in srgb, var(--green) 40%, transparent)",
-              background: "color-mix(in srgb, var(--green) 8%, transparent)",
-              padding: "8px 10px",
-              fontSize: "11.5px",
-              color: "var(--green)",
-            }}
-          >
+          <div className="status-callout" data-tone="ok">
             Model test passed — ready to add.
           </div>
         )}
         {testState === "failed" && (
-          <div
-            style={{
-              borderRadius: "10px",
-              border: "1px solid color-mix(in srgb, var(--red) 40%, transparent)",
-              background: "color-mix(in srgb, var(--red) 8%, transparent)",
-              padding: "8px 10px",
-              fontSize: "11.5px",
-              color: "var(--red)",
-            }}
-          >
+          <div className="status-callout" data-tone="err">
             {testError || "Model test failed."}
           </div>
         )}

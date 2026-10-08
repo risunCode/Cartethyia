@@ -908,21 +908,8 @@ function RequestDetailDrawer({
 
 
           {detail.errorKind ? (
-            <div
-              role="alert"
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "4px",
-                border: "1px solid color-mix(in srgb, var(--red) 35%, var(--inner-border))",
-                borderRadius: "10px",
-                background: "color-mix(in srgb, var(--red) 8%, var(--surface-2))",
-                padding: "10px 12px",
-                overflowWrap: "anywhere",
-                wordBreak: "break-word",
-              }}
-            >
-              <strong style={{ color: "var(--red)", fontSize: "12px" }}>
+            <div role="alert" className="status-callout" data-tone="err" style={{ display: "flex", flexDirection: "column", gap: "4px", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+              <strong style={{ fontSize: "12px" }}>
                 {errorLabel(detail.status, detail.errorKind, detail.errorOrigin, detail.httpStatus)}
               </strong>
               <span style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: "10px", overflowWrap: "anywhere" }}>

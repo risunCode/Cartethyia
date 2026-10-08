@@ -106,18 +106,7 @@ function PrivacyPanel(): ReactNode {
               ) : null}
               {settings.telemetryPayloads === "full" &&
               settings.telemetryPayloadDepth !== "minimum" ? (
-                <div
-                  role="note"
-                  style={{
-                    marginTop: "8px",
-                    padding: "8px 10px",
-                    border: "1px solid color-mix(in srgb, var(--amber) 35%, var(--inner-border))",
-                    borderRadius: "8px",
-                    background: "color-mix(in srgb, var(--amber) 8%, var(--surface-2))",
-                    color: "var(--text-secondary)",
-                    fontSize: "11px",
-                  }}
-                >
+                <div role="note" className="status-callout" data-tone="warn" style={{ marginTop: "8px" }}>
                   <strong style={{ color: "var(--amber)" }}>
                     High CPU and memory spike while active.
                   </strong>{" "}
