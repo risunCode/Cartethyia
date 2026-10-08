@@ -8,6 +8,7 @@ import { ClipboardButton } from "./patterns/clipboard-button";
 import { toast } from "../lib/toast";
 import { getErrorMessage } from "../lib/helpers";
 import { quotaBarTone } from "../shared/quota-formatters";
+import { compactTokens } from "../shared/display-formatters";
 import type { ApiKeyResponse, SharedKeyActivityDetail, SharedKeySummary } from "../data/contracts";
 import {
   useRegenerateApiKey,
@@ -21,16 +22,6 @@ import {
 
 const count = (n: number | null | undefined) => (n ?? 0).toLocaleString();
 const stamp = (s: string | null | undefined) => (s ? new Date(s).toLocaleString() : "—");
-
-/** Compact token count; the owner only needs the magnitude at a glance. */
-function compactTokens(value: number | null | undefined): string {
-  const amount = value ?? 0;
-  if (amount >= 1_000_000_000_000) return `${Number((amount / 1_000_000_000_000).toFixed(2))}T`;
-  if (amount >= 1_000_000_000) return `${Number((amount / 1_000_000_000).toFixed(2))}B`;
-  if (amount >= 1_000_000) return `${Number((amount / 1_000_000).toFixed(2))}M`;
-  if (amount >= 1_000) return `${Number((amount / 1_000).toFixed(2))}K`;
-  return amount.toLocaleString();
-}
 /**
  * A personal key's stored secret, hidden until the owner asks for it. The
  * reveal is a round trip because the list never carries the plaintext; once

@@ -1,15 +1,18 @@
-import { ArrowRight, Copy, CopyPlus, Layers, Pencil, Plus, Route, Search, Trash2, X } from "lucide-react";
+import { ArrowRight, Copy, CopyPlus, GripVertical, Layers, Pencil, Plus, Route, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
+import { DialogActions } from "../../components/ui/dialog-actions";
 import { Input } from "../../components/ui/input";
+import { ListRow } from "../../components/ui/list-row";
 import { Select } from "../../components/ui/select";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
 import { Inline } from "../../components/ui/inline";
 import { ModelPickerModal } from "../../components/ModelPicker";
 import { SortableList } from "../../components/SortableList";
 import { Stack } from "../../components/ui/stack";
+import { CodeChip } from "../../components/ui/code-chip";
 import { getErrorMessage } from "../../lib/helpers";
 import { useTrackedTimeout } from "../../hooks/use-timeout";
 import { useClipboard } from "../../hooks/use-clipboard";
@@ -154,17 +157,33 @@ function AliasesSection(): ReactNode {
               })
             }
             renderItem={(a) => (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                  padding: "10px 14px",
-                  borderRadius: "10px",
-                  border: "1px solid var(--inner-border)",
-                  background: "var(--surface-2)",
-                }}
+              <ListRow
+                actions={
+                  <Inline gap="4px">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Copy size={13} />}
+                      onClick={() => handleCopy(a.alias, a.id)}
+                      title={copiedKey === a.id ? "Copied!" : "Copy alias"}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Pencil size={13} />}
+                      onClick={() => openEdit(a)}
+                      title="Edit target model"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Trash2 size={13} />}
+                      onClick={() => setDeleteConfirm(a)}
+                      title="Delete alias"
+                      style={{ color: "var(--red)" }}
+                    />
+                  </Inline>
+                }
               >
                 <div
                   style={{
@@ -175,56 +194,11 @@ function AliasesSection(): ReactNode {
                     minWidth: 0,
                   }}
                 >
-                  <code
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      color: "var(--accent)",
-                      background: "var(--accent-soft)",
-                      padding: "3px 8px",
-                      borderRadius: "6px",
-                    }}
-                  >
-                    {a.alias}
-                  </code>
+                  <CodeChip value={a.alias} tone="accent" />
                   <ArrowRight size={13} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
-                  <code
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "12px",
-                      color: "var(--text-secondary)",
-                    }}
-                  >
-                    {a.targetModel}
-                  </code>
+                  <CodeChip value={a.targetModel} tone="plain" />
                 </div>
-
-                <Inline gap="4px" style={{ flexShrink: 0 }}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<Copy size={13} />}
-                    onClick={() => handleCopy(a.alias, a.id)}
-                    title={copiedKey === a.id ? "Copied!" : "Copy alias"}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<Pencil size={13} />}
-                    onClick={() => openEdit(a)}
-                    title="Edit target model"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={<Trash2 size={13} />}
-                    onClick={() => setDeleteConfirm(a)}
-                    title="Delete alias"
-                    style={{ color: "var(--red)" }}
-                  />
-                </Inline>
-              </div>
+              </ListRow>
             )}
           />
         )}
@@ -277,9 +251,7 @@ function AliasesSection(): ReactNode {
             title="Select target model"
             multi={false}
           />
-          <div
-            style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}
-          >
+          <DialogActions>
             <Button variant="secondary" type="button" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
@@ -295,7 +267,7 @@ function AliasesSection(): ReactNode {
             >
               {editingAlias ? "Save Changes" : "Create Alias"}
             </Button>
-          </div>
+          </DialogActions>
         </form>
       </Dialog>
 
@@ -309,9 +281,7 @@ function AliasesSection(): ReactNode {
             Are you sure you want to delete alias <strong>{deleteConfirm?.alias}</strong>? Clients
             requesting this name will need their full model path.
           </p>
-          <div
-            style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}
-          >
+          <DialogActions>
             <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>
               Cancel
             </Button>
@@ -328,7 +298,7 @@ function AliasesSection(): ReactNode {
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete Alias"}
             </Button>
-          </div>
+          </DialogActions>
         </Stack>
       </Dialog>
     </Card>
@@ -521,32 +491,9 @@ function CombosSection(): ReactNode {
               })
             }
             renderItem={(c) => (
-              <div
-                style={{
-                  // Same padding/radius as an alias row, but the members stay on
-                  // their own line below the header.
-                  padding: "10px 14px",
-                  borderRadius: "10px",
-                  border: "1px solid var(--inner-border)",
-                  background: "var(--surface-2)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {/* The strategy is already shown by the Select beside it; a
-                      badge repeating the same value was redundant. */}
-                  <strong style={{ fontSize: "13px" }}>{c.name}</strong>
-
+              <ListRow
+                style={{ alignItems: "flex-start" }}
+                actions={
                   <Inline gap="8px">
                     <Select
                       value={c.strategy}
@@ -586,24 +533,25 @@ function CombosSection(): ReactNode {
                       />
                     </Inline>
                   </Inline>
+                }
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {/* The strategy is already shown by the Select beside it; a
+                      badge repeating the same value was redundant. */}
+                  <strong style={{ fontSize: "13px" }}>{c.name}</strong>
                 </div>
 
                 <Inline gap="6px" style={{ flexWrap: "wrap" }}>
                   {c.members.slice(0, COMBO_MEMBER_CHIP_MAX).map((m) => (
-                    <code
-                      key={m}
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "11px",
-                        color: "var(--text-secondary)",
-                        background: "var(--surface-3)",
-                        border: "1px solid var(--inner-border)",
-                        padding: "2px 8px",
-                        borderRadius: "6px",
-                      }}
-                    >
-                      {m}
-                    </code>
+                    <CodeChip key={m} value={m} />
                   ))}
                   {c.members.length > COMBO_MEMBER_CHIP_MAX ? (
                     <span
@@ -619,7 +567,7 @@ function CombosSection(): ReactNode {
                     </span>
                   ) : null}
                 </Inline>
-              </div>
+              </ListRow>
             )}
           />
         )}
@@ -705,51 +653,30 @@ function CombosSection(): ReactNode {
                     setMembers(ids.map((id) => byId.get(id)!).filter(Boolean));
                   }}
                   renderItem={(m) => (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        padding: "6px 10px",
-                        borderRadius: "8px",
-                        border: "1px solid var(--inner-border)",
-                        background: "var(--surface-2)",
-                        width: "100%",
-                        boxSizing: "border-box",
-                      }}
+                    <ListRow
+                      density="compact"
+                      leading={<GripVertical size={12} style={{ color: "var(--text-tertiary)", cursor: "grab" }} />}
+                      actions={
+                        <button
+                          type="button"
+                          onClick={() => handlePickerToggle(m.value)}
+                          aria-label={`Remove ${m.value}`}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: 0,
+                            color: "var(--text-tertiary)",
+                            display: "flex",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <X size={12} />
+                        </button>
+                      }
                     >
-                      <code
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "12px",
-                          color: "var(--accent)",
-                          flex: "1 1 auto",
-                          minWidth: 0,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={m.value}
-                      >
-                        {m.value}
-                      </code>
-                      <button
-                        type="button"
-                        onClick={() => handlePickerToggle(m.value)}
-                        aria-label={`Remove ${m.value}`}
-                        style={{
-                          background: "transparent",
-                          border: "none",
-                          cursor: "pointer",
-                          padding: 0,
-                          color: "var(--text-tertiary)",
-                          display: "flex",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
+                      <CodeChip value={m.value} tone="accent" />
+                    </ListRow>
                   )}
                 />
               )}
@@ -763,9 +690,7 @@ function CombosSection(): ReactNode {
             title="Select combo members"
             multi
           />
-          <div
-            style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}
-          >
+          <DialogActions>
             <Button variant="secondary" type="button" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
@@ -781,7 +706,7 @@ function CombosSection(): ReactNode {
             >
               {editingCombo ? "Save Changes" : "Create Combo"}
             </Button>
-          </div>
+          </DialogActions>
         </form>
       </Dialog>
 
@@ -795,9 +720,7 @@ function CombosSection(): ReactNode {
             Are you sure you want to delete combo <strong>{deleteConfirm?.name}</strong>? Any
             aliases pointing to it will fail to resolve.
           </p>
-          <div
-            style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}
-          >
+          <DialogActions>
             <Button variant="secondary" onClick={() => setDeleteConfirm(null)}>
               Cancel
             </Button>
@@ -814,7 +737,7 @@ function CombosSection(): ReactNode {
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete Combo"}
             </Button>
-          </div>
+          </DialogActions>
         </Stack>
       </Dialog>
     </Card>

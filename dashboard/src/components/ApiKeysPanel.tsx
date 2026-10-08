@@ -22,8 +22,8 @@ import { regenerateWarning, ShareManagementDialog } from "./ShareManagementDialo
 import { SortableList } from "./SortableList";
 import { toast } from "../lib/toast";
 import { getErrorMessage } from "../lib/helpers";
-import { useSessionUser } from "../hooks/system";
-import type { ApiKeyResponse } from "../data/contracts";
+import { compactTokens, limitLabel } from "../shared/display-formatters";
+import { useSessionUser } from "../hooks/system";import type { ApiKeyResponse } from "../data/contracts";
 import {
   useApiKeys,
   useCreateApiKey,
@@ -32,23 +32,6 @@ import {
   useRevokeApiKey,
   useUpdateApiKey,
 } from "../hooks/api-keys";
-
-/** Compact K/M/B/T token count used by the credential rows. */
-function compactTokens(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
-  const amount = Math.max(0, value);
-  if (amount >= 1_000_000_000_000) return `${Number((amount / 1_000_000_000_000).toFixed(2))}T`;
-  if (amount >= 1_000_000_000) return `${Number((amount / 1_000_000_000).toFixed(2))}B`;
-  if (amount >= 1_000_000) return `${Number((amount / 1_000_000).toFixed(2))}M`;
-  if (amount >= 1_000) return `${Number((amount / 1_000).toFixed(2))}K`;
-  return amount.toLocaleString();
-}
-
-
-function limitLabel(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "Unlimited";
-  return Number.isFinite(value) ? value.toLocaleString() : "—";
-}
 
 /**
  * API-key management panel: access, budgets, usage, and share links.
