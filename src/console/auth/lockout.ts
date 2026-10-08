@@ -56,7 +56,7 @@ export class ConsoleLockoutStore {
 }
 
 export class ConsoleLockoutService {
-  private readonly maxFailures: number;
+  readonly maxFailures: number;
   private readonly lockoutDurationMs: number;
   private readonly failureWindowMs = 15 * 60 * 1000;
   private readonly store: ConsoleLockoutStore;
@@ -89,6 +89,23 @@ export class ConsoleLockoutService {
 
   async isLocked(ip: string): Promise<boolean> {
     return (await this.remainingLockSeconds(ip)) > 0;
+  }
+
+
+
+  /** Failures recorded for `ip` inside the current window, or 0 outside it. */
+  async failureCount(ip: string, now = new Date()): Promise<number> {
+    const rows = await this.db
+      .select({
+        failureCount: consoleLockouts.failureCount,
+        windowUntil: consoleLockouts.windowUntil,
+      })
+      .from(consoleLockouts)
+      .where(eq(consoleLockouts.ip, ip))
+      .limit(1);
+    const row = rows[0];
+    if (row === undefined || row.windowUntil === null || row.windowUntil <= now) return 0;
+    return row.failureCount;
   }
 
   async recordFailure(ip: string, reason: string): Promise<boolean> {

@@ -158,6 +158,33 @@ function clearSessionCookie(cookies: unknown, policy: SessionCookiePolicy): void
   cookie.set({ ...cookieOptions(policy, "", 0), expires: new Date(0) });
 }
 
+
+/**
+ * A wrong password or unknown user, with the attempts left before the lock.
+ * The count comes from the row the failure just wrote, so it can never claim
+ * attempts remain after the lock has already been taken.
+ */
+async function failedLoginMessage(
+  lockoutService: ConsoleLockoutService,
+  lockoutKey: string,
+): Promise<string> {
+  const remaining = lockoutService.maxFailures - (await lockoutService.failureCount(lockoutKey));
+  const left = remaining === 1 ? "1 attempt left" : `${remaining} attempts left`;
+  return `Wrong username or password. ${left} before this login is locked for 1 hour.`;
+}
+
+/** The body of the 429 a locked login gets. The caller sets the status and header. */
+async function lockedOutMessage(
+  lockoutService: ConsoleLockoutService,
+  lockoutKey: string,
+): Promise<LoginResponse> {
+  const minutes = Math.max(1, Math.ceil((await lockoutService.remainingLockSeconds(lockoutKey)) / 60));
+  return {
+    status: "failed",
+    message: `This login is locked after repeated failures. Try again in ${minutes} minutes.`,
+  };
+}
+
 function parseLoginRequest(body: unknown): LoginRequest | undefined {
   if (!isRecord(body) || typeof body.password !== "string") {
     return undefined;
@@ -245,13 +272,13 @@ export function createConsoleAuthRoutes(
         if (isBanned) {
           set.status = 429;
           set.headers["retry-after"] = String(await lockoutService.remainingLockSeconds(lockoutKey));
-          return {
-            status: "failed",
-            message: "This login has been blocked due to repeated failed authentication attempts.",
-          } satisfies LoginResponse;
+          return lockedOutMessage(lockoutService, lockoutKey);
         }
         set.status = 401;
-        return { status: "failed", message: "Invalid credentials" } satisfies LoginResponse;
+        return {
+          status: "failed",
+          message: await failedLoginMessage(lockoutService, lockoutKey),
+        } satisfies LoginResponse;
       }
 
       const valid = await credentialService.verifyPassword(input.password, user.passwordHash);
@@ -260,13 +287,13 @@ export function createConsoleAuthRoutes(
         if (isBanned) {
           set.status = 429;
           set.headers["retry-after"] = String(await lockoutService.remainingLockSeconds(lockoutKey));
-          return {
-            status: "failed",
-            message: "This login has been blocked due to repeated failed authentication attempts.",
-          } satisfies LoginResponse;
+          return lockedOutMessage(lockoutService, lockoutKey);
         }
         set.status = 401;
-        return { status: "failed", message: "Invalid credentials" } satisfies LoginResponse;
+        return {
+          status: "failed",
+          message: await failedLoginMessage(lockoutService, lockoutKey),
+        } satisfies LoginResponse;
       }
 
       await lockoutService.clearFailures(lockoutKey);

@@ -60,6 +60,8 @@ export default function Login(): ReactNode {
           navigate("/setup", { replace: true });
           return;
         }
+        // A wrong password must not stay filled in for the next try.
+        setPassword("");
         setError(result.message ?? "Authentication failed. Please check your credentials.");
         return;
       }
@@ -74,6 +76,7 @@ export default function Login(): ReactNode {
       if (reason && typeof reason === "object" && "message" in reason) {
         const msg = (reason as { message: unknown }).message;
         if (typeof msg === "string") {
+          setPassword("");
           setError(msg);
           return;
         }
