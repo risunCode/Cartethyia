@@ -695,6 +695,29 @@
   letter-spacing: 0.03em;
 }
 
+/* Mobile: the credential row stacks — header, facts, then actions full-width —
+   and the fact pills sit in an even grid instead of wrapping into a wall. */
+@media (max-width: 640px) {
+  .api-key-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+  .api-key-card > div:last-child {
+    flex-wrap: wrap;
+  }
+  .api-key-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    margin-top: 0;
+  }
+  .api-key-facts .api-key-pill {
+    justify-content: space-between;
+  }
+}
+
 .api-key-form-columns {
   columns: 2;
   column-gap: 12px;
