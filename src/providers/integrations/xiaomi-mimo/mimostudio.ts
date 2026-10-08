@@ -75,7 +75,6 @@ function mimoStudioModel(
     vision: options.vision ?? true,
     reasoning: options.reasoning ?? true,
     toolCall: options.toolCall ?? true,
-    webSearch: false,
   });
 }
 

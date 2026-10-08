@@ -66,6 +66,37 @@ export function poolByteSnapshot(): ReadonlyArray<{ poolId: string } & PoolByteT
 /** Test seam: drop all accounting. */
 export function resetPoolByteAccounting(): void {
   totals.clear();
+  flushed.clear();
+}
+
+/**
+ * High-water marks already persisted to `network_pools` per pool. The live
+ * snapshot keeps reading the running `totals` (session view); persistence
+ * drains only the delta since the last flush, so a restart loses at most the
+ * traffic between the last pool-touching write and the crash — never the
+ * totals already banked in the row.
+ */
+const flushed = new Map<string, { sent: number; received: number }>();
+
+/**
+ * Bytes carried since the last drain for one pool, advancing its high-water
+ * mark. Returns zeroes when nothing new arrived. The running totals are left
+ * intact — only the flushed mark moves.
+ */
+export function drainPoolByteDelta(poolId: string): PoolByteTotals {
+  const current = totals.get(poolId);
+  if (!current) {
+    // The running entry is gone (never tracked, reset, or evicted under the
+    // entry bound): drop the flushed mark with it so this map cannot outgrow
+    // the totals it shadows.
+    flushed.delete(poolId);
+    return { sent: 0, received: 0 };
+  }
+  const mark = flushed.get(poolId) ?? { sent: 0, received: 0 };
+  const sent = current.sent - mark.sent;
+  const received = current.received - mark.received;
+  flushed.set(poolId, { sent: current.sent, received: current.received });
+  return { sent: Math.max(0, sent), received: Math.max(0, received) };
 }
 
 /**

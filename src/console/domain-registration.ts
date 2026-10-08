@@ -38,7 +38,7 @@ import { createBackupRoutes } from "./backup/routes";
 import { BackupService } from "./backup/service";
 import type { ConsoleCredentialService } from "./auth/service";
 
-import { OAuthFlowStore } from "../providers/authentication/oauth-flow-store";
+import { InMemoryOAuthFlowStore, OAuthFlowStore } from "../providers/authentication/oauth-flow-store";
 import { OAuthCallbackListener } from "./providers/oauth/callback-listener";
 import {
   createAccountExportCredentialsResolver,
@@ -59,6 +59,7 @@ import type { ApiKeyAdmissionService } from "../security/admission/service";
 import type { ModelStrikeService } from "../security/model-abuse";
 import type { TelemetryBatchBuffer } from "../observability/telemetry-buffer";
 import type { OAuthRefreshService } from "../providers/authentication/oauth-refresh-service";
+import { resolveRedisBackend } from "../persistence/redis";
 import type { RedisClient } from "../persistence/redis";
 import type { ProviderRegistry } from "../providers/provider-registry";
 import type { BundledProviderCatalog } from "../providers/operations/provider-catalog-service";
@@ -75,7 +76,7 @@ export interface ConsoleDomainContext {
   readonly oauthRefreshService: OAuthRefreshService;
   readonly auditRecorder: AuditRecorder;
   readonly cliToolService: CliToolService;
-  readonly redis: RedisClient;
+  readonly redis: RedisClient | undefined;
   readonly routeSnapshotService: RouteSnapshotService;
   readonly poolSelector: NetworkPoolSelector;
   readonly telemetryBuffer: TelemetryBatchBuffer;
@@ -202,7 +203,7 @@ export function registerConsoleDomains(
   });
   const providerDetailStore = new DrizzleProviderDetailStore(ctx.db);
   const networkPoolStore = new DrizzleNetworkPoolStore(ctx.db, resolveSsrfPolicy());
-  const runtimeSettingsStore = new DrizzleRuntimeSettingsStore(ctx.db);
+  const runtimeSettingsStore = new DrizzleRuntimeSettingsStore(ctx.db, resolveRedisBackend(ctx.redis));
   const modelRoutingStore = new DrizzleModelRoutingStore(ctx.db);
   const apiKeyStore = new DrizzleApiKeyStore(ctx.db);
   const shareStore = new DrizzleShareLinkStore(ctx.db);
@@ -311,7 +312,7 @@ export function registerConsoleDomains(
   });
   const oauthConfig: OAuthLoginConfig = {
     providerRegistry: ctx.providerRegistry,
-    oauthFlowStore: new OAuthFlowStore(ctx.redis),
+    oauthFlowStore: ctx.redis ? new OAuthFlowStore(ctx.redis) : new InMemoryOAuthFlowStore(),
     accountStore: new DrizzleOAuthAccountStore(ctx.db),
     accessResolver: ctx.accessResolver,
     snapshotInvalidator: ctx.routeSnapshotService,

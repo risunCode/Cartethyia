@@ -1,7 +1,7 @@
 
-import { assertPoolFitsServerCapacity, ensureMigrated, getDb, poolMaxFromEnv } from "../persistence/postgres";
+import { assertPoolFitsServerCapacity, bootDatabase, ensureMigrated, poolMaxFromEnv } from "../persistence/postgres";
 import type { CartethyiaDatabase } from "../persistence/postgres";
-import { getRedis } from "../persistence/redis";
+import { resolveRedisBackend, resolveRedisClient } from "../persistence/redis";
 import type { RedisClient } from "../persistence/redis";
 import {
   bundledModelCatalog,
@@ -32,7 +32,7 @@ import {
   ModelStrikeService,
   RedisModelAbuseStore,
 } from "../security/model-abuse";
-import { checkReadiness, resolveRedisMode } from "../persistence/readiness";
+import { checkReadiness } from "../persistence/readiness";
 import { ProxyRequestPreparer } from "../transport/request/preparer";
 import { DrizzleNetworkPoolLoader } from "../network/pool/loader";
 import {
@@ -115,12 +115,15 @@ const OAUTH_REFRESH_INTER_ITEM_DELAY_MS = 1_500;
 const CLIENT_VERSION_MONITOR_INTERVAL_MS = 15 * 60_000;
 
 export async function buildProductionDeps(): Promise<ProductionDeps> {
-  const db = getDb();
-  const redisMode = resolveRedisMode();
-  const redis = redisMode === "single_instance_local" ? undefined : getRedis();
+  const handle = await bootDatabase();
+  const db = handle.db;
+  // One rule, no mode flag: REDIS_URL set → shared client, unset → memory.
+  const redis = resolveRedisClient();
   const ssrfPolicy = resolveSsrfPolicy();
   await ensureMigrated();
-  await assertPoolFitsServerCapacity(poolMaxFromEnv());
+  // Pool sizing is an external-server concern; the embedded backend has no
+  // connection budget to fit into.
+  if (handle.kind === "pg") await assertPoolFitsServerCapacity(poolMaxFromEnv());
   await seedBundledProviders(db);
   // Boot-only: retire global rows for providers the bundle has dropped, so a
   // retired provider cannot linger as a card the console can no longer delete.
@@ -213,14 +216,14 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   // Graduated model-abuse strikes: a client that keeps requesting models
   // outside its access is warned, then banned. Redis-backed when available so
   // the ban survives a restart and is shared across instances; in-memory
-  // otherwise (single_instance_local), where a restart clears it.
+  // otherwise, where a restart clears it.
   const modelAbuseStore = redis ? new RedisModelAbuseStore(redis) : new InMemoryModelAbuseStore();
   const modelStrikes = new ModelStrikeService(modelAbuseStore, {
     threshold: resolveModelStrikeThreshold(),
     windowMs: resolveModelStrikeWindowMs(),
     banTtlMs: resolveModelBanTtlMs(),
   });
-  const readiness = () => checkReadiness(db, redis, redisMode);
+  const readiness = () => checkReadiness(db, redis, resolveRedisBackend(redis));
   const scheduledTasks = new ScheduledTaskRegistry();
   if (redis) {
     scheduledTasks.register({

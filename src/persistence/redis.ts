@@ -59,9 +59,20 @@ declare global {
   var __cartethyiaRedis: RedisClient | undefined;
 }
 
-export function getRedis(): RedisClient {
+/**
+ * The single Redis rule: a configured URL means a real shared client, no URL
+ * means the in-process memory backend (every consumer already handles an
+ * undefined client). There is no mode flag anymore.
+ */
+export function resolveRedisClient(): RedisClient | undefined {
   if (globalThis.__cartethyiaRedis) return globalThis.__cartethyiaRedis;
-  const c = new Redis(requireRedisUrl(), {
+  let url: string;
+  try {
+    url = requireRedisUrl();
+  } catch {
+    return undefined;
+  }
+  const c = new Redis(url, {
     maxRetriesPerRequest: 2,
     enableReadyCheck: true,
     lazyConnect: false,
@@ -74,12 +85,11 @@ export function getRedis(): RedisClient {
   return c;
 }
 
-export function getRedisOrUndefined(): RedisClient | undefined {
-  try {
-    return getRedis();
-  } catch {
-    return undefined;
-  }
+/** Which coordination backend is active: shared Redis or process memory. */
+export type RedisBackend = "redis" | "memory";
+
+export function resolveRedisBackend(client: RedisClient | undefined): RedisBackend {
+  return client === undefined ? "memory" : "redis";
 }
 
 export interface CloseRedisOptions {

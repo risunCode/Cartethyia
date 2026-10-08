@@ -451,7 +451,7 @@ function errorLabel(
   const code = statusCode(status, httpStatus).code.split(" ", 1)[0] ?? status;
   const layer = originLabel(errorOrigin);
   const message = errorMessageFor(errorKind);
-  return layer ? `Error ${code} · ${layer}: ${message}` : `Error ${code}: ${message}`;
+  return layer ? `${message} · ${code} · ${layer}` : `${message} · ${code}`;
 }
 
 const STATUS_TONE_COLOR: Record<"ok" | "err" | "warn", string> = {

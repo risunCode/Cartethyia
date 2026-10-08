@@ -91,7 +91,6 @@ function toModelDefinition(entry: Record<string, unknown>): ModelDefinition | un
     modalities: { input: inputModalities(entry), output: ["text"] },
     reasoning: parameters.has("reasoning") || parameters.has("include_reasoning"),
     toolCall: parameters.has("tools"),
-    webSearch: parameters.has("web_search") || parameters.has("web_search_preview"),
     cost: modelsDevCatalog.costFor(KILO_PROVIDER_ID, modelId),
   };
 }

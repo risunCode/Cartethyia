@@ -202,11 +202,19 @@ export const providerAccounts = pgTable("provider_accounts", {
   staticToken: boolean("static_token").notNull().default(false),
   /**
    * Last remaining credit fetched by the quota sweep, cached on the row so the
-   * request path can compare it against the provider's global credit limit
+   * request path can compare it against the provider's minimum balance
    * without a live provider round trip. `null` means no credit figure has ever
    * been fetched.
    */
   lastRemainingCredit: numeric("last_remaining_credit", { precision: 16, scale: 4 }),
+  /**
+   * Lowest remaining quota percent fetched by the quota sweep (Codex weekly,
+   * Muse rolling/weekly), for providers that report percent windows instead
+   * of absolute credits. The minimum-balance floor compares in whichever unit
+   * the account reported — credits when present, otherwise this percent.
+   * `null` means no percent figure has ever been fetched.
+   */
+  lastRemainingPercent: numeric("last_remaining_percent", { precision: 8, scale: 3 }),
 
   },
   (table) => [
@@ -285,7 +293,6 @@ export const models = pgTable(
     modalities: jsonb("modalities"),
     reasoning: boolean("reasoning").notNull().default(false),
     toolCall: boolean("tool_call").notNull().default(false),
-    webSearch: boolean("web_search").notNull().default(false),
     cost: jsonb("cost"),
     source: text("source"),
     sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
@@ -356,6 +363,21 @@ export const networkPools = pgTable("network_pools", {
   egressIp: text("egress_ip"),
   /** Operator-set egress allowance in bytes; null means unmetered. */
   quotaBytes: bigint("quota_bytes", { mode: "number" }),
+  /** Last speed-test payload actually transferred, in bytes; null until measured. */
+  lastSpeedtestBytes: integer("last_speedtest_bytes"),
+  /** Wall-clock duration of the last speed-test transfer, in milliseconds. */
+  lastSpeedtestDurationMs: integer("last_speedtest_duration_ms"),
+  /** "ok" | "failed" for the last speed-test; null until measured. */
+  lastSpeedtestStatus: text("last_speedtest_status"),
+  /** Failure message of the last speed-test; null on success or unmeasured. */
+  lastSpeedtestError: text("last_speedtest_error"),
+  /** When the last speed-test ran. */
+  lastSpeedtestAt: timestamp("last_speedtest_at", { withTimezone: true }),
+  /** Metered egress totals, flushed from the in-memory socket counters on
+   * every pool-touching write so the quota bar survives a restart. */
+  bytesSentTotal: bigint("bytes_sent_total", { mode: "number" }).notNull().default(0),
+  /** Metered ingress totals; see `bytesSentTotal`. */
+  bytesReceivedTotal: bigint("bytes_received_total", { mode: "number" }).notNull().default(0),
   },
   (table) => [
     index("network_pools_tenant_id_idx").on(table.tenantId),
@@ -461,13 +483,15 @@ export const providerRoutingSettings = pgTable(
      * `null` = UNLIMITED concurrency per account. */
     maxInflight: integer("max_inflight"),
     /**
-     * Global credit protection for every account of this provider/tenant:
+     * Minimum-balance protection for every account of this provider/tenant:
      * when enabled, routing skips any account whose last fetched remaining
-     * credit is at or below `creditLimit`.
+     * balance is at or below `creditLimit` — credits for credit providers,
+     * percent for quota-percent providers. Opt-in per provider; off unless the
+     * operator enables it.
      */
-    creditLimitEnabled: boolean("credit_limit_enabled").notNull().default(true),
-    /** Minimum credits to keep unused on every account; default 200. */
-    creditLimit: integer("credit_limit").notNull().default(200),
+    creditLimitEnabled: boolean("credit_limit_enabled").notNull().default(false),
+    /** Minimum balance to keep unused on every account; credits or percent. */
+    creditLimit: integer("credit_limit").notNull().default(50),
     enabled: boolean("enabled").notNull().default(false),
     // Route-selected User-Agent for built-in API-key providers; OAuth and BYOK identities stay native.
     userAgent: text("user_agent").notNull().default("codex_cli_rs/0.156.1"),
@@ -793,8 +817,15 @@ export interface ConsoleSettingsPreferences {
    * - `none` — no drawer capture (request metadata events still retained)
    */
   telemetryPayloads?: "full" | "metadata" | "none";
+  /**
+   * Capture depth for `full` mode (default `minimum` when unset). Fixed size
+   * tiers so every debug sees all four drawer panels — only the cap changes:
+   * - `minimum` — 1 MiB combined cap, light enough to leave on
+   * - `moderate` — 16 MiB combined cap, expect CPU/memory spikes while active
+   * - `maximum` — 32 MiB combined cap, expect CPU/memory spikes while active
+   */
+  telemetryPayloadDepth?: "minimum" | "moderate" | "maximum";
   privacyMode?: "masked" | "full";
-  webSearchOrder?: readonly string[];
 }
 
 export const consoleSettings = pgTable("console_settings", {

@@ -26,18 +26,21 @@ import {
 export class ChatAdapter implements SurfaceAdapter {
   readonly surface = "chat" as const;
 
-  /** Returns whether a body has the distinguishing Chat `messages[]` shape. */
+  /**
+   * Returns whether a body has the distinguishing Chat `messages[]` shape.
+   *
+   * Block content (`content: [{type, ...}]`) with `max_tokens` also matches
+   * the Messages shape — that overlap is inherent (Claude Code posts exactly
+   * such bodies to this endpoint), so this matcher claims them too and lets
+   * precedence decide: the endpoint path wins on known routes, and an
+   * ambiguous body on an unknown path falls back to chat, the documented
+   * default. Refusing them here is what made every Claude Code request log a
+   * false "ambiguous body shape" disagreement while routing correctly.
+   */
   matchesBodyShape(body: unknown): boolean {
     const value = decodeBody(body);
     if (!isRecord(value) || "input" in value || !Array.isArray(value.messages)) return false;
     if (value.messages.length === 0) return false;
-    if (typeof value.max_tokens === "number") {
-      const hasBlockContent = value.messages.some((message) => {
-        if (!isRecord(message) || !Array.isArray(message.content)) return false;
-        return message.content.some((part) => isRecord(part) && "type" in part);
-      });
-      if (hasBlockContent) return false;
-    }
     return value.messages.some((message) => isRecord(message) && typeof message.role === "string");
   }
 

@@ -1,6 +1,5 @@
 import pino from 'pino';
 import { pushConsoleLog, type ConsoleLogLevel } from './log-ring';
-import { redactTelemetryValue } from './redaction';
 
 /**
  * Structured logger using Pino for production-ready logging.
@@ -73,14 +72,14 @@ function decycle(value: unknown, seen: WeakSet<object> = new WeakSet(), depth = 
 }
 
 /**
- * Flatten a log call into one ring line. Args go through the shared
- * telemetry redactor (embedded `sk-`/`Bearer`/`rk_` shapes become
- * `***REDACTED***`) so the live console tail can never leak credential
- * material that a structured error object happened to carry.
+ * Flatten a log call into one ring line. Args keep their real values: a log
+ * line whose credential was rewritten into `***REDACTED***` is
+ * indistinguishable from a payload that really carried that placeholder, so
+ * redacting here destroyed the evidence a failure has to be read from.
  */
 function safeLogValue(value: unknown): unknown {
   try {
-    return redactTelemetryValue(decycle(value));
+    return decycle(value);
   } catch {
     return "[unserializable args]";
   }

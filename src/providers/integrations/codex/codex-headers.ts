@@ -6,6 +6,7 @@
 import { getCodexAccountId } from "./codex-identity";
 import type { ResolvedCredential } from "../../provider-registry";
 import { toAsciiJsonString } from "../../../protocol/primitives";
+import { buildCodexUserAgent } from "../../operations/cli-platform";
 
 interface CodexIdentityHeadersOptions {
   readonly credential: ResolvedCredential;
@@ -37,7 +38,7 @@ export function buildCodexIdentityHeaders(
   options: CodexIdentityHeadersOptions,
 ): Record<string, string> {
   const headers: Record<string, string> = {};
-  headers["user-agent"] = `codex_cli_rs/${options.version}`;
+  headers["user-agent"] = buildCodexUserAgent(options.version);
   headers["originator"] = "codex_cli_rs";
   headers["version"] = options.version;
   const token =

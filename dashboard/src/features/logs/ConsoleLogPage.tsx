@@ -239,9 +239,14 @@ function RequestFields({ line }: { readonly line: ConsoleLogEntry }): ReactNode 
       ) : null}
       {tokens ? <span className="console-log-tokens">{tokens}</span> : null}
       {line.errorCode ? (
-        <span className="console-log-error" title={line.msg}>
-          {line.errorCode}
-        </span>
+        <>
+          <span className="console-log-errmsg" title={line.msg}>
+            {line.msg}
+          </span>
+          <span className="console-log-error" title={line.msg}>
+            {line.errorCode}
+          </span>
+        </>
       ) : null}
       {isStart ? null : <span className="console-log-id">{line.requestId?.slice(0, 8) ?? ""}</span>}
     </>

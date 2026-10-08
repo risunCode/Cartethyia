@@ -223,7 +223,15 @@ export function assertProviders(value: unknown): ProviderResponse[] {
     ) {
       throw invalidResponse("Invalid provider response");
     }
-    return provider as unknown as ProviderResponse;
+    const serviceKinds =
+      provider.serviceKinds === undefined
+        ? ["llm"]
+        : isStringArray(provider.serviceKinds) && provider.serviceKinds.length > 0
+          ? provider.serviceKinds
+          : undefined;
+    if (serviceKinds === undefined || serviceKinds.includes("all"))
+      throw invalidResponse("Invalid provider service kinds");
+    return { ...provider, serviceKinds } as unknown as ProviderResponse;
   });
 }
 

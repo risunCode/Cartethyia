@@ -1,8 +1,8 @@
-import { and, desc, eq, inArray, isNotNull, lte } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { healthEvents, networkPools } from "../persistence/schema";
+import { drainPoolByteDelta } from "./pool/byte-accounting";
 import { resolvePoolCooldownMs } from "../config";
-
 export interface PoolHealthEvent {
   readonly id: string;
   readonly networkPoolId: string;
@@ -55,7 +55,24 @@ export async function recordPoolDispatchOutcome(
   input: { readonly succeeded: boolean; readonly error?: unknown; readonly errorOrigin?: string; readonly snapshotInvalidator?: { invalidate(): unknown } },
 ): Promise<void> {
   const category = input.succeeded ? undefined : poolFaultCategory(input.error, input.errorOrigin);
-  if (!input.succeeded && category === undefined) return;
+  // Metered bytes are banked even when health is untouched: an upstream-origin
+  // failure still carried traffic through the pool, and the quota bar must
+  // count it. Drained here so the high-water mark advances exactly once per
+  // flush, whichever branch below performs the write.
+  const delta = drainPoolByteDelta(poolId);
+  const hasDelta = delta.sent > 0 || delta.received > 0;
+  const bankedTotals = hasDelta
+    ? {
+        bytesSentTotal: sql`${networkPools.bytesSentTotal} + ${delta.sent}`,
+        bytesReceivedTotal: sql`${networkPools.bytesReceivedTotal} + ${delta.received}`,
+      }
+    : {};
+  if (!input.succeeded && category === undefined) {
+    if (hasDelta) {
+      await db.update(networkPools).set(bankedTotals).where(eq(networkPools.id, poolId));
+    }
+    return;
+  }
   const rows = await db.select().from(networkPools).where(eq(networkPools.id, poolId)).limit(1);
   const pool = rows[0];
   if (!pool || pool.status === "disabled") return;
@@ -102,6 +119,7 @@ export async function recordPoolDispatchOutcome(
     lastErrorCategory,
     lastErrorAt,
     lastSuccessAt,
+    ...bankedTotals,
     ...(input.succeeded && fromStatus !== "active" ? { lastRecoveredAt: now } : {}),
   }).where(eq(networkPools.id, poolId));
   if (statusChanged || (input.succeeded && pool.consecutiveFailures > 0)) {

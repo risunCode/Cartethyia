@@ -179,7 +179,6 @@ function normalizeAntigravityDiscoveryModels(
       modalities: { input: ["text", "image"], output: ["text"] },
       reasoning: model.supportsThinking === true,
       toolCall: true,
-      webSearch: false,
       cost: modelsDevCatalog.costFor("antigravity", logicalId),
     };
     const existing = byId.get(logicalId);

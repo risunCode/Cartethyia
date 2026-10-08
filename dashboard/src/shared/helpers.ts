@@ -22,6 +22,13 @@ export function shareCodeMessage(code: string | undefined): string | undefined {
   if (code === "link_expired_or_used") return "This enrollment link has expired or has already been used.";
   if (code === "key_unavailable") return "The shared access template is no longer available.";
   if (code === "link_not_found") return "This enrollment link is unavailable.";
+  // A paused key is the one refusal the recipient cannot act on: the link and
+  // the key both still exist, so say what to ask for rather than implying the
+  // link itself is dead.
+  if (code === "link_disabled")
+    return "This share link's API key is paused. Ask whoever shared this link to re-enable it.";
+  if (code === "link_expired") return "This share link has expired.";
+  if (code === "link_revoked") return "This share link's API key has been revoked.";
   return undefined;
 }
 

@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   ENV_PATH,
   getLocalPlatform,
@@ -9,7 +10,7 @@ import {
   readEnvFile,
 } from "../internal/env";
 import type { ProbeResult } from "../internal/env";
-import { resolveRedisMode } from "../../src/persistence/readiness";
+import { resolveDataDir, resolveDbMode } from "../../src/persistence/db-mode";
 
 interface DoctorConfig {
   envPath: string;
@@ -118,22 +119,20 @@ async function doctor(): Promise<void> {
   console.log("📋 Environment Configuration");
   if (!existsSync(config.envPath)) {
     console.log("  ✗ .env file not found");
-    console.log("  Run: bun run setup\n");
+    console.log("  Run: bun setup\n");
     process.exit(1);
   }
   console.log("  ✓ .env file exists");
 
-  // Step 2: Check required environment variables
+  // Step 2: Check required environment variables. DATABASE_URL is required in
+  // full mode only; lite keeps its database in the data dir. Redis is never
+  // required — unset means the in-memory backend.
   const envVars = await readEnvFile(config.envPath);
-  const localMode =
-    resolveRedisMode({ ...process.env, ...envVars }) === "single_instance_local";
-  const required = localMode
-    ? ["DATABASE_URL", "CARTETHYIA_ENCRYPTION_KEY"]
-    : [
-        "DATABASE_URL",
-        "REDIS_URL",
-        "CARTETHYIA_ENCRYPTION_KEY",
-      ];
+  const dbMode = resolveDbMode({ ...process.env, ...envVars });
+  const required =
+    dbMode === "lite"
+      ? ["CARTETHYIA_ENCRYPTION_KEY"]
+      : ["DATABASE_URL", "CARTETHYIA_ENCRYPTION_KEY"];
   const missing: string[] = [];
 
   for (const key of required) {
@@ -157,40 +156,50 @@ async function doctor(): Promise<void> {
 
   console.log();
 
-  // Step 3: Check database connectivity
-  const dbUrl = envVars.DATABASE_URL ?? process.env.DATABASE_URL;
-  const dbParsed = parseServiceUrl(dbUrl ?? "");
-
-  if (!dbParsed) {
-    console.log("  ✗ Invalid DATABASE_URL format");
-    process.exit(1);
-  }
-
-  const dbResult = await probeTcpService(dbParsed.host, dbParsed.port, config.probeTimeoutMs);
-  if (dbResult.success) {
-    console.log(`  ✓ Reachable at ${dbParsed.host}:${dbParsed.port}`);
+  // Step 3: Check database. Full mode probes the TCP service; lite verifies
+  // the data dir is writable (the PGlite driver creates it at boot too).
+  if (dbMode === "lite") {
+    const pgliteDir = join(resolveDataDir({ ...process.env, ...envVars }), "pglite");
+    try {
+      mkdirSync(pgliteDir, { recursive: true });
+      accessSync(pgliteDir, constants.W_OK);
+      console.log(`  ✓ Lite data dir is writable (${pgliteDir})`);
+    } catch {
+      console.log(`  ✗ Lite data dir is not writable (${pgliteDir})`);
+      process.exit(1);
+    }
   } else {
-    console.log(`  ✗ Not reachable at ${dbParsed.host}:${dbParsed.port}`);
-    console.log(`    Error: ${dbResult.error || "connection refused"}`);
-    for (const hint of getOsHints("postgres")) console.log(`    ${hint}`);
-    process.exit(1);
+    const dbUrl = envVars.DATABASE_URL ?? process.env.DATABASE_URL;
+    const dbParsed = parseServiceUrl(dbUrl ?? "");
+
+    if (!dbParsed) {
+      console.log("  ✗ Invalid DATABASE_URL format");
+      process.exit(1);
+    }
+
+    const dbResult = await probeTcpService(dbParsed.host, dbParsed.port, config.probeTimeoutMs);
+    if (dbResult.success) {
+      console.log(`  ✓ Reachable at ${dbParsed.host}:${dbParsed.port}`);
+    } else {
+      console.log(`  ✗ Not reachable at ${dbParsed.host}:${dbParsed.port}`);
+      console.log(`    Error: ${dbResult.error || "connection refused"}`);
+      for (const hint of getOsHints("postgres")) console.log(`    ${hint}`);
+      process.exit(1);
+    }
   }
 
   console.log();
 
-  // Step 4: Check Redis connectivity.
+  // Step 4: Check Redis connectivity — informational only. A configured URL
+  // is probed; unset means the in-memory backend, which is always up.
   console.log("🔴 Redis");
   const redisUrl = envVars.REDIS_URL ?? process.env.REDIS_URL;
-  if (localMode) {
-    if (redisUrl) {
-      console.log("  ✗ REDIS_MODE=single_instance_local forbids REDIS_URL");
-      process.exit(1);
-    }
-    console.log("  ✓ single-instance local mode; Redis is not configured");
+  if (!redisUrl) {
+    console.log("  ✓ in-memory backend (REDIS_URL not set)");
   } else {
-    const redisParsed = redisUrl ? parseServiceUrl(redisUrl) : null;
+    const redisParsed = parseServiceUrl(redisUrl);
     if (!redisParsed) {
-      console.log("  ✗ REDIS_URL is missing or invalid");
+      console.log("  ✗ REDIS_URL is invalid");
       process.exit(1);
     }
     const redisResult = await probeTcpService(

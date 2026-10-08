@@ -60,19 +60,3 @@ export function abortGatewayError(
     return new GatewayError("transport_closed", 499, "request was cancelled");
   return undefined;
 }
-
-export async function withUpstreamDeadline<T>(
-  context: ProviderDispatchContext,
-  fn: (signal: AbortSignal) => Promise<T>,
-): Promise<T> {
-  const lifecycle = createUpstreamDeadlineLifecycle(context);
-  try {
-    return await fn(lifecycle.signal);
-  } catch (error: unknown) {
-    const abortError = abortGatewayError(lifecycle, error, context.abort_signal);
-    if (abortError) throw abortError;
-    throw error;
-  } finally {
-    lifecycle.release();
-  }
-}

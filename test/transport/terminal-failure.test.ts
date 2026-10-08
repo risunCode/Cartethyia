@@ -144,3 +144,23 @@ describe("terminalFailure", () => {
     });
   });
 });
+
+describe("errorClientResponseBody", () => {
+  test("mirrors the public wire envelope for gateway errors", async () => {
+    const { errorClientResponseBody } = await import("../../src/transport/dispatch/attempt-finalize");
+    const parsed = JSON.parse(
+      errorClientResponseBody(new GatewayError("platform_unavailable", 502, "Upstream blew up", {}, "upstream")),
+    ) as { error: Record<string, unknown> };
+    expect(parsed.error.code).toBe("platform_unavailable");
+    expect(parsed.error.origin).toBe("upstream");
+    expect(typeof parsed.error.message).toBe("string");
+  });
+
+  test("falls back to a generic envelope for unknown throws", async () => {
+    const { errorClientResponseBody } = await import("../../src/transport/dispatch/attempt-finalize");
+    const parsed = JSON.parse(errorClientResponseBody(new Error("weird"))) as {
+      error: Record<string, unknown>;
+    };
+    expect(parsed.error.code).toBe("internal_error");
+  });
+});

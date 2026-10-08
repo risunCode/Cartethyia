@@ -47,7 +47,7 @@ function dataPlaneInjects(
 
 dbDescribe("runtime settings: the two-key ponyTail bag", () => {
   let world: GatewayWorld;
-  const store = new DrizzleRuntimeSettingsStore(getDb());
+  const store = new DrizzleRuntimeSettingsStore(getDb(), "redis");
   const reader = new DrizzlePreferencesReader(getDb());
 
   beforeAll(async () => {

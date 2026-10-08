@@ -26,6 +26,7 @@ import { healthEvents, providerAccounts } from "../../persistence/schema";
 import { CLAUDE_CODE_USER_AGENT } from "../integrations/claude/claude-fingerprint";
 import { authCredential, codexJwtAccountId, text } from "../quota/quota-contracts";
 import { getCodexVersion } from "./client-versions";
+import { buildCodexUserAgent } from "./cli-platform";
 
 /** One redeemable (or already-spent) saved reset. */
 export interface ResetCredit {
@@ -90,7 +91,7 @@ function codexHeaders(
 ): Record<string, string> {
   return {
     Authorization: `Bearer ${access}`,
-    "User-Agent": `codex_cli_rs/${version}`,
+    "User-Agent": buildCodexUserAgent(version),
     ...(accountId ? { "ChatGPT-Account-Id": accountId } : {}),
     ...(json ? { "Content-Type": "application/json" } : {}),
   };

@@ -9,6 +9,7 @@
  */
 import type { CanonicalMessage, CanonicalRequest, ContentPart } from "../../transport/canonical-model";
 import { canContainToolResult, toolResultParts } from "../../transport/canonical-model";
+import { isWebSearchTool } from "../../transport/translation/capabilities";
 import { reasoningEffortFromIntent } from "../../providers/reasoning";
 import {
   decodeCodexToolCallId,
@@ -414,6 +415,13 @@ export function canonicalToCodexResponsesPayload(
             : {}),
         };
       }
+      // Hosted web search is the one tool Codex accepts that is not a
+      // `function`, and it is named `web_search` here — not the public
+      // Responses `web_search_preview`, which this upstream rejects. The
+      // caller's Anthropic `web_search_*` payload carries no `type` this
+      // wire knows, so forwarding it verbatim sent `{"type": null}` and
+      // came back "Unsupported tool type: None".
+      if (isWebSearchTool(tool)) return { type: "web_search" };
       if (
         tool.tool_type !== undefined &&
         tool.tool_type !== "function" &&

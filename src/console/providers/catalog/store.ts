@@ -13,12 +13,13 @@ import type { TelemetryBatchBuffer } from "../../../observability/telemetry-buff
 import { gatewayErrorSql } from "../../../observability/telemetry-status";
 import type { BundledProviderCatalog } from "../../../providers/operations/provider-catalog-service";
 import type { AccountInflightReading, ByokConnectionTestRequest, ByokConnectionTestResult, CreateProviderAccountRequest, CredentialMode, ModelCatalogEntry, ProbeAllAccountsResult, ProbeAllModelsResult, ProbeModelRequest, ProbeModelResult, ProviderAccountResponse, ProviderAccountTokenUsage, ProviderCatalogStore, ProviderRecord, SetModelEnabledRequest, UpdateProviderAccountRequest } from "./contracts";
-import { validateCompatibilityProfile } from "./contracts";
+import { isServiceKind, validateCompatibilityProfile } from "./contracts";
 import { ProviderProbingService, type ProbeOutboundResolver } from "../../../providers/discovery/probing-service";
 import { resolveManualModelMetadata } from "../../../providers/model-definition";
 import { isUniqueViolation } from "../../../persistence/postgres";
 import { DEFAULT_ENDPOINT_BY_WIRE_FAMILY, endpointPathForProviderModel, mapProviderRow } from "./catalog-projections";
 import { pushStructuredConsoleLog } from "../../../observability/log-ring";
+import { decodeJwtPayload } from "../../../providers/authentication/oauth-flow-store";
 
 /** Real Drizzle-backed provider and model catalog repository. */
 
@@ -52,19 +53,10 @@ function parseExpiry(value: unknown): Date | undefined {
   return undefined;
 }
 function parseJwtCredential(raw: string): { readonly expiresAt?: Date } | undefined {
-  const segments = raw.trim().split(".");
-  if (segments.length !== 3) return undefined;
-  try {
-    const payload = JSON.parse(
-      Buffer.from(segments[1] as string, "base64url").toString("utf8"),
-    ) as unknown;
-    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return undefined;
-    const exp = (payload as Record<string, unknown>)["exp"];
-    const expiresAt = parseExpiry(exp);
-    return expiresAt === undefined ? {} : { expiresAt };
-  } catch {
-    return undefined;
-  }
+  const payload = decodeJwtPayload(raw.trim());
+  if (payload === undefined) return undefined;
+  const expiresAt = parseExpiry(payload["exp"]);
+  return expiresAt === undefined ? {} : { expiresAt };
 }
 
 /**
@@ -179,7 +171,6 @@ function mapModelRow(
     document: inputModalities.includes("document"),
     audio: inputModalities.includes("audio"),
     mediaGeneration: outputModalities.includes("image"),
-    webSearch: row.webSearch,
     cost: row.cost as ModelCatalogEntry["cost"],
     source: row.source,
     sourceUpdatedAt: row.sourceUpdatedAt?.toISOString() ?? null,
@@ -501,7 +492,6 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
           modalities: sql`excluded.modalities`,
           reasoning: sql`excluded.reasoning`,
           toolCall: sql`excluded.tool_call`,
-          webSearch: sql`excluded.web_search`,
           source: sql`'manual'`,
           sourceUpdatedAt: sql`excluded.source_updated_at`,
         },
@@ -536,8 +526,21 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
    */
   async probeAllModels(tenantId: string, providerId: string): Promise<ProbeAllModelsResult> {
     const entries = await this.listModels(tenantId, providerId);
-    const modelIds = [...new Set(entries.map((entry) => entry.modelId))];
-    return this.probing.probeAllModels(tenantId, providerId, modelIds);
+    const requests = entries.map((entry) => ({
+      modelId: entry.modelId,
+      route: entry.route,
+      serviceKind: isServiceKind(entry.serviceKind) ? entry.serviceKind : ("llm" as const),
+    }));
+    const uniqueRequests = requests.filter(
+      (request, index, all) =>
+        all.findIndex(
+          (candidate) =>
+            candidate.modelId === request.modelId &&
+            candidate.route === request.route &&
+            candidate.serviceKind === request.serviceKind,
+        ) === index,
+    );
+    return this.probing.probeAllModels(tenantId, providerId, uniqueRequests);
   }
   async probeAllAccounts(
     tenantId: string,
@@ -1118,6 +1121,10 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         row.lastRemainingCredit === null || row.lastRemainingCredit === undefined
           ? null
           : Number(row.lastRemainingCredit),
+      lastRemainingPercent:
+        row.lastRemainingPercent === null || row.lastRemainingPercent === undefined
+          ? null
+          : Number(row.lastRemainingPercent),
     };
   }
 

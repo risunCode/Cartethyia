@@ -1,4 +1,4 @@
-import type { WireFamily } from "../transport/canonical-model";
+import type { ServiceKind, WireFamily } from "../transport/canonical-model";
 
 /** [OI]-compatible wire overrides persisted for bundled and BYOK providers. */
 export interface CompatibilityProfile {
@@ -40,6 +40,7 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     id: "codex",
     displayName: "Codex ChatGPT",
     baseUrl: "https://chatgpt.com",
+    serviceKinds: ["llm", "websearch"],
     wireFamilyDefault: "responses",
     hasAdapterUserAgent: true,
     credentialUrl: "https://chatgpt.com",
@@ -171,9 +172,9 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     credentialUrl: "https://commandcode.ai/studio",
     credentialHint: "Use the API key from the Command Code CLI, or create one in the studio.",
   },
-  { id: "qoder", displayName: "Qoder", baseUrl: "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1", hasAdapterUserAgent: true, credentialUrl: "https://qoder.com", credentialHint: "Signed in with a Qoder account; there is no key to paste." },
+  { id: "qoder", displayName: "Qoder", baseUrl: "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1", hasAdapterUserAgent: true, credentialUrl: "https://qoder.com/account/integrations", credentialHint: "Paste a Personal Access Token (pt-...) from the Qoder integrations page, or sign in with your Qoder account." },
   { id: "ollamacloud", displayName: "Ollama Cloud", baseUrl: "https://ollama.com/v1", credentialUrl: "https://ollama.com/settings/keys" },
-  { id: "gemini", displayName: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", credentialUrl: "https://aistudio.google.com/app/apikey" },
+  { id: "gemini", displayName: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", serviceKinds: ["llm", "websearch"], credentialUrl: "https://aistudio.google.com/app/apikey" },
   { id: "xiaomipg", displayName: "Xiaomi MiMo (PAYG)", baseUrl: "https://api.xiaomimimo.com/v1", credentialUrl: "https://platform.xiaomimimo.com" },
   { id: "xiaomitp", displayName: "Xiaomi MiMo (Token Plan)", baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1", credentialUrl: "https://platform.xiaomimimo.com" },
   { id: "mimodesktop", displayName: "MiMo Desktop", baseUrl: "https://api.xiaomimimo.com/v1", credentialUrl: "https://platform.xiaomimimo.com" },
@@ -190,13 +191,52 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     credentialUrl: "https://github.com/settings/copilot",
   },
   { id: "perplexity", displayName: "Perplexity", baseUrl: "https://api.perplexity.ai", credentialUrl: "https://www.perplexity.ai/settings/api" },
-  // Web-search providers: their catalog carries a single `serviceKind:
-  // "websearch"` model, served by the `/v1/search` native route rather than a
-  // chat wire. `baseUrl` is the API origin the search spec builds requests from.
-  { id: "exa", displayName: "Exa", baseUrl: "https://api.exa.ai", credentialUrl: "https://dashboard.exa.ai/api-keys", credentialHint: "Create an API key in the Exa dashboard." },
-  { id: "tavily", displayName: "Tavily", baseUrl: "https://api.tavily.com", credentialUrl: "https://app.tavily.com/home", credentialHint: "Copy the API key from the Tavily dashboard." },
-  { id: "brave", displayName: "Brave Search", baseUrl: "https://api.search.brave.com", credentialUrl: "https://api-dashboard.search.brave.com/app/keys", credentialHint: "Subscribe to the Search API and copy the subscription token." },
+  // Native web-search providers expose only the search service. Their catalog
+  // rows are served by `/v1/search`, never by the canonical chat pipeline.
+  { id: "exa", displayName: "Exa", baseUrl: "https://api.exa.ai", serviceKinds: ["websearch"], credentialUrl: "https://dashboard.exa.ai/api-keys", credentialHint: "Create an API key in the Exa dashboard." },
 ] as const;
+
+/**
+ * Providers whose adapter drives a provider-side web-search tool itself.
+ *
+ * Search capability is a property of the *provider*, not of a model row: the
+ * adapter either frames a hosted `web_search` tool / grounding directive or it
+ * does not, and every model it serves inherits that. It used to live on the
+ * model row, where discovery wrote `false` for models it had no metadata for
+ * — so a perfectly capable route was filtered out of native search by a
+ * metadata gap.
+ *
+ * Membership here is what marks a route `search_route: "native"`; everything
+ * else runs the configured search fallback.
+ */
+const WEB_SEARCH_CAPABLE_PROVIDER_IDS: ReadonlySet<string> = new Set([
+  // Hosted Anthropic search tool on the Messages wire.
+  "claude",
+  "anthropic",
+  // Codex Responses hosted search.
+  "codex",
+  // Gemini grounding.
+  "gemini",
+  // Gemini wire with its own search plumbing.
+  "antigravity",
+  // Marketplace adapters that expose a search tool per upstream.
+  "devin",
+]);
+
+/**
+ * True when this provider serves a provider-side web-search tool.
+ *
+ * A provider that is *only* a search provider (`serviceKinds: ["websearch"]`,
+ * e.g. Exa) answers `POST /v1/search` but never a chat turn, so
+ * it is not a native chat search route — it is a fallback source instead.
+ */
+export function providerSupportsWebSearch(providerId: string): boolean {
+  const id = providerId.toLowerCase();
+  if (WEB_SEARCH_CAPABLE_PROVIDER_IDS.has(id)) return true;
+  const kinds = providerServiceKinds(id);
+  // An adapter that also implements `websearch` speaks search on a chat wire.
+  return kinds.includes("websearch") && kinds.includes("llm");
+}
 
 export type BundledProviderId = (typeof RAW_BUNDLED_PROVIDER_METADATA)[number]["id"];
 
@@ -230,6 +270,8 @@ export interface BundledProviderMetadata {
   readonly id: BundledProviderId;
   readonly displayName: string;
   readonly baseUrl: string;
+  /** Service surfaces this provider exposes; omitted declarations normalize to LLM. */
+  readonly serviceKinds: readonly ServiceKind[];
   /**
    * Where an operator obtains or authorizes this provider's credential.
    * Presentation-only: the dashboard renders it as an outbound link, and no
@@ -287,8 +329,10 @@ export const BUNDLED_PROVIDER_METADATA: readonly BundledProviderMetadata[] = RAW
     "jwtVerification" in definition ? definition.jwtVerification : {};
   const bespokeWire = Boolean("bespokeWire" in definition && definition.bespokeWire);
   const hasAdapterUserAgent = "hasAdapterUserAgent" in definition && definition.hasAdapterUserAgent === true;
+  const serviceKinds: readonly ServiceKind[] = "serviceKinds" in definition ? definition.serviceKinds : ["llm"];
   return {
     ...definition,
+    serviceKinds,
     wireFamilyDefault,
     requiresAccount,
     defaultBypassProxy,
@@ -332,6 +376,11 @@ export function providerDisplayName(providerId: string): string {
     providerId
   );
 }
+/** Canonical service surfaces; unknown/custom providers default to LLM. */
+export function providerServiceKinds(providerId: string): readonly ServiceKind[] {
+  return BUNDLED_PROVIDER_METADATA.find((candidate) => candidate.id === providerId)?.serviceKinds ?? ["llm"];
+}
+
 
 /** Canonical builtin base URL used by adapters, discovery, and quota clients. */
 export function providerBaseUrl(providerId: string): string {

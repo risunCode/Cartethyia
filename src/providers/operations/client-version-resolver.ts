@@ -77,7 +77,7 @@ const DEFAULT_TTL_MS = 30 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 4_000;
 
 export function isSemverish(value: unknown): value is string {
-  return typeof value === "string" && /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(value.trim());
+  return typeof value === "string" && /^\d+\.\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?$/.test(value.trim());
 }
 
 /** Default extractor: npm/PyPI JSON shapes, then a plain-text body. */

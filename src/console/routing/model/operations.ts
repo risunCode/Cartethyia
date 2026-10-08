@@ -68,30 +68,62 @@ export function createModelRoutingOperations(deps: ModelRoutingConfig) {
       ): Promise<ModelAliasRow> {
         const a = requireTenantScope(access, "dashboard:write");
         const tenantId = a.tenantId;
-        const targetModel = patch.targetModel?.trim();
-        if (!targetModel)
-          throw new ConsoleDomainError("invalid_request", 422, "targetModel is required");
         const existing = await deps.store.listAliases(tenantId);
         const current = existing.find((row) => row.id === id);
         if (!current) throw new ConsoleDomainError("alias_not_found", 404, `Alias ${id} not found`);
-        if (current.alias === targetModel)
-          throw new ConsoleDomainError("self_reference", 422, "alias cannot target itself");
-        if (aliasCycleExists(existing, current.alias, targetModel))
-          throw new ConsoleDomainError("alias_cycle", 422, "alias target introduces a cycle");
-        const combos = await deps.store.listCombos(tenantId);
-        if (!(await targetResolves(deps.store, tenantId, targetModel, existing, combos)))
-          throw new ConsoleDomainError(
-            "unresolved_target",
-            422,
-            `targetModel ${targetModel} does not resolve to a known model or combo`,
-          );
-        const updated = await deps.store.updateAlias(tenantId, id, { targetModel });
+
+        // Renaming: validate uniqueness up front (the DB unique index would
+        // otherwise surface as an opaque 500) and let the store cascade the
+        // reference rewrite through alias chains and combo members.
+        let nextAlias: string | undefined;
+        if (patch.alias !== undefined) {
+          const trimmed = patch.alias.trim();
+          if (!trimmed) throw new ConsoleDomainError("invalid_request", 422, "alias cannot be empty");
+          if (trimmed !== current.alias) {
+            if (existing.some((row) => row.alias === trimmed))
+              throw new ConsoleDomainError(
+                "alias_conflict",
+                409,
+                `Alias ${trimmed} already exists for this tenant`,
+              );
+            nextAlias = trimmed;
+          }
+        }
+
+        const targetModel = patch.targetModel?.trim();
+        // Validation must see the post-rename view: a target naming the alias's
+        // own new name would otherwise look unrelated instead of self-referencing.
+        const nameForValidation = nextAlias ?? current.alias;
+        if (targetModel !== undefined) {
+          if (!targetModel)
+            throw new ConsoleDomainError("invalid_request", 422, "targetModel cannot be empty");
+          if (nameForValidation === targetModel)
+            throw new ConsoleDomainError("self_reference", 422, "alias cannot target itself");
+          const aliasesForValidation =
+            nextAlias === undefined
+              ? existing
+              : existing.map((row) => (row.id === id ? { ...row, alias: nextAlias } : row));
+          if (aliasCycleExists(aliasesForValidation, nameForValidation, targetModel))
+            throw new ConsoleDomainError("alias_cycle", 422, "alias target introduces a cycle");
+          const combos = await deps.store.listCombos(tenantId);
+          if (!(await targetResolves(deps.store, tenantId, targetModel, aliasesForValidation, combos)))
+            throw new ConsoleDomainError(
+              "unresolved_target",
+              422,
+              `targetModel ${targetModel} does not resolve to a known model or combo`,
+            );
+        }
+
+        const updated = await deps.store.updateAlias(tenantId, id, {
+          ...(nextAlias === undefined ? {} : { alias: nextAlias }),
+          ...(targetModel === undefined ? {} : { targetModel }),
+        });
         if (!updated) throw new ConsoleDomainError("alias_not_found", 404, `Alias ${id} not found`);
         await deps.auditSink?.record({
           access: a,
           action: "model_alias.updated",
           target: id,
-          detail: { targetModel: updated.targetModel },
+          detail: { alias: updated.alias, targetModel: updated.targetModel },
         });
         await deps.snapshotInvalidator?.invalidate();
         return updated;

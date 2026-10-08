@@ -2,7 +2,7 @@
 import { sql } from "drizzle-orm";
 import { readMigrationLedgerStatus } from "./postgres";
 import type { CartethyiaDatabase } from "./postgres";
-import type { RedisClient } from "./redis";
+import type { RedisBackend, RedisClient } from "./redis";
 import { withTimeout } from "../runtime/timeout";
 
 // ===== readiness memo =====
@@ -18,7 +18,7 @@ const READINESS_MEMO_TTL_MS = 5_000;
 interface ReadinessMemoKey {
   readonly db: CartethyiaDatabase;
   readonly redis: RedisClient | undefined;
-  readonly redisMode: RedisMode;
+  readonly redisBackend: RedisBackend;
   readonly timeoutMs: number;
 }
 
@@ -33,7 +33,7 @@ function sameMemoKey(left: ReadinessMemoKey, right: ReadinessMemoKey): boolean {
   return (
     left.db === right.db &&
     left.redis === right.redis &&
-    left.redisMode === right.redisMode &&
+    left.redisBackend === right.redisBackend &&
     left.timeoutMs === right.timeoutMs
   );
 }
@@ -51,7 +51,7 @@ export interface ReadinessCheckResult {
   readonly status: ReadinessStatus;
   readonly db: "connected" | "disconnected";
   readonly migrations: "applied" | "pending";
-  readonly redis: "connected" | "disconnected" | "not_configured";
+  readonly redis: "connected" | "disconnected";
   readonly reason?: string;
 }
 
@@ -63,7 +63,7 @@ export interface ReadinessCheckResult {
 async function runReadinessChecks(
   db: CartethyiaDatabase,
   redis: RedisClient | undefined,
-  redisMode: RedisMode,
+  redisBackend: RedisBackend,
   timeoutMs: number = 5000,
 ): Promise<ReadinessCheckResult> {
   const startTime = Date.now();
@@ -138,10 +138,11 @@ async function runReadinessChecks(
     };
   }
 
-  // 3. Check Redis (unless in single_instance_local mode)
-  let redisOk = redisMode === "single_instance_local";
+  // 3. Check Redis. The memory backend is healthy by construction — there is
+  // no connection to probe — so it passes without a round trip.
+  let redisOk = redisBackend === "memory";
 
-  if (redisMode === "normal" && redis) {
+  if (redisBackend === "redis" && redis) {
     try {
       const result = await withTimeoutCheck(() => redis.ping(), "Redis connectivity check");
       if (result !== "timeout" && result === "PONG") {
@@ -152,7 +153,7 @@ async function runReadinessChecks(
     }
   }
 
-  if (!redisOk && redisMode === "normal") {
+  if (!redisOk) {
     return {
       status: "not_ready",
       db: "connected",
@@ -167,24 +168,24 @@ async function runReadinessChecks(
     status: "ready",
     db: "connected",
     migrations: "applied",
-    redis: redisMode === "single_instance_local" ? "not_configured" : "connected",
+    redis: "connected",
   };
 }
 
 /**
  * Checks if all required bootstrap dependencies are ready, memoizing the
  * result for {@link READINESS_MEMO_TTL_MS}. The memo is keyed on the full probe
- * identity — database instance, Redis client, Redis mode, and timeout — so
+ * identity — database instance, Redis client, Redis backend, and timeout — so
  * single-instance production shares one cache while tests that pass fresh mock
- * databases or a different mode/timeout never see a stale result.
+ * databases or a different backend/timeout never see a stale result.
  */
 export async function checkReadiness(
   db: CartethyiaDatabase,
   redis: RedisClient | undefined,
-  redisMode: RedisMode,
+  redisBackend: RedisBackend,
   timeoutMs: number = 5000,
 ): Promise<ReadinessCheckResult> {
-  const key: ReadinessMemoKey = { db, redis, redisMode, timeoutMs };
+  const key: ReadinessMemoKey = { db, redis, redisBackend, timeoutMs };
   const now = Date.now();
   if (readinessMemo && sameMemoKey(readinessMemo.key, key) && now - readinessMemo.at < READINESS_MEMO_TTL_MS) {
     return readinessMemo.value;
@@ -195,7 +196,7 @@ export async function checkReadiness(
     return readinessInflight;
   }
   readinessInflightKey = key;
-  readinessInflight = runReadinessChecks(db, redis, redisMode, timeoutMs)
+  readinessInflight = runReadinessChecks(db, redis, redisBackend, timeoutMs)
     .then((value) => {
       readinessMemo = { key, at: Date.now(), value };
       return value;
@@ -205,18 +206,4 @@ export async function checkReadiness(
       readinessInflightKey = undefined;
     });
   return readinessInflight;
-}
-
-/**
- * Redis coordination mode selector for {@link checkReadiness}.
- */
-
-export type RedisMode = "normal" | "single_instance_local";
-
-export function resolveRedisMode(env: NodeJS.ProcessEnv = process.env): RedisMode {
-  const mode = env.REDIS_MODE ?? "normal";
-  if (mode !== "normal" && mode !== "single_instance_local") {
-    throw new Error(`REDIS_MODE must be normal or single_instance_local (got "${mode}")`);
-  }
-  return mode;
 }

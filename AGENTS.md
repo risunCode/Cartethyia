@@ -14,6 +14,24 @@ No overengineering unless the task explicitly asks for it. Prefer the smallest
 complete change that fixes the owning layer, migrates its callers, and proves the
 acceptance criteria.
 
+## Working agreement
+
+- Keep related implementation, documentation, and test changes together as one
+  coherent change set. Complete the relevant work, run the appropriate gates,
+  and create one reviewable commit for the finished change.
+- Do not push automatically. Push only when the user explicitly asks for it.
+- Use `bun install` for dependency installation. Use the unified `bun setup`
+  command for environment creation, encryption-key generation, Lite/Full
+  selection, database checks, and optional Redis checks. Use
+  `bun setup --non-interactive` for automation.
+- `.env.example` defaults to `CARTETHYIA_DB_MODE=lite`; Docker Compose defaults
+  to Full with external PostgreSQL and bundled Redis configuration. Keep these
+  defaults intentional and document changes in `documentation/getting-started.md`.
+- Lite uses embedded PGlite and in-process coordination when `REDIS_URL` is
+  absent. Full uses external PostgreSQL; Redis remains optional unless shared
+  coordination is required. Do not reintroduce `REDIS_MODE` or
+  `single_instance_local`.
+
 ## Start here
 
 1. State the goal, acceptance criteria, and hard constraints in one sentence.

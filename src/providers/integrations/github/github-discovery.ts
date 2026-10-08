@@ -95,7 +95,6 @@ function toModelDefinition(entry: Record<string, unknown>): ModelDefinition | un
     modalities: { input: vision ? ["text", "image"] : ["text"], output: ["text"] },
     reasoning: true,
     toolCall: true,
-    webSearch: false,
     cost: modelsDevCatalog.costFor(GITHUB_PROVIDER_ID, modelId),
   };
 }

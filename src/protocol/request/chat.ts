@@ -4,7 +4,7 @@
 import type { CanonicalRequest, ResponseFormat } from "../../transport/canonical-model";
 import { isRecord } from "../primitives";
 import { markLatestBreakpoint } from "../../transport/translation/cache-controls";
-import { normalizeWireMaxTokens, pickWireSupportedControls } from "../../transport/translation/capabilities";
+import { isWebSearchTool, normalizeWireMaxTokens, pickWireSupportedControls } from "../../transport/translation/capabilities";
 import { resolveWireMaxTokens } from "../../transport/translation/quirks";
 import {
   clampReasoningEffort,
@@ -407,6 +407,10 @@ export function canonicalToChatPayload(
           },
         };
       }
+      // Hosted web search is not a `function` tool on any [OI]-compatible
+      // upstream; sending it as one (or emitting `{"type": null}`) is rejected.
+      // The wire's own name for the capability is `web_search_preview`.
+      if (isWebSearchTool(t)) return { type: "web_search_preview" };
       if (t.tool_type !== undefined && t.tool_type !== "function" && isRecord(t.jsonSchema))
         return t.jsonSchema;
       return {

@@ -26,7 +26,9 @@ export interface ModelAliasCreateInput {
 }
 
 export interface ModelAliasPatchInput {
-  readonly targetModel: string;
+  /** New alias name; references from other aliases and combos are rewritten. */
+  readonly alias?: string;
+  readonly targetModel?: string;
 }
 
 export interface ModelComboRow {

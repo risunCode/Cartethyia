@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { Bot, Brain, Eye, FlaskConical, Globe, Home, Moon, Sun, Wrench, X } from "lucide-react";
+import { Bot, Brain, CheckCircle2, Eye, FlaskConical, Globe, Home, Moon, Sun, Wrench, X } from "lucide-react";
 import { useModalFocus } from "../../hooks/use-modal-focus";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody } from "../../components/ui/card";
@@ -26,6 +26,10 @@ import {
 interface IssueResult { key: string; keyId: string; keyPrefix: string; createdAt: string }
 interface ApiError { error?: string | { code?: string; message?: string }; message?: string }
 interface ProbeResult { readonly ttftMs: number; readonly totalMs: number }
+function formatProbeDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
 
 function message(payload: ApiError): string {
   if (typeof payload.error === "string") return payload.error;
@@ -130,8 +134,8 @@ function ModelCard({
       {result ? (
         <div className="share-model-card-result" role="status">
           <strong>OK</strong>
-          <span>TTFT {(result.ttftMs / 1000).toFixed(2)}s</span>
-          <span>Done {(result.totalMs / 1000).toFixed(2)}s</span>
+          <span>TTFT {formatProbeDuration(result.ttftMs)}</span>
+          <span>Done {formatProbeDuration(result.totalMs)}</span>
         </div>
       ) : null}
       <div className="share-model-card-actions">
@@ -139,13 +143,25 @@ function ModelCard({
           <Button
             variant="secondary"
             size="sm"
-            icon={<FlaskConical size={13} />}
+            icon={
+              result ? (
+                <span style={{ display: "inline-flex", color: "var(--green)" }}>
+                  <CheckCircle2 size={13} />
+                </span>
+              ) : (
+                <FlaskConical size={13} />
+              )
+            }
             loading={probing}
             disabled={probing}
             onClick={() => onProbe(id)}
-            title="Test this model using the shared API key"
+            title={
+              result
+                ? `Last test passed in ${formatProbeDuration(result.totalMs)} — click to re-test`
+                : "Test this model using the shared API key"
+            }
           >
-            {probing ? "Testing…" : "Test"}
+            {probing ? "Testing…" : result ? `Done ${formatProbeDuration(result.totalMs)}` : "Test"}
           </Button>
         ) : null}
         <ClipboardButton
@@ -409,7 +425,7 @@ export function SharePage(): ReactElement {
           <Card className="share-hud-card">
             <CardBody>
               <ErrorState
-                title="Link not available"
+                title={state.code === "link_disabled" ? "Key paused" : "Link not available"}
                 message={state.error}
                 onRetry={() => window.location.reload()}
               />

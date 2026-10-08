@@ -48,20 +48,42 @@ interface UserPayload {
   email?: unknown;
   userId?: unknown;
   principalId?: unknown;
+  firstName?: unknown;
+  lastName?: unknown;
+  hasGrokCodeAccess?: unknown;
+  subscriptionTier?: unknown;
 }
 
-function authHeaders(): Record<string, string> {
-  const version = getGrokVersion();
-  return {
-    "content-type": "application/x-www-form-urlencoded",
-    accept: "application/json",
-    "user-agent": buildGrokAuthUserAgent(version),
-    "x-grok-client-version": version,
-    "x-grok-client-surface": "ui",
-  };
+/**
+ * Identity Grok's proxy reports, kept beyond the display label.
+ *
+ * `userId`/`principalId` are the account's upstream identity — the token does
+ * not carry them and the gateway cannot derive them, so they are persisted in
+ * `auth_state` rather than thrown away once the label is chosen.
+ */
+interface GrokIdentity {
+  readonly label?: string | undefined;
+  readonly userId?: string | undefined;
+  readonly principalId?: string | undefined;
+  readonly hasGrokCodeAccess?: boolean | undefined;
+  readonly subscriptionTier?: string | undefined;
 }
 
-async function fetchUserLabel(accessToken: string, fetcher: FetchLike): Promise<string | undefined> {
+function grokAuthState(identity: GrokIdentity): Record<string, unknown> | undefined {
+  const state: Record<string, unknown> = {};
+  if (identity.userId !== undefined) state["userId"] = identity.userId;
+  if (identity.principalId !== undefined) state["principalId"] = identity.principalId;
+  if (identity.hasGrokCodeAccess !== undefined)
+    state["hasGrokCodeAccess"] = identity.hasGrokCodeAccess;
+  if (identity.subscriptionTier !== undefined)
+    state["subscriptionTier"] = identity.subscriptionTier;
+  return Object.keys(state).length > 0 ? state : undefined;
+}
+
+async function fetchGrokIdentity(
+  accessToken: string,
+  fetcher: FetchLike,
+): Promise<GrokIdentity> {
   try {
     const version = getGrokVersion();
     const response = await fetcher(GROK_USER_URL, {
@@ -74,12 +96,46 @@ async function fetchUserLabel(accessToken: string, fetcher: FetchLike): Promise<
       },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return undefined;
+    if (!response.ok) return {};
     const payload = (await response.json()) as UserPayload;
-    return nonEmptyTrimmedString(payload.email) ?? nonEmptyTrimmedString(payload.userId) ?? nonEmptyTrimmedString(payload.principalId);
+    const displayName =
+      [nonEmptyTrimmedString(payload.firstName), nonEmptyTrimmedString(payload.lastName)]
+        .filter((part): part is string => part !== undefined)
+        .join(" ")
+        .trim() || undefined;
+    return {
+      label:
+        displayName ??
+        nonEmptyTrimmedString(payload.email) ??
+        nonEmptyTrimmedString(payload.userId) ??
+        nonEmptyTrimmedString(payload.principalId),
+      ...(nonEmptyTrimmedString(payload.userId) === undefined
+        ? {}
+        : { userId: nonEmptyTrimmedString(payload.userId)! }),
+      ...(nonEmptyTrimmedString(payload.principalId) === undefined
+        ? {}
+        : { principalId: nonEmptyTrimmedString(payload.principalId)! }),
+      ...(typeof payload.hasGrokCodeAccess === "boolean"
+        ? { hasGrokCodeAccess: payload.hasGrokCodeAccess }
+        : {}),
+      ...(nonEmptyTrimmedString(payload.subscriptionTier) === undefined
+        ? {}
+        : { subscriptionTier: nonEmptyTrimmedString(payload.subscriptionTier)! }),
+    };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+function authHeaders(): Record<string, string> {
+  const version = getGrokVersion();
+  return {
+    "content-type": "application/x-www-form-urlencoded",
+    accept: "application/json",
+    "user-agent": buildGrokAuthUserAgent(version),
+    "x-grok-client-version": version,
+    "x-grok-client-surface": "ui",
+  };
 }
 
 /** Device-code OAuth client for Grok Build CLI subscriptions. */
@@ -160,8 +216,18 @@ export class GrokOAuthClient extends OAuthDeviceFlow {
       };
     }
     const result = this.parseTokenResponse(payload);
-    const accountLabel = await fetchUserLabel(result.access, this.fetchFn);
-    return { status: "complete", result: this.toExchangeResult({ ...result, accountLabel }) };
+    const identity = await fetchGrokIdentity(result.access, this.fetchFn);
+    const authState = grokAuthState(identity);
+    return {
+      status: "complete",
+      result: this.toExchangeResult({
+        ...result,
+        ...(identity.label === undefined ? {} : { accountLabel: identity.label }),
+        // Omitted when the proxy reported nothing, which leaves any stored
+        // state alone rather than blanking it.
+        ...(authState === undefined ? {} : { auth_state: authState }),
+      }),
+    };
   }
 
   override async refresh(refreshToken: string, signal?: AbortSignal): Promise<OAuthTokenRefreshResult> {
@@ -179,7 +245,16 @@ export class GrokOAuthClient extends OAuthDeviceFlow {
       label: "grok token refresh",
     })) as TokenPayload;
     const result = this.parseTokenResponse(payload, refreshToken);
-    return this.toRefreshResult(result);
+    // Re-read the identity on refresh: a persisted id that went stale is
+    // otherwise never corrected, and the call is best-effort — a failure
+    // returns nothing, which the store reads as "keep what we have".
+    const identity = await fetchGrokIdentity(result.access, this.fetchFn);
+    const authState = grokAuthState(identity);
+    return this.toRefreshResult({
+      ...result,
+      ...(identity.label === undefined ? {} : { accountLabel: identity.label }),
+      ...(authState === undefined ? {} : { auth_state: authState }),
+    });
   }
 }
 

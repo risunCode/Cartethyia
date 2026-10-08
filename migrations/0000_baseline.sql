@@ -60,6 +60,7 @@ CREATE TABLE "provider_accounts" (
   "sort_index" integer DEFAULT 0 NOT NULL,
   "static_token" boolean DEFAULT false NOT NULL,
   "last_remaining_credit" numeric(16, 4),
+  "last_remaining_percent" numeric(8, 3),
   "created_at" timestamptz DEFAULT now() NOT NULL,
   CONSTRAINT "provider_accounts_provider_id_providers_id_fk" FOREIGN KEY ("provider_id") REFERENCES "providers"("id") ON DELETE cascade,
   CONSTRAINT "provider_accounts_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
@@ -87,7 +88,6 @@ CREATE TABLE "models" (
   "modalities" jsonb,
   "reasoning" boolean DEFAULT false NOT NULL,
   "tool_call" boolean DEFAULT false NOT NULL,
-  "web_search" boolean DEFAULT false NOT NULL,
   "cost" jsonb,
   "source" text,
   "source_updated_at" timestamptz,
@@ -127,6 +127,13 @@ CREATE TABLE "network_pools" (
   "last_health_check_at" timestamptz,
   "egress_ip" text,
   "quota_bytes" bigint,
+  "last_speedtest_bytes" integer,
+  "last_speedtest_duration_ms" integer,
+  "last_speedtest_status" text,
+  "last_speedtest_error" text,
+  "last_speedtest_at" timestamptz,
+  "bytes_sent_total" bigint DEFAULT 0 NOT NULL,
+  "bytes_received_total" bigint DEFAULT 0 NOT NULL,
   CONSTRAINT "network_pools_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
 );
 --> statement-breakpoint
@@ -173,8 +180,8 @@ CREATE TABLE "provider_routing_settings" (
   "strategy" "provider_routing_strategy" DEFAULT 'fallback' NOT NULL,
   "rotate_count" integer DEFAULT 1 NOT NULL,
   "max_inflight" integer,
-  "credit_limit_enabled" boolean DEFAULT true NOT NULL,
-  "credit_limit" integer DEFAULT 200 NOT NULL,
+  "credit_limit_enabled" boolean DEFAULT false NOT NULL,
+  "credit_limit" integer DEFAULT 50 NOT NULL,
   "enabled" boolean DEFAULT false NOT NULL,
   "user_agent" text DEFAULT 'codex_cli_rs/0.156.1' NOT NULL,
   "bypass_proxy" boolean DEFAULT false NOT NULL,

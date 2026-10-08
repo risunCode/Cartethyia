@@ -122,13 +122,15 @@ export function createAccessDecision(input: {
   readonly scopes: readonly AccessScope[];
   readonly admissionIdentity?: string;
 }): AccessDecision {
-  const baseScopes =
-    input.scopes.length === 0 && input.tenantId !== null ? (["routing:invoke"] as readonly AccessScope[]) : Array.from(input.scopes);
-  // Legacy keys with routing:invoke implicitly get search:invoke until explicitly revoked — new keys get it explicitly from the form.
+  // What was persisted is what the key holds. `search:invoke` used to be
+  // re-granted here to any key holding `routing:invoke`, so unchecking the
+  // scope in the console saved a revocation that vanished on the next read.
+  // Migration 0040 wrote the grant onto the rows that were receiving it, so
+  // the stored array is now the whole truth.
   const scopes =
-    baseScopes.includes("routing:invoke" as AccessScope) && !baseScopes.includes("search:invoke" as AccessScope)
-      ? ([...baseScopes, "search:invoke" as AccessScope] as readonly AccessScope[])
-      : (baseScopes as readonly AccessScope[]);
+    input.scopes.length === 0 && input.tenantId !== null
+      ? (["routing:invoke"] as readonly AccessScope[])
+      : (Array.from(input.scopes) as readonly AccessScope[]);
   const decision: AccessDecision = {
     id: input.id,
     tenantId: input.tenantId,

@@ -63,7 +63,6 @@ export const AGENTROUTER_MODELS: readonly ModelDefinition[] = [
     vision: true,
     reasoning: true,
     toolCall: true,
-    webSearch: false,
   }),
 ];
 

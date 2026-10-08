@@ -144,7 +144,7 @@ export type {
   UpdateRuntimeSettingsRequest,
 } from "../../../src/console/settings/contracts";
 
-export type { RedisMode } from "../../../src/persistence/readiness";
+export type { RedisBackend } from "../../../src/persistence/redis";
 
 export type HealthStatus = (typeof healthStatus.enumValues)[number];
 

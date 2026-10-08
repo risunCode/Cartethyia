@@ -23,6 +23,7 @@
  *    separately rather than through the shared token parser.
  */
 import {
+  decodeJwtPayload,
   devicePollBackoff,
   nonEmptyString,
   nonEmptyTrimmedString,
@@ -258,24 +259,9 @@ export function validateMicrosoftTokenEndpoint(raw: unknown): string {
   return parsed.toString();
 }
 
-/** Decodes a JWT payload without verifying it, for the account label only. */
-export function decodeJwtPayload(jwt: string | undefined): Record<string, unknown> | undefined {
-  if (jwt === undefined) return undefined;
-  const parts = jwt.split(".");
-  if (parts.length !== 3) return undefined;
-  const base64 = (parts[1] ?? "").replace(/-/g, "+").replace(/_/g, "/");
-  const padding = (4 - (base64.length % 4)) % 4;
-  try {
-    const decoded = JSON.parse(Buffer.from(`${base64}${"=".repeat(padding)}`, "base64").toString("utf8")) as unknown;
-    return record(decoded);
-  } catch {
-    return undefined;
-  }
-}
-
 /** Best-effort display label for a credential. */
 export function kiroAccountLabel(accessToken: string | undefined): string | undefined {
-  const payload = decodeJwtPayload(accessToken);
+  const payload = accessToken === undefined ? undefined : decodeJwtPayload(accessToken);
   if (payload === undefined) return undefined;
   for (const key of ["email", "preferred_username", "upn", "sub"]) {
     const value = nonEmptyTrimmedString(payload[key]);

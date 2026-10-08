@@ -34,6 +34,7 @@ import { useTrackedTimeout } from "../../hooks/use-timeout";
 import { PROBE_REASONING_EFFORTS, formatThinkingSuffix, type ModelCatalogEntry, type ProbeReasoningEffort } from "../../data/contracts";
 
 
+
 function formatProbeDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
@@ -216,7 +217,7 @@ export function AddModelModal({
     setTestState("testing");
     setTestError("");
     probe.mutate(
-      { providerId, request: { modelId: normalized, wireFamily, reasoningEffort: thinking } },
+      { providerId, request: { modelId: normalized, wireFamily, reasoningEffort: thinking, serviceKind: "llm" } },
       {
         onSuccess: (result) => {
           if (result.ok) {
@@ -386,15 +387,20 @@ export function AddModelModal({
 function ModelCard({
   providerId,
   model,
+  serviceKind,
+  searchCapable,
   thinkingEffort,
   onDeleteRequest,
   deletePending,
 }: {
   readonly providerId: string;
   readonly model: ModelCatalogEntry;
+  readonly serviceKind: "llm" | "websearch";
+  /** Provider-level: the provider's adapter drives a hosted web-search tool. */
+  readonly searchCapable: boolean;
   /** The section-wide reasoning effort, owned by the Models card header so one
-   * setting governs every test in the section instead of each card carrying its
-   * own — which is what made "set thinking, then test" need a per-card repeat. */
+   * setting governs every test in the section instead of each card carrying
+   * its own — which is what made "set thinking, then test" need a per-card repeat. */
   readonly thinkingEffort: ProbeReasoningEffort;
   readonly onDeleteRequest: (model: ModelCatalogEntry) => void;
   readonly deletePending: boolean;
@@ -410,18 +416,22 @@ function ModelCard({
   // the backend parses it back off the name — so the copy button hands the
   // operator exactly the id the probe just used. `auto` means "no reasoning
   // intent", which is the bare id, not a `(auto)` suffix.
-  const qualifiedId = formatThinkingSuffix(
-    model.modelId,
-    thinkingEffort === "auto" ? null : thinkingEffort,
-  );
+  const qualifiedId =
+    serviceKind === "llm"
+      ? formatThinkingSuffix(model.modelId, thinkingEffort === "auto" ? null : thinkingEffort)
+      : model.modelId;
   const copyId = `${providerId}/${qualifiedId}`;
-
-
+  const pendingLabel = serviceKind === "websearch" ? "Searching…" : "Thinking…";
   const runProbe = () => {
     probe.mutate(
       {
         providerId,
-        request: { modelId: model.modelId, route: model.route, reasoningEffort: thinkingEffort },
+        request: {
+          modelId: model.modelId,
+          route: model.route,
+          ...(serviceKind === "llm" ? { reasoningEffort: thinkingEffort } : {}),
+          serviceKind,
+        },
       },
       {
         onSuccess: (result) => {
@@ -615,7 +625,7 @@ function ModelCard({
                 <Wrench size={12} />
               </span>
             ) : null}
-            {model.webSearch ? (
+            {searchCapable ? (
               <span title="Web search" aria-label="Web search" style={{ display: "inline-flex", color: "var(--teal)" }}>
                 <Globe size={12} />
               </span>
@@ -677,7 +687,7 @@ function ModelCard({
             }
           >
             {probe.isPending
-              ? "Thinking…"
+              ? pendingLabel
               : probeResult?.ok
                 ? formatProbeDuration(probeResult.latencyMs)
                 : probeResult
@@ -745,10 +755,14 @@ export function ModelGrid({
   providerId,
   models,
   thinkingEffort,
+  serviceKind = "llm",
+  searchCapable = false,
 }: {
   readonly providerId: string;
   readonly models: readonly ModelCatalogEntry[];
   readonly thinkingEffort: ProbeReasoningEffort;
+  readonly serviceKind?: "llm" | "websearch";
+  readonly searchCapable?: boolean;
 }): ReactNode {
   const deleteModel = useDeleteProviderModel();
   const [deleteTarget, setDeleteTarget] = useState<ModelCatalogEntry | null>(null);
@@ -767,6 +781,8 @@ export function ModelGrid({
       key={`${model.modelId}::${model.route}`}
       providerId={providerId}
       model={model}
+      serviceKind={serviceKind}
+      searchCapable={searchCapable}
       thinkingEffort={thinkingEffort}
       deletePending={deleteModel.isPending}
       onDeleteRequest={setDeleteTarget}

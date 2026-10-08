@@ -121,6 +121,24 @@ export function parseCodexResponsesJsonToEvents(
               sequence_number: seq++,
               content: { kind: "text", text: block["text"] as string },
             });
+            if (
+              request.provider_options?.capture_web_search_citations === true &&
+              Array.isArray(block["annotations"]) &&
+              block["annotations"].length > 0
+            ) {
+              events.push({
+                type: "content_delta",
+                sequence_number: seq++,
+                content: {
+                  kind: "extension",
+                  name: "web_search_citations",
+                  payload: {
+                    annotations: block["annotations"],
+                    text: block["text"],
+                  },
+                },
+              });
+            }
           } else if (
             bType === "refusal" &&
             typeof block["refusal"] === "string"
@@ -253,6 +271,7 @@ type OpenItemEntry = {
 /** Shared incremental parser for a single `response.*` frame. */
 export class CodexStreamFrameProcessor {
   #seq: number;
+  #captureWebSearchCitations: boolean;
   hasToolCall = false;
   terminalStatus: string | undefined;
   terminalUsage: Record<string, unknown> | undefined;
@@ -273,8 +292,9 @@ export class CodexStreamFrameProcessor {
   >();
   static readonly WHITESPACE_DELTA_EVENT_LIMIT = 256;
   static readonly WHITESPACE_DELTA_CHAR_LIMIT = 16 * 1024;
-  constructor(startSeq: number) {
+  constructor(startSeq: number, captureWebSearchCitations = false) {
     this.#seq = startSeq;
+    this.#captureWebSearchCitations = captureWebSearchCitations;
   }
 
   /**
@@ -525,6 +545,42 @@ export class CodexStreamFrameProcessor {
           typeof outputItem["id"] === "string" ? outputItem["id"] : undefined;
         const outputIndex = readOutputIndex(json);
         const encrypted = outputItem["encrypted_content"];
+        if (
+          this.#captureWebSearchCitations &&
+          outputItem["type"] === "message" &&
+          Array.isArray(outputItem["content"])
+        ) {
+          const annotations = outputItem.content.flatMap((block) =>
+            block &&
+            typeof block === "object" &&
+            !Array.isArray(block) &&
+            Array.isArray((block as Record<string, unknown>)["annotations"])
+              ? ((block as Record<string, unknown>)["annotations"] as unknown[])
+              : [],
+          );
+          const text = outputItem.content
+            .flatMap((block) =>
+              block &&
+              typeof block === "object" &&
+              !Array.isArray(block) &&
+              (block as Record<string, unknown>)["type"] === "output_text" &&
+              typeof (block as Record<string, unknown>)["text"] === "string"
+                ? [(block as Record<string, unknown>)["text"] as string]
+                : [],
+            )
+            .join("");
+          if (annotations.length > 0) {
+            events.push({
+              type: "content_delta",
+              sequence_number: this.#seq++,
+              content: {
+                kind: "extension",
+                name: "web_search_citations",
+                payload: { annotations, text },
+              },
+            });
+          }
+        }
         if (outputItem["type"] === "reasoning") {
           const summaryAlreadyStreamed =
             outputItemId !== undefined && this.#reasoningDeltaIds.has(outputItemId);

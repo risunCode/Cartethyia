@@ -27,6 +27,13 @@ interface NormalizedTokenResponse {
   readonly refresh: string;
   readonly expiresAt: Date;
   readonly accountLabel?: string | undefined;
+  /**
+   * Identity the flow learned beside the tokens — an upstream user id the
+   * token itself does not carry. Threaded through both converters so a
+   * provider that resolves it during login does not lose it on the way to
+   * storage, and can refresh it later without a second round trip.
+   */
+  readonly auth_state?: Readonly<Record<string, unknown>> | undefined;
 }
 
 /** Options for building a PKCE authorize URL. */
@@ -223,22 +230,24 @@ export abstract class OAuthClient implements OAuthLoginClient, OAuthTokenRefresh
   // ---------------------------------------------------------------------------
 
   protected toExchangeResult(normalized: NormalizedTokenResponse): OAuthExchangeResult {
-    const { access, refresh, expiresAt, accountLabel } = normalized;
+    const { access, refresh, expiresAt, accountLabel, auth_state } = normalized;
     return {
       access,
       refresh,
       expiresAt,
       ...(accountLabel ? { accountLabel } : {}),
+      ...(auth_state === undefined ? {} : { auth_state }),
     };
   }
 
   protected toRefreshResult(normalized: NormalizedTokenResponse): OAuthTokenRefreshResult {
-    const { access, refresh, expiresAt, accountLabel } = normalized;
+    const { access, refresh, expiresAt, accountLabel, auth_state } = normalized;
     return {
       access,
       ...(refresh ? { refresh } : {}),
       expiresAt,
       ...(accountLabel ? { accountLabel } : {}),
+      ...(auth_state === undefined ? {} : { auth_state }),
     };
   }
 }

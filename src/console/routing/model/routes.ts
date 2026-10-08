@@ -23,7 +23,10 @@ export type ComboSchemaParity = ExpectComboParity<
     : false
 >;
 const createAliasBody = t.Object({ alias: t.String(), targetModel: t.String() });
-const updateAliasBody = t.Object({ targetModel: t.String() });
+const updateAliasBody = t.Object({
+  alias: t.Optional(t.String()),
+  targetModel: t.Optional(t.String()),
+});
 /** Full replacement order for the tenant's alias list. */
 const reorderBody = t.Object({ ids: t.Array(t.String(), { minItems: 1 }) });
 /** The combo-strategy enum's own values; see `ComboSchemaParity` above. */

@@ -48,7 +48,7 @@ export interface ConsoleApiCompositionDeps {
   readonly providerRegistry: ProviderRegistry;
   readonly bundledModelCatalog: BundledProviderCatalog;
   readonly networkBindingFactory: ValidatedNetworkBindingFactory;
-  readonly redis: RedisClient;
+  readonly redis: RedisClient | undefined;
   readonly oauthRefreshService: OAuthRefreshService;
   readonly admissionService: Pick<ApiKeyAdmissionService, "purgeKey">;
   /**

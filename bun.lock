@@ -6,6 +6,7 @@
       "name": "cartethyia",
       "dependencies": {
         "@bufbuild/protobuf": "^2.14.1",
+        "@electric-sql/pglite": "^0.5.8",
         "drizzle-orm": "0.45.2",
         "elysia": "^2.0.0-beta.16",
         "exact-mirror": "^1.2.6",
@@ -23,7 +24,6 @@
         "@types/ws": "8.18.1",
         "bun-types": "1.4.0",
         "concurrently": "^10.0.5",
-        "happy-dom": "^20.14.5",
         "typescript": "5.9.2",
       },
     },
@@ -46,6 +46,7 @@
         "@types/react": "19.2.18",
         "@types/react-dom": "19.2.5",
         "@vitejs/plugin-react": "6.1.1",
+        "happy-dom": "^20.14.5",
         "tailwindcss": "4.3.3",
         "typescript": "5.9.2",
         "vite": "8.2.2",
@@ -56,6 +57,8 @@
     "@babel/runtime": ["@babel/runtime@7.29.7", "", {}, "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw=="],
 
     "@bufbuild/protobuf": ["@bufbuild/protobuf@2.14.1", "", {}, "sha512-agRJn3+EJDUe8AvxTx/LnHA/GErvLE62pSaSk7+MwFOtOv8eWBu/qCq2qoZjBjVZ3C2aiFJCveuSs17KMkYGOw=="],
+
+    "@electric-sql/pglite": ["@electric-sql/pglite@0.5.8", "", {}, "sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q=="],
 
     "@floating-ui/core": ["@floating-ui/core@1.8.0", "", { "dependencies": { "@floating-ui/utils": "^0.2.12" } }, "sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ=="],
 

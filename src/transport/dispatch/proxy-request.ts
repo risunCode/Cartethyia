@@ -33,8 +33,9 @@ import {
 } from "./attempt-finalize";
 import { runAttemptLoop } from "./attempt-loop";
 import { dispatchFusionRequest } from "./fusion-dispatch";
-import { projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";
+import { projectForRoute, routeCapabilitiesFor, responseShowsWebSearch } from "../translation/capabilities";
 import { dispatchStreamingAttempt } from "./streaming-attempt";
+import { runWebSearchBridge, withServedWebSearch } from "./websearch-bridge";
 
 export interface ProviderProxyHandlerDeps {
   readonly db: CartethyiaDatabase;
@@ -145,8 +146,55 @@ export async function handleProviderProxyRequest(
   const canonicalRequest = await applyTenantPreferences(prepared, deps.db);
   const candidates =
     prepared.eligibleRouteCandidates.length > 0 ? prepared.eligibleRouteCandidates : [prepared.candidate];
-  // Inbound headers are safe to re-read (only bodies are single-read).
+  // Configured search fallbacks are not chat routes: they run once, inside the
+  // bridge, and must never be dialed as a chat candidate — their adapter
+  // serves `/v1/search`, not a chat wire. The primary route stays authoritative.
+  const chatCandidates = candidates.filter(
+    (candidate) => candidate.search_route !== "fallback",
+  );
+  const attemptCandidates = chatCandidates.length > 0 ? chatCandidates : [prepared.candidate];
+  const searchCandidates = candidates.filter((candidate) => candidate.search_route === "fallback");
+  const bridgeDeps = {
+    db: deps.db,
+    ...(deps.resolveProviderAdapter ? { resolveProviderAdapter: deps.resolveProviderAdapter } : {}),
+    ...(deps.providerAdapters ? { providerAdapters: deps.providerAdapters } : {}),
+    ...(deps.networkBindingFactory ? { networkBindingFactory: deps.networkBindingFactory } : {}),
+  };
+  /**
+   * Runs the configured search fallback over `request` and returns the request
+   * rewritten with the hits in context, or `undefined` when no configured
+   * provider could serve it. An unanswered search must never break the turn,
+   * so callers keep the original request on `undefined`.
+   */
+  const runBridge = async (request: CanonicalRequest): Promise<CanonicalRequest | undefined> => {
+    if (prepared.webSearch !== true || searchCandidates.length === 0) return undefined;
+    const served = await runWebSearchBridge({
+      state,
+      deps: bridgeDeps,
+      request,
+      candidates: searchCandidates,
+    });
+    return served === undefined ? undefined : withServedWebSearch(request, served);
+  };
+  // A web-search request whose selected route cannot serve the tool natively
+  // runs the search on a configured search provider first, then continues on
+  // the selected route with the results in context. Without this the client
+  // receives "cannot browse" (or "Did 0 searches") even though the operator
+  // has a working search provider configured.
+  //
+  // A route marked `native` is dispatched as-is first: it may well serve the
+  // search itself. If its answer carries no search evidence, the attempt
+  // callback below bridges and re-dispatches once.
+  const nativeSearch = prepared.candidate.search_route === "native";
+  let dispatchRequest = canonicalRequest;
+  if (prepared.webSearch === true && !nativeSearch) {
+    const bridged = await runBridge(canonicalRequest);
+    if (bridged !== undefined) dispatchRequest = bridged;
+  }
   // Allowlisted once per request, forwarded to every candidate attempt.
+  // Guards the grounding-rejection re-dispatch: at most one retry per request,
+  // so a route that legitimately answers without citing anything cannot loop.
+  let retriedWithoutGrounding = false;
   const inboundHeaders = forwardedRequestHeaders(request);
   // Stable per-conversation affinity for every attempt on every wire: caller
   // key first, then inbound session headers, then a hash of the opening turn.
@@ -197,7 +245,7 @@ export async function handleProviderProxyRequest(
       estimatedOutputTokens: prepared.estimatedOutputTokens,
       authorizationSnapshot: prepared.authorization.snapshot,
     },
-    candidates,
+    candidates: attemptCandidates,
     tenantId: prepared.authorization.tenantId,
     strictPoolSelection: true,
     resolveHost: (candidate) => deps.byokUpstreamHosts?.get(candidate.provider_id),
@@ -253,23 +301,23 @@ export async function handleProviderProxyRequest(
         user_agent: candidate.user_agent,
       };
       const candidateRequest =
-        candidate.model_id === canonicalRequest.model
-          ? canonicalRequest
-          : { ...canonicalRequest, model: candidate.model_id };
-      const dispatchRequest = projectForRoute(
+        candidate.model_id === dispatchRequest.model
+          ? dispatchRequest
+          : { ...dispatchRequest, model: candidate.model_id };
+      const attemptRequest = projectForRoute(
         candidateRequest,
         routeCapabilitiesFor(candidate),
       );
-      if (canonicalRequest.stream) {
+      if (dispatchRequest.stream) {
         return dispatchStreamingAttempt({
           state,
           deps,
           prepared,
-          canonicalRequest,
+          canonicalRequest: dispatchRequest,
           candidate,
           credential,
           adapter,
-          dispatchRequest,
+          dispatchRequest: attemptRequest,
           providerRouteCandidate,
           inboundHeaders,
           conversationAffinity,
@@ -310,29 +358,53 @@ export async function handleProviderProxyRequest(
           ? { outboundWebSocket: deps.networkBindingFactory.webSocket(networkPoolId, prepared.authorization.snapshot.tenant_id) }
           : {}),
       });
-      const dispatch = async (input: typeof canonicalRequest): Promise<CanonicalEvent[]> => {
+      // First-content timing is stamped during iteration: spreading a
+      // timestamp onto every event just to scan for it afterwards allocated
+      // one object per event for a single number. The streaming path keeps
+      // its own timing where the timestamps are actually consumed.
+      const dispatch = async (input: typeof attemptRequest): Promise<{ events: CanonicalEvent[]; firstContentDeltaAtMs: number | undefined }> => {
         const events: CanonicalEvent[] = [];
+        let firstContentDeltaAtMs: number | undefined;
         for await (const event of adapter.dispatch(
           input,
           providerRouteCandidate as never,
           dispatchContextBase as never,
         )) {
-          // Add timestamp to event for profiling
-          const timestampedEvent = { ...event, timestamp: Date.now() };
-          events.push(timestampedEvent);
+          if (firstContentDeltaAtMs === undefined && event.type === "content_delta") {
+            firstContentDeltaAtMs = Date.now();
+          }
+          events.push(event);
         }
-        return events;
+        return { events, firstContentDeltaAtMs };
       };
       state.upstreamDispatchStartedAtMs = Date.now();
-      const events = await dispatch(dispatchRequest);
-      // Extract timing from events for non-streaming path
-      let firstContentDeltaAtMs: number | undefined;
-      for (const event of events) {
-        if (event.timestamp && event.type === "content_delta" && firstContentDeltaAtMs === undefined) {
-          firstContentDeltaAtMs = event.timestamp;
+      let { events, firstContentDeltaAtMs } = await dispatch(attemptRequest);
+      // Grounding rejection: a `native` route is trusted to run the hosted
+      // search itself, but the declaration is a capability claim, not a
+      // guarantee. When its answer carries no search evidence at all, the
+      // model answered from its own weights — which a client reports as
+      // "Did 0 searches". Run the configured fallback and dispatch once more
+      // with the hits in context, then use that answer instead.
+      if (
+        nativeSearch &&
+        !retriedWithoutGrounding &&
+        !responseShowsWebSearch(events) &&
+        events.find((event) => event.type === "terminal" && event.state === "complete") !== undefined
+      ) {
+        const bridged = await runBridge(canonicalRequest);
+        if (bridged !== undefined) {
+          retriedWithoutGrounding = true;
+          const retryRequest = projectForRoute(
+            bridged.model === dispatchRequest.model ? bridged : { ...bridged, model: dispatchRequest.model },
+            routeCapabilitiesFor(candidate),
+          );
+          ({ events, firstContentDeltaAtMs } = await dispatch(retryRequest));
+          const retryTerminal = events.find((event) => event.type === "terminal");
+          if (retryTerminal === undefined) throw terminalFailure(undefined);
+          const retryError = terminalFailure(retryTerminal);
+          if (retryError !== undefined) throw retryError;
         }
       }
-      
       const terminal = events.find((event) => event.type === "terminal");
       if (terminal === undefined) throw terminalFailure(undefined);
       const terminalError = terminalFailure(terminal);
@@ -343,20 +415,20 @@ export async function handleProviderProxyRequest(
       const pricedUsage = repriceUsage(usage, candidate.provider_id, candidate.model_id);
       const options = {
         created: Date.now() / 1000,
-        include_usage: canonicalRequest.generation_controls["extension:include_usage"] === true,
+        include_usage: dispatchRequest.generation_controls["extension:include_usage"] === true,
       };
       const output =
-        canonicalRequest.source_surface === "chat"
+        dispatchRequest.source_surface === "chat"
           ? chatAdapter.encode(events, options)
-          : canonicalRequest.source_surface === "responses"
-            ? responsesAdapter.encodeOutput(events, { ...options, model: canonicalRequest.model })
-            : canonicalRequest.source_surface === "messages"
+          : dispatchRequest.source_surface === "responses"
+            ? responsesAdapter.encodeOutput(events, { ...options, model: dispatchRequest.model })
+            : dispatchRequest.source_surface === "messages"
               ? messagesAdapter.encodeOutput(events, options as never)
               : completionAdapter.encodeOutput(events, {
                   ...options,
-                  prompt: canonicalRequest.generation_controls["extension:completion.prompt"],
-                  echo: canonicalRequest.generation_controls["extension:completion.echo"] === true,
-                  suffix: canonicalRequest.generation_controls["extension:completion.suffix"],
+                  prompt: dispatchRequest.generation_controls["extension:completion.prompt"],
+                  echo: dispatchRequest.generation_controls["extension:completion.echo"] === true,
+                  suffix: dispatchRequest.generation_controls["extension:completion.suffix"],
                 });
       await completeAttempt(state, {
         status: "completed",

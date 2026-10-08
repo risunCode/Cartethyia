@@ -58,7 +58,6 @@ export function createModelCatalogOperations(config: ProviderCatalogConfig) {
         document: false,
         audio: false,
         mediaGeneration: false,
-        webSearch: false,
         cost: null,
         source,
         sourceUpdatedAt: null,

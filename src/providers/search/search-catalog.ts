@@ -20,10 +20,35 @@ function searchModel(providerId: SearchProviderId): ModelDefinition {
     ctx: null,
     out: null,
     toolCall: false,
-    webSearch: true,
   });
 }
 
+/** Gemini's grounded search route uses the Gemini adapter, not the generic API specs. */
+export const GEMINI_SEARCH_MODELS: readonly ModelDefinition[] = [
+  defineModel({
+    id: "gemini-search",
+    providerId: "gemini",
+    serviceKind: "websearch",
+    wireFamily: "chat",
+    endpoint: "/v1beta/models/gemini-2.5-flash:generateContent",
+    ctx: null,
+    out: null,
+    toolCall: false,
+  }),
+];
+/** Codex hosted web search is exposed through its Responses adapter. */
+export const CODEX_SEARCH_MODELS: readonly ModelDefinition[] = [
+  defineModel({
+    id: "codex-search",
+    providerId: "codex",
+    serviceKind: "websearch",
+    wireFamily: "responses",
+    endpoint: "/backend-api/codex/responses",
+    ctx: null,
+    out: null,
+    toolCall: false,
+  }),
+];
+
+
 export const EXA_SEARCH_MODELS: readonly ModelDefinition[] = [searchModel("exa")];
-export const TAVILY_SEARCH_MODELS: readonly ModelDefinition[] = [searchModel("tavily")];
-export const BRAVE_SEARCH_MODELS: readonly ModelDefinition[] = [searchModel("brave")];

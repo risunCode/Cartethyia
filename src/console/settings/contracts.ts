@@ -5,16 +5,18 @@ import { ConsoleDomainError, errorResponse, requireTenantScope } from "../shared
 import { literalUnion } from "../shared/elysia-schema";
 import { Elysia, t } from "elysia";
 import type { AccessDecision } from "../../security/access-control";
-import type { RedisMode } from "../../persistence/readiness";
+import type { RedisBackend } from "../../persistence/redis";
 import type { ConsoleSettingsPreferences } from "../../persistence/schema";
 
 export interface RuntimeSettingsResponse {
-  readonly redisModeActual: RedisMode;
+  readonly redisBackendActual: RedisBackend;
 
   readonly tenantConcurrencyLimit: number | null;
   readonly thinkingNormalizationEnabled: boolean;
   readonly responsesReasoningSummary: ResponsesReasoningSummary;
   readonly telemetryPayloads: TelemetryPayloadMode;
+  /** Capture depth for `full` mode; `minimum` when unset. */
+  readonly telemetryPayloadDepth: TelemetryPayloadDepth;
   readonly privacyMode: PrivacyMode;
   /** Compacts bulky tool-result text before dispatch (RTK prune). Default false. */
   readonly rtkPruneEnabled: boolean;
@@ -57,6 +59,9 @@ export type ResponsesReasoningSummary = (typeof RESPONSES_REASONING_SUMMARIES)[n
 export const TELEMETRY_PAYLOAD_MODES = ["full", "metadata", "none"] as const;
 /** Telemetry payload capture mode accepted by the runtime-settings PATCH. */
 export type TelemetryPayloadMode = (typeof TELEMETRY_PAYLOAD_MODES)[number];
+export const TELEMETRY_PAYLOAD_DEPTHS = ["minimum", "moderate", "maximum"] as const;
+/** Capture depth for `full` mode accepted by the runtime-settings PATCH. */
+export type TelemetryPayloadDepth = (typeof TELEMETRY_PAYLOAD_DEPTHS)[number];
 export const PRIVACY_MODES = ["masked", "full"] as const;
 /** Provider/model label privacy accepted by the runtime-settings PATCH. */
 export type PrivacyMode = (typeof PRIVACY_MODES)[number];
@@ -99,6 +104,9 @@ export function createRuntimeSettingsOperations(deps: RuntimeSettingsConfig) {
         if (patch.telemetryPayloads !== undefined && !TELEMETRY_PAYLOAD_MODES.includes(patch.telemetryPayloads)) {
           throw new ConsoleDomainError("invalid_request", 400, "Invalid telemetryPayloads");
         }
+        if (patch.telemetryPayloadDepth !== undefined && !TELEMETRY_PAYLOAD_DEPTHS.includes(patch.telemetryPayloadDepth)) {
+          throw new ConsoleDomainError("invalid_request", 400, "Invalid telemetryPayloadDepth");
+        }
         if (patch.privacyMode !== undefined && !PRIVACY_MODES.includes(patch.privacyMode)) {
           throw new ConsoleDomainError("invalid_request", 400, "Invalid privacyMode");
         }
@@ -134,9 +142,9 @@ function runtimeSettingsErrorResponse(error: unknown, set: { status?: number | s
 const runtimeUpdateBody = t.Object({
   responsesReasoningSummary: t.Optional(literalUnion(RESPONSES_REASONING_SUMMARIES)),
   telemetryPayloads: t.Optional(literalUnion(TELEMETRY_PAYLOAD_MODES)),
+  telemetryPayloadDepth: t.Optional(literalUnion(TELEMETRY_PAYLOAD_DEPTHS)),
   privacyMode: t.Optional(literalUnion(PRIVACY_MODES)),
   tenantConcurrencyLimit: t.Optional(t.Union([t.Null(), t.Number()])),
-  webSearchOrder: t.Optional(t.Array(t.String())),
   thinkingNormalizationEnabled: t.Optional(t.Boolean()),
   rtkPruneEnabled: t.Optional(t.Boolean()),
   rtkPruneLevel: t.Optional(literalUnion(RTK_LEVELS)),

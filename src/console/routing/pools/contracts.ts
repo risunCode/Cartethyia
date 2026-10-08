@@ -54,6 +54,21 @@ export interface NetworkPoolResponse {
   egressIp?: string;
   /** Operator-set egress allowance in bytes; absent when unmetered. */
   quotaBytes?: number;
+  /** Metered totals banked in the pool row; they survive a gateway restart,
+   * unlike the live session counters on the SSE stream. Absent when never measured. */
+  bytesSentTotal?: number;
+  /** Metered ingress total; see `bytesSentTotal`. */
+  bytesReceivedTotal?: number;
+  /** Last speed-test payload actually transferred, in bytes; absent until measured. */
+  lastSpeedtestBytes?: number;
+  /** Wall-clock duration of the last speed-test transfer, in milliseconds. */
+  lastSpeedtestDurationMs?: number;
+  /** "ok" | "failed" for the last speed-test; absent until measured. */
+  lastSpeedtestStatus?: "ok" | "failed";
+  /** Failure message of the last speed-test; absent on success or unmeasured. */
+  lastSpeedtestError?: string;
+  /** ISO timestamp of when the last speed-test ran. */
+  lastSpeedtestAt?: string;
   providerCooldowns?: Array<{ providerId: string; until: string; reason: string }>;
 }
 
@@ -86,10 +101,11 @@ export interface PoolSpeedTestResult {
   bytes: number;
   /** Wall-clock duration of the transfer, in milliseconds. */
   durationMs: number;
-  /** Decimal (1 MB = 1_000_000) to match how operators read proxy plans. */
   bytesPerSecond?: number;
   megabitsPerSecond?: number;
   errorMessage?: string;
+  /** ISO timestamp of when the measurement completed; set by the store write. */
+  measuredAt?: string;
 }
 export function validateTransportConfig(
   kind: TransportKind,
@@ -236,6 +252,25 @@ export function sanitizePoolResponse(pool: unknown): NetworkPoolResponse {
     ...(typeof p.quotaBytes === "number" && Number.isFinite(p.quotaBytes) && p.quotaBytes > 0
       ? { quotaBytes: p.quotaBytes }
       : {}),
+    ...(typeof p.bytesSentTotal === "number" && Number.isFinite(p.bytesSentTotal) && p.bytesSentTotal >= 0
+      ? { bytesSentTotal: p.bytesSentTotal }
+      : {}),
+    ...(typeof p.bytesReceivedTotal === "number" && Number.isFinite(p.bytesReceivedTotal) && p.bytesReceivedTotal >= 0
+      ? { bytesReceivedTotal: p.bytesReceivedTotal }
+      : {}),
+    ...(typeof p.lastSpeedtestBytes === "number" && Number.isFinite(p.lastSpeedtestBytes) && p.lastSpeedtestBytes >= 0
+      ? { lastSpeedtestBytes: p.lastSpeedtestBytes }
+      : {}),
+    ...(typeof p.lastSpeedtestDurationMs === "number" && Number.isFinite(p.lastSpeedtestDurationMs) && p.lastSpeedtestDurationMs >= 0
+      ? { lastSpeedtestDurationMs: p.lastSpeedtestDurationMs }
+      : {}),
+    ...(p.lastSpeedtestStatus === "ok" || p.lastSpeedtestStatus === "failed"
+      ? { lastSpeedtestStatus: p.lastSpeedtestStatus }
+      : {}),
+    ...(typeof p.lastSpeedtestError === "string" && p.lastSpeedtestError.length > 0
+      ? { lastSpeedtestError: p.lastSpeedtestError }
+      : {}),
+    ...(typeof p.lastSpeedtestAt === "string" ? { lastSpeedtestAt: p.lastSpeedtestAt } : {}),
   };
 }
 export interface NetworkPoolStore {

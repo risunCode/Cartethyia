@@ -43,28 +43,23 @@ const app = boot
       ...(resolveDrainToken() !== undefined
         ? { drainToken: resolveDrainToken() as string, triggerDrain: () => shutdown("SIGTERM") }
         : {}),
-      // The console is Redis-backed, so `REDIS_MODE=single_instance_local`
-      // (no Redis client) boots the data plane without it rather than
-      // refusing to start.
-      ...(boot.deps.redis
-        ? {
-            consoleApi: {
-              db: boot.deps.db,
-              accessResolver: () => undefined,
-              routeSnapshotService: boot.deps.snapshotService,
-              poolSelector: boot.deps.poolSelector,
-              telemetryBuffer: boot.deps.telemetryBuffer,
-              providerRegistry: boot.deps.providerRegistry,
-              bundledModelCatalog: boot.deps.bundledModelCatalog,
-              networkBindingFactory: boot.deps.networkBindingFactory,
-              redis: boot.deps.redis,
-              oauthRefreshService: boot.deps.oauthRefreshService,
-              admissionService: boot.deps.admissionService,
-              modelStrikes: boot.deps.modelStrikes,
-              readRoutingAccountInflight: boot.deps.readRoutingAccountInflight,
-            },
-          }
-        : {}),
+      // The console mounts in every boot: without REDIS_URL it runs on the
+      // in-process memory backend like the rest of the gateway.
+      consoleApi: {
+        db: boot.deps.db,
+        accessResolver: () => undefined,
+        routeSnapshotService: boot.deps.snapshotService,
+        poolSelector: boot.deps.poolSelector,
+        telemetryBuffer: boot.deps.telemetryBuffer,
+        providerRegistry: boot.deps.providerRegistry,
+        bundledModelCatalog: boot.deps.bundledModelCatalog,
+        networkBindingFactory: boot.deps.networkBindingFactory,
+        redis: boot.deps.redis,
+        oauthRefreshService: boot.deps.oauthRefreshService,
+        admissionService: boot.deps.admissionService,
+        modelStrikes: boot.deps.modelStrikes,
+        readRoutingAccountInflight: boot.deps.readRoutingAccountInflight,
+      },
     })
   : createGatewayShell();
 export { app };

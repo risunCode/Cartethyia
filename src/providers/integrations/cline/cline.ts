@@ -7,6 +7,7 @@ import { completeRequiredSchema, isRecord } from "../../../protocol/primitives";
 import { providerBaseUrl } from "../../provider-metadata";
 import { getCachedModelDiscovery } from "../../operations/model-discovery-cache";
 import { defineModel } from "../../model-definition";
+import { clinePlatform, clinePlatformVersion } from "../../operations/cli-platform";
 import {
   getClineClientVersion,
   getClineSdkVersion,
@@ -54,8 +55,8 @@ async function clineExtraHeaders(context: ProviderDispatchContext): Promise<Reco
     // Referer travels in both spellings; some upstream checks are case-sensitive.
     "http-referer": "https://cline.bot",
     "HTTP-Referer": "https://cline.bot",
-    "x-platform": process.platform || "unknown",
-    "x-platform-version": process.version || "unknown",
+    "x-platform": clinePlatform(),
+    "x-platform-version": clinePlatformVersion(),
     "x-title": "Cline",
     "x-client-type": "cline-sdk",
     "x-client-version": clientVersion,

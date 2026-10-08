@@ -79,6 +79,9 @@ async function todayCheckinAttempted(
   redis: AccountQuotaRoutesDeps["redis"],
   accountId: string,
 ): Promise<boolean> {
+  // Memory backend: no shared ledger exists, so "unknown" is the only honest
+  // answer — and unknown never reads as "not claimed".
+  if (redis === undefined) return false;
   try {
     const marker = await redis.get(ledgerKey(checkinDayKey(), accountId));
     return marker !== null;
@@ -628,10 +631,12 @@ export function registerAccountQuotaTenantRoutes(
       // a different upstream call, but sharing the marker keeps the "one
       // growth action per day" budget honest across both buttons.
       let alreadyReported = false;
-      try {
-        alreadyReported = (await redis.get(ledgerKey(checkinDayKey(), account.id))) !== null;
-      } catch {
-        alreadyReported = false;
+      if (redis !== undefined) {
+        try {
+          alreadyReported = (await redis.get(ledgerKey(checkinDayKey(), account.id))) !== null;
+        } catch {
+          alreadyReported = false;
+        }
       }
       if (alreadyReported) {
         return {

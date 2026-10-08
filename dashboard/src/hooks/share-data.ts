@@ -92,6 +92,8 @@ export interface ShareFamilyStatsData {
 interface ShareDataState<TData> {
   readonly data: TData | null;
   readonly error: string | null;
+  /** Machine-readable cause of `error`, when the gateway named one. */
+  readonly code: string | null;
   readonly loading: boolean;
 }
 
@@ -104,6 +106,12 @@ function errorMessage(payload: ShareErrorResponse, fallback: string): string {
   const rawError = payload.error;
   const code = typeof rawError === "string" ? rawError : rawError?.code;
   return shareCodeMessage(code) ?? (typeof rawError === "string" ? rawError : rawError?.message) ?? payload.message ?? fallback;
+}
+
+/** The gateway's own cause for a failed share read, or null if it named none. */
+function errorCode(payload: ShareErrorResponse): string | null {
+  const rawError = payload.error;
+  return (typeof rawError === "string" ? rawError : rawError?.code) ?? null;
 }
 
 /** Delay before re-opening a dropped share stats stream. */
@@ -123,7 +131,7 @@ export function useShareData<TData>(
   options?: { readonly streamEvent?: string },
 ): ShareDataState<TData> {
   const streamEvent = options?.streamEvent;
-  const [state, setState] = useState<ShareDataState<TData>>({ data: null, error: null, loading: true });
+  const [state, setState] = useState<ShareDataState<TData>>({ data: null, error: null, code: null, loading: true });
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -131,7 +139,7 @@ export function useShareData<TData>(
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const apply = (payload: TData) => {
-      setState({ data: payload, error: null, loading: false });
+      setState({ data: payload, error: null, code: null, loading: false });
     };
 
     if (streamEvent === undefined) {
@@ -140,14 +148,14 @@ export function useShareData<TData>(
           const payload = await response.json() as TData | ShareErrorResponse;
           if (!active) return;
           if (!response.ok) {
-            setState({ data: null, error: errorMessage(payload as ShareErrorResponse, "This enrollment link is unavailable."), loading: false });
+            setState({ data: null, error: errorMessage(payload as ShareErrorResponse, "This enrollment link is unavailable."), code: errorCode(payload as ShareErrorResponse), loading: false });
             return;
           }
           apply(payload as TData);
         })
         .catch((error: unknown) => {
           if (error instanceof DOMException && error.name === "AbortError") return;
-          if (active) setState({ data: null, error: "Unable to reach the Cartethyia gateway.", loading: false });
+          if (active) setState({ data: null, error: "Unable to reach the Cartethyia gateway.", code: null, loading: false });
         });
       return () => { active = false; controller.abort(); };
     }

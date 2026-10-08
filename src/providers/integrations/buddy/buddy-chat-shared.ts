@@ -504,12 +504,15 @@ export function finalizeBuddyMessages(
  * prompt, rebuild bare string user content as a typed text block, then
  * coalesce consecutive user turns.
  *
- * The upstream gateway expects that fixed leading prompt and rejects bare
- * string user content, so every variant that has one applies the same
- * transformation — only the prompt text differs, which is why the caller
- * passes it in. Variants without a fixed prompt (CodeBuddy CN replaces caller
- * system text with a neutralizer instead) keep their own path and share only
- * `coalesceConsecutiveUserMessages`.
+ * The upstream gateway expects that fixed leading prompt — and validates its
+ * text, not merely the presence of a `system` turn. Substituting caller text
+ * there answers `400 · 11128 "Illegal API invocation from an unapproved
+ * channel"` on CodeBuddy, which reads the prompt as the calling channel's
+ * identity; forwarding caller text as a `developer` turn is rejected too. So
+ * every variant that has one applies the same transformation — only the prompt
+ * text differs, which is why the caller passes it in. Variants without a fixed
+ * prompt (CodeBuddy CN replaces caller system text with a neutralizer instead)
+ * keep their own path and share only `coalesceConsecutiveUserMessages`.
  *
  * Tool call/output pairing is intentionally NOT handled here: the shared
  * canonical repair (`repairRequestToolCalls`, request/preparer) owns it for

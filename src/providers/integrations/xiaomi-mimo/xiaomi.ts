@@ -17,7 +17,6 @@ export const XIAOMI_MODELS: readonly ModelDefinition[] = [
     out: 16384,
     reasoning: true,
     toolCall: true,
-    webSearch: false,
   }),
   defineModel({
     id: "mimo-v2.5",
@@ -28,7 +27,6 @@ export const XIAOMI_MODELS: readonly ModelDefinition[] = [
     vision: true,
     reasoning: true,
     toolCall: true,
-    webSearch: false,
   }),
 ];
 

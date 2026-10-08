@@ -26,6 +26,7 @@ import {
   accountSocketBytes,
   accountSocketWrites,
   MAX_BYTE_ENTRY_COUNT,
+  drainPoolByteDelta,
   poolByteSnapshot,
   poolByteTotals,
   recordPoolBytes,
@@ -173,6 +174,19 @@ describe("pool byte accounting: totals", () => {
     recordPoolBytes("pool-0", "sent", 1);
     expect(poolByteSnapshot()).toHaveLength(MAX_BYTE_ENTRY_COUNT);
     expect(poolByteTotals("pool-0").sent).toBe(2);
+  });
+
+  test("draining returns only the delta since the last drain and leaves totals intact", () => {
+    expect(drainPoolByteDelta("pool-1")).toEqual({ sent: 0, received: 0 });
+    recordPoolBytes("pool-1", "sent", 10);
+    recordPoolBytes("pool-1", "received", 25);
+    expect(drainPoolByteDelta("pool-1")).toEqual({ sent: 10, received: 25 });
+    // Second drain without new traffic is empty: the persistence layer banks
+    // each delta exactly once, while the live snapshot keeps the running total.
+    expect(drainPoolByteDelta("pool-1")).toEqual({ sent: 0, received: 0 });
+    expect(poolByteTotals("pool-1")).toEqual({ sent: 10, received: 25 });
+    recordPoolBytes("pool-1", "sent", 5);
+    expect(drainPoolByteDelta("pool-1")).toEqual({ sent: 5, received: 0 });
   });
 });
 

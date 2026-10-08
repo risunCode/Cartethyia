@@ -447,7 +447,24 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
    *   for the life of the process. That is why the release cannot be
    *   skipped on the *assumption* that a pull is watching: gate it on
    *   whether a pull is actually in flight.
+  /**
+   * Upstream iterator settle budget. An upstream generator whose `return()`
+   * never settles (pending read the abort never rejects) would otherwise hold
+   * the admission lease, pool slot, and reservation forever — the exact leak
+   * the inflight backstop force-releases. The fetch is already torn down by
+   * the abort, so after this budget the gateway releases unconditionally.
    */
+  const ITERATOR_SETTLE_TIMEOUT_MS = 10_000;
+  async function settleUpstreamIterator(): Promise<void> {
+    try {
+      await Promise.race([
+        iterator.return?.() ?? Promise.resolve(),
+        new Promise((resolve) => setTimeout(resolve, ITERATOR_SETTLE_TIMEOUT_MS)),
+      ]);
+    } catch {
+      // Upstream iterator cleanup on abort is best-effort.
+    }
+  }
   function onStreamAbort(): void {
     const reason = state.abortController.signal.reason;
     const drain = drainAbortReason(reason);
@@ -469,15 +486,10 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
       state.outcome = { status: "cancelled", httpStatus: 499 };
     }
     void (async () => {
-      try {
-        await iterator.return?.();
-      } catch {
-        // Upstream iterator cleanup on abort is best-effort.
-      }
+      await settleUpstreamIterator();
       await releaseStreamResources();
     })();
   }
-  state.abortController.signal.addEventListener("abort", onStreamAbort, { once: true });
   // The client may already be gone before the stream is even constructed.
   if (state.abortController.signal.aborted) onStreamAbort();
 
@@ -618,13 +630,10 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
       // would leak the quota lease, routing reservation, and pool slot.
       // Close the upstream iterator and release everything here; the
       // streamReleased guard keeps this idempotent against a pull()
-      // racing on the abort.
+      // racing on the abort. The settle budget bounds a hung iterator so
+      // cancel itself cannot wedge behind it.
       state.abortController.abort(new DOMException("client disconnect", "AbortError"));
-      try {
-        await iterator.return?.();
-      } catch {
-        // Upstream iterator cleanup on stream cancel is best-effort.
-      }
+      await settleUpstreamIterator();
       await releaseStreamResources();
     },
   });

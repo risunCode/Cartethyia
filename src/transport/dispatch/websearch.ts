@@ -25,7 +25,6 @@ import { metrics } from "../../observability/metrics";
 import type { NetworkPoolSelector } from "../../network/pool/selector";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { ProxyRequestStateStore } from "../request/state";
-import { preferencesReaderFor } from "./attempt-finalize";
 import { ProxyRequestPreparer } from "../request/preparer";
 import { parseThinkingSuffix } from "../translation/thinking";
 import { completeAttempt, estimatedUsage } from "./attempt-finalize";
@@ -44,6 +43,9 @@ export interface WebsearchHandlerDeps {
   readonly resolveOAuthRefresher?: (providerId: string) => Promise<OAuthTokenRefresher | undefined>;
   readonly oauthRefreshService?: OAuthRefreshService;
 }
+
+/** Stable failover order for the built-in web-search surfaces. */
+const SEARCH_PROVIDER_ORDER = ["exa", "gemini", "codex"] as const;
 
 /** Adapter that can serve a web-search request. */
 type WebsearchAdapter = ProviderAdapter & {
@@ -92,15 +94,12 @@ export function createWebsearchHandler(deps: WebsearchHandlerDeps) {
       ...(state.abortController.signal ? { signal: state.abortController.signal } : {}),
       ...(state.clientUserAgent === undefined ? {} : { clientUserAgent: state.clientUserAgent }),
     });
-    // Order search candidates by tenant preference (drag order in Providers > Search)
-    try {
-      const prefs = await preferencesReaderFor(deps.db).readPreferences(prepared.authorization.tenantId);
-      const order = prefs?.webSearchOrder as readonly string[] | undefined;
-      if (order && order.length) {
-        const idx = new Map(order.map((id, i) => [id.toLowerCase(), i] as const));
-        (prepared.candidates as unknown as { provider_id: string }[]).sort((a: { provider_id: string }, b: { provider_id: string }) => (idx.get(a.provider_id.toLowerCase()) ?? 999) - (idx.get(b.provider_id.toLowerCase()) ?? 999));
-      }
-    } catch {}
+    const order = new Map<string, number>(SEARCH_PROVIDER_ORDER.map((id, index) => [id, index]));
+    (prepared.candidates as unknown as { provider_id: string }[]).sort(
+      (left, right) =>
+        (order.get(left.provider_id.toLowerCase()) ?? SEARCH_PROVIDER_ORDER.length) -
+        (order.get(right.provider_id.toLowerCase()) ?? SEARCH_PROVIDER_ORDER.length),
+    );
     return runAttemptLoop<Response, WebsearchAdapter>({
       state,
       deps,

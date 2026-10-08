@@ -1,5 +1,5 @@
 // Drizzle-backed console persistence for network pools.
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
 import { networkPools, poolRoutingSettings } from "../../../persistence/schema";
 import {
@@ -30,6 +30,7 @@ import {
   listNetworkPoolHealthEvents,
   recoverNetworkPool,
 } from "../../../network/pool-health-machine";
+import { drainPoolByteDelta, recordPoolBytes } from "../../../network/pool/byte-accounting";
 // Cloudflare's trace endpoint answers with plain `key=value` lines including
 // `ip=`, the address the request egressed from. Dialing it THROUGH the pool
 // therefore reports the pool's public address — which is what an operator
@@ -85,6 +86,23 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
       ...(row.quotaBytes !== null && row.quotaBytes !== undefined
         ? { quotaBytes: row.quotaBytes }
         : {}),
+      ...(row.bytesSentTotal !== null && row.bytesSentTotal !== undefined
+        ? { bytesSentTotal: row.bytesSentTotal }
+        : {}),
+      ...(row.bytesReceivedTotal !== null && row.bytesReceivedTotal !== undefined
+        ? { bytesReceivedTotal: row.bytesReceivedTotal }
+        : {}),
+      ...(row.lastSpeedtestBytes !== null && row.lastSpeedtestBytes !== undefined
+        ? { lastSpeedtestBytes: row.lastSpeedtestBytes }
+        : {}),
+      ...(row.lastSpeedtestDurationMs !== null && row.lastSpeedtestDurationMs !== undefined
+        ? { lastSpeedtestDurationMs: row.lastSpeedtestDurationMs }
+        : {}),
+      ...(row.lastSpeedtestStatus === "ok" || row.lastSpeedtestStatus === "failed"
+        ? { lastSpeedtestStatus: row.lastSpeedtestStatus }
+        : {}),
+      ...(row.lastSpeedtestError ? { lastSpeedtestError: row.lastSpeedtestError } : {}),
+      ...(row.lastSpeedtestAt ? { lastSpeedtestAt: row.lastSpeedtestAt.toISOString() } : {}),
       ...(Object.keys(rest).length > 0 ? { config: rest } : {}),
       ...(row.credentialCiphertext ? { hasCredential: true } : {}),
       tenantId,
@@ -298,7 +316,11 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
       }
     }
     // Manual probes update check diagnostics, not dispatch-health state.
+    // Metered bytes ride along in the same write: the probe does not add a
+    // second UPDATE, it just banks whatever the sockets tallied since the
+    // last pool-touching write.
     const now = new Date();
+    const delta = drainPoolByteDelta(poolId);
     await this.db
       .update(networkPools)
       .set({
@@ -306,6 +328,12 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
         lastLatencyMs: result.latencyMs ?? null,
         // Keep the previous address when this probe could not read one.
         ...(result.egressIp ? { egressIp: result.egressIp } : {}),
+        ...(delta.sent > 0 || delta.received > 0
+          ? {
+              bytesSentTotal: sql`${networkPools.bytesSentTotal} + ${delta.sent}`,
+              bytesReceivedTotal: sql`${networkPools.bytesReceivedTotal} + ${delta.received}`,
+            }
+          : {}),
       })
       .where(and(eq(networkPools.tenantId, tenantId), eq(networkPools.id, poolId)));
     if (result.httpStatus !== undefined) {
@@ -330,17 +358,41 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
     if (!rows[0]) {
       return { poolId, status: "failed", bytes: 0, durationMs: 0, errorMessage: "Pool not found" };
     }
+    // The measurement costs real bytes off the operator's proxy plan, so the
+    // outcome is banked on the pool row (not only returned): the Proxy page
+    // reads the last known throughput from the server after any reload.
+    const persist = async (result: PoolSpeedTestResult): Promise<PoolSpeedTestResult> => {
+      const measuredAt = new Date();
+      const delta = drainPoolByteDelta(poolId);
+      await this.db
+        .update(networkPools)
+        .set({
+          lastSpeedtestBytes: result.status === "ok" ? result.bytes : 0,
+          lastSpeedtestDurationMs: result.durationMs,
+          lastSpeedtestStatus: result.status,
+          lastSpeedtestError: result.errorMessage ?? null,
+          lastSpeedtestAt: measuredAt,
+          ...(delta.sent > 0 || delta.received > 0
+            ? {
+                bytesSentTotal: sql`${networkPools.bytesSentTotal} + ${delta.sent}`,
+                bytesReceivedTotal: sql`${networkPools.bytesReceivedTotal} + ${delta.received}`,
+              }
+            : {}),
+        })
+        .where(and(eq(networkPools.tenantId, tenantId), eq(networkPools.id, poolId)));
+      return { ...result, measuredAt: measuredAt.toISOString() };
+    };
     let agent: PoolAgent;
     try {
       agent = await this.poolAgents.resolveAgent(poolId, tenantId);
     } catch (error) {
-      return {
+      return persist({
         poolId,
         status: "failed",
         bytes: 0,
         durationMs: 0,
         errorMessage: error instanceof Error ? error.message : "Failed to build pool agent",
-      };
+      });
     }
     const started = performance.now();
     try {
@@ -349,13 +401,13 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
         { method: "GET", signal: AbortSignal.timeout(NETWORK_POOL_SPEED_TEST_TIMEOUT_MS) },
       );
       if (!response.ok) {
-        return {
+        return persist({
           poolId,
           status: "failed",
           bytes: 0,
           durationMs: Math.round(performance.now() - started),
           errorMessage: `HTTP ${response.status} from speed endpoint`,
-        };
+        });
       }
       const payload = await response.arrayBuffer();
       // Stop the clock after the body is fully read: a stalled tail is part of
@@ -363,25 +415,29 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
       // slow tunnel.
       const durationMs = Math.round(performance.now() - started);
       const transferred = payload.byteLength;
-      if (durationMs <= 0) return { poolId, status: "ok", bytes: transferred, durationMs };
+      // The speed-test download itself is metered traffic through the pool, so
+      // it is counted before banking: the quota bar must include the bytes the
+      // measurement consumed.
+      recordPoolBytes(poolId, "received", transferred);
+      if (durationMs <= 0) return persist({ poolId, status: "ok", bytes: transferred, durationMs });
       const bytesPerSecond = transferred / (durationMs / 1000);
-      return {
+      return persist({
         poolId,
         status: "ok",
         bytes: transferred,
         durationMs,
         bytesPerSecond,
         megabitsPerSecond: (bytesPerSecond * 8) / 1_000_000,
-      };
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Speed test failed";
-      return {
+      return persist({
         poolId,
         status: "failed",
         bytes: 0,
         durationMs: Math.round(performance.now() - started),
         errorMessage: message,
-      };
+      });
     }
   }
   /**

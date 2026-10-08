@@ -320,12 +320,13 @@ describe("publicGatewayErrorDetails — bounds", () => {
   });
 });
 
-describe("publicGatewayErrorDetails — raw is redacted", () => {
-  test("a credential echoed in an upstream body does not reach the client", () => {
-    // This is the field's whole reason for existing in the allowlist. An
-    // upstream 401 body routinely repeats the key it rejected; publishing it
-    // hands the client back its own credential inside an error message that
-    // then lands in logs, bug reports, and screenshots.
+describe("publicGatewayErrorDetails — raw is published verbatim", () => {
+  test("an upstream body reaches the client unmodified", () => {
+    // The `raw` field used to be swept for credential-shaped strings. It no
+    // longer is: rewriting part of an upstream body makes the echoed error
+    // unreadable, and a 400 the operator has to diagnose loses the one field
+    // that names what the provider actually objected to. The upstream decides
+    // what it echoes; the gateway does not edit it.
     const upstreamBody = {
       error: {
         message: "invalid api key: sk-ant-api03-EXAMPLEnotarealkey000000000000",
@@ -335,50 +336,45 @@ describe("publicGatewayErrorDetails — raw is redacted", () => {
     const value = publicGatewayErrorDetails(
       new GatewayError("authentication_failed", 401, "x", { raw: upstreamBody }),
     ).raw;
-    const serialized = JSON.stringify(value);
-    expect(serialized).not.toContain("sk-ant-api03-EXAMPLEnotarealkey000000000000");
+    expect(JSON.stringify(value)).toContain("sk-ant-api03-EXAMPLEnotarealkey000000000000");
   });
 
-  test("a bearer token echoed in an upstream body is redacted", () => {
+  test("a bearer token echoed in an upstream body is preserved", () => {
     const value = publicGatewayErrorDetails(
       new GatewayError("authentication_failed", 401, "x", {
         raw: { detail: "Authorization: Bearer EXAMPLEtokenvalue1234567890 was rejected" },
       }),
     ).raw;
-    expect(JSON.stringify(value)).not.toContain("EXAMPLEtokenvalue1234567890");
+    expect(JSON.stringify(value)).toContain("EXAMPLEtokenvalue1234567890");
   });
 
-  test("a redacted raw body keeps its useful shape", () => {
-    // Redaction must not blank the object: the operator still needs to see that
-    // it was an authentication error from the upstream's own type field.
+  test("the body keeps its shape rather than collapsing to a placeholder", () => {
     const value = publicGatewayErrorDetails(
       new GatewayError("authentication_failed", 401, "x", {
         raw: { error: { type: "authentication_error", message: "bad key" } },
       }),
     ).raw;
     expect(JSON.stringify(value)).toContain("authentication_error");
+    expect(JSON.stringify(value)).toContain("bad key");
   });
 
-  test("only raw is redacted; other allowlisted fields are published verbatim", () => {
-    // `safeMessage` is gateway-authored text by contract, so it is not run
-    // through the credential sweep — a value that looked like a key there would
-    // still be published, and that is the intended contract rather than a hole.
+  test("every allowlisted field is published verbatim", () => {
+    // No field gets a credential sweep now — the contract is pass-through, so
+    // `safeMessage` and `raw` behave the same way.
     const value = publicGatewayErrorDetails(
       new GatewayError("platform_unavailable", 502, "x", { safeMessage: "upstream returned 500" }),
     ).safeMessage;
     expect(value).toBe("upstream returned 500");
   });
 
-  test("raw is redacted before it is size-bounded", () => {
-    // Order matters: bounding first would cut a credential in half and leave a
-    // prefix that no longer matches the redaction pattern.
-    const longSecret = `sk-ant-${"a".repeat(4_000)}`;
+  test("raw is still size-bounded", () => {
+    // The bound survives the removal of the sweep: an enormous upstream body
+    // is still cut down before it reaches an envelope.
+    const longBody = `x${"a".repeat(4_000)}`;
     const value = publicGatewayErrorDetails(
-      new GatewayError("authentication_failed", 401, "x", { raw: { message: longSecret } }),
+      new GatewayError("authentication_failed", 401, "x", { raw: { message: longBody } }),
     ).raw;
-    const serialized = JSON.stringify(value);
-    expect(serialized).not.toContain("aaaa");
-    expect(serialized.length).toBeLessThan(2_000);
+    expect(JSON.stringify(value).length).toBeLessThan(2_000);
   });
 });
 

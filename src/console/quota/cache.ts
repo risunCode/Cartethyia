@@ -92,11 +92,13 @@ function parseCached(raw: string | null | undefined): CachedQuotaEntry | null {
 export async function getCachedQuotaEntry(
   lens: string,
   accountId: string,
-  redis: RedisClient,
+  redis: RedisClient | undefined,
 ): Promise<CachedQuotaEntry | null> {
   const key = quotaKey(lens, accountId);
   const inMem = inMemoryQuotaCache.get(key);
   if (inMem !== undefined) return inMem;
+  // Memory backend: the in-process tier above is the whole cache.
+  if (redis === undefined) return null;
 
   let raw: string | null = null;
   try {
@@ -113,7 +115,7 @@ export async function getCachedQuotaEntry(
 export async function getCachedQuota(
   lens: string,
   accountId: string,
-  redis: RedisClient,
+  redis: RedisClient | undefined,
 ): Promise<ProviderQuotaResult | null> {
   return (await getCachedQuotaEntry(lens, accountId, redis))?.quota ?? null;
 }
@@ -127,7 +129,7 @@ export async function getCachedQuota(
 export async function getCachedQuotaEntries(
   lens: string,
   accountIds: readonly string[],
-  redis: RedisClient,
+  redis: RedisClient | undefined,
 ): Promise<Map<string, CachedQuotaEntry>> {
   const found = new Map<string, CachedQuotaEntry>();
   const missing: string[] = [];
@@ -138,9 +140,9 @@ export async function getCachedQuotaEntries(
     else missing.push(accountId);
   }
   if (missing.length === 0) return found;
-
-  const mget = (redis as { mget?: unknown }).mget;
-  if (typeof mget !== "function") {
+  // Memory backend (or a client without MGET): per-key reads, which hit the
+  // in-process tier first and return null beyond it.
+  if (redis === undefined || typeof redis.mget !== "function") {
     for (const accountId of missing) {
       const entry = await getCachedQuotaEntry(lens, accountId, redis);
       if (entry) found.set(accountId, entry);
@@ -169,12 +171,13 @@ export async function setCachedQuota(
   lens: string,
   accountId: string,
   quota: ProviderQuotaResult,
-  redis: RedisClient,
+  redis: RedisClient | undefined,
   fetchedAt: Date = new Date(),
 ): Promise<void> {
   const key = quotaKey(lens, accountId);
   const fetchedAtIso = fetchedAt.toISOString();
   inMemoryQuotaCache.set(key, { quota, fetchedAt: fetchedAtIso });
+  if (redis === undefined) return;
   try {
     const envelope: CachedQuotaEnvelope = { v: 2, fetchedAt: fetchedAtIso, quota };
     await redis.set(key, JSON.stringify(envelope), "EX", QUOTA_TTL_SECONDS);
@@ -188,10 +191,11 @@ export async function setCachedQuota(
 export async function invalidateQuotaCache(
   lens: string,
   accountId: string,
-  redis: RedisClient,
+  redis: RedisClient | undefined,
 ): Promise<void> {
   const key = quotaKey(lens, accountId);
   inMemoryQuotaCache.delete(key);
+  if (redis === undefined) return;
   try {
     await redis.del(key);
   } catch (error) {
@@ -209,12 +213,13 @@ export async function invalidateQuotaCache(
  */
 export async function invalidateQuotaCacheForAccount(
   accountId: string,
-  redis: RedisClient,
+  redis: RedisClient | undefined,
 ): Promise<void> {
   const suffix = `:${accountId}`;
   for (const key of inMemoryQuotaCache.keys()) {
     if (key.endsWith(suffix)) inMemoryQuotaCache.delete(key);
   }
+  if (redis === undefined) return;
   try {
     let cursor = "0";
     do {

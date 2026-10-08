@@ -5,7 +5,6 @@ import { ConsoleDomainError, consoleErrorHandler, requireTenantScope } from "../
 import { parseQueryLimit } from "../shared/query";
 import { Elysia, t } from "elysia";
 import type { AccessDecision } from "../../security/access-control";
-import { redactTelemetryValue } from "../../observability/redaction";
 import { USAGE_DIMENSIONS, type UsageDimension } from "./usage-dimensions";
 
 /**
@@ -258,7 +257,7 @@ export function createObservabilityOperations(config: ObservabilityConfig) {
     async getSystemHealth(access: AccessDecision | undefined): Promise<SystemHealthResponse> {
         const a = requireTenantScope(access, "dashboard:read");
         const h = await config.store.health(a.tenantId);
-        return redactTelemetryValue(h) as SystemHealthResponse;
+        return h;
       },
     async getTenantUsage(access: AccessDecision | undefined, period = "7d"): Promise<UsageResponse> {
         const a = requireTenantScope(access, "dashboard:read");
@@ -279,7 +278,7 @@ export function createObservabilityOperations(config: ObservabilityConfig) {
         const a = requireTenantScope(access, "dashboard:read");
         const lim = parseQueryLimit(limit, 50, 100);
         const page = await config.store.listEvents(a.tenantId, lim, cursor);
-        const entries = redactTelemetryValue(page.entries) as TelemetryEventView[];
+        const entries = page.entries;
         return page.nextCursor ? { entries, nextCursor: page.nextCursor } : { entries };
       },
     async getEventDetail(
@@ -296,7 +295,7 @@ export function createObservabilityOperations(config: ObservabilityConfig) {
           createdAt,
         );
         if (!detail) throw new ConsoleDomainError("event_not_found", 404, `Event ${eventId} not found`);
-        return redactTelemetryValue(detail) as TelemetryEventDetail;
+        return detail;
       },
     requirePeriod(period: string): string {
         if (!isSupportedUsagePeriod(period)) {

@@ -21,6 +21,7 @@
  */
 import { createGatewayApp } from "../../src/app";
 import type { App } from "../../src/app";
+import { createDefaultProviderRegistry } from "../../src/providers/default-registry";
 import type { CartethyiaDatabase } from "../../src/persistence/postgres";
 import { getDb } from "../../src/persistence/postgres";
 import type { ReadinessCheckResult } from "../../src/persistence/readiness";
@@ -34,6 +35,8 @@ import type {
   ProviderAdapter,
   ProviderDispatchContext,
   ProviderDispatchTarget,
+  WebSearchOutcome,
+  WebSearchResult,
 } from "../../src/providers/provider-registry";
 import { parseProviderId } from "../../src/providers/provider-registry";
 import { ProxyRequestPreparer } from "../../src/transport/request/preparer";
@@ -72,6 +75,8 @@ export interface TestRoute {
   readonly endpoint?: string;
   readonly capabilities?: Readonly<Record<string, boolean>>;
   readonly maxInflight?: number;
+  /** Service kind the catalog row carries; `websearch` models a search route. */
+  readonly serviceKind?: "llm" | "systemone" | "websearch";
   /**
    * Health marker the catalog would project onto this candidate.
    *
@@ -85,7 +90,6 @@ export interface TestRoute {
   /** Cooldown class the catalog projects when `healthStatus` is `cooldown`. */
   readonly cooldownKind?: "hard" | "soft";
 }
-
 /**
  * Capabilities a fixture route advertises unless a suite says otherwise.
  *
@@ -191,15 +195,25 @@ export interface StubAdapterOptions {
   readonly failWith?: (request: CanonicalRequest, attempt: number) => Error | undefined;
   /** Emits a non-streaming-style single response for `stream: false` requests. */
   readonly onDispatch?: (record: DispatchRecord) => void;
+  /**
+   * Makes the stub a search provider: `websearch` answers instead of throwing.
+   * `failSearchWith` models a configured provider that cannot answer, so a
+   * suite can observe fallback advancing to the next configured candidate.
+   */
+  readonly searchResults?: readonly WebSearchResult[];
+  readonly failSearchWith?: (query: string, attempt: number) => Error | undefined;
+  readonly onSearch?: (query: string) => void;
 }
 
 /** Builds a provider adapter backed by memory instead of a network socket. */
 export function createStubAdapter(
   providerId: string,
   options: StubAdapterOptions = {},
-): ProviderAdapter & { readonly dispatches: readonly DispatchRecord[] } {
+): ProviderAdapter & { readonly dispatches: readonly DispatchRecord[]; readonly searches: readonly string[] } {
   const dispatches: DispatchRecord[] = [];
+  const searches: string[] = [];
   let attempt = 0;
+  let searchAttempt = 0;
   return {
     // A fixture id is not a bundled provider, so it is a custom slug by
     // construction. `parseProviderId` is the same normalizer the registry uses
@@ -207,6 +221,7 @@ export function createStubAdapter(
     // registration agree.
     provider_id: parseProviderId(providerId),
     dispatches,
+    searches,
     async *dispatch(
       request: CanonicalRequest,
       candidate: ProviderDispatchTarget,
@@ -227,6 +242,24 @@ export function createStubAdapter(
         yield event;
       }
     },
+    ...(options.searchResults === undefined && options.failSearchWith === undefined
+      ? {}
+      : {
+          async websearch(
+            body: Record<string, unknown>,
+            _candidate: ProviderDispatchTarget,
+            _context: ProviderDispatchContext,
+          ): Promise<WebSearchOutcome> {
+            searchAttempt += 1;
+            const query = typeof body.query === "string" ? body.query : "";
+            searches.push(query);
+            options.onSearch?.(query);
+            const failure = options.failSearchWith?.(query, searchAttempt);
+            if (failure) throw failure;
+            const results = options.searchResults ?? [];
+            return { results, total_results: results.length };
+          },
+        }),
   };
 }
 
@@ -241,7 +274,6 @@ export function createStubAdapter(
  * drive a specific client IP through `x-forwarded-for`.
  */
 const TEST_PEER_ADDRESS = "127.0.0.1";
-
 /** Everything a suite needs to drive and inspect one gateway instance. */
 export interface TestGateway {
   readonly app: App;
@@ -276,7 +308,7 @@ export interface TestGateway {
     readonly modelIds: readonly string[];
   }): void;
   /** Registers an adapter for a provider the suite is about to route to. */
-  adapter(providerId: string, options?: StubAdapterOptions): ProviderAdapter;
+  adapter(providerId: string, options?: StubAdapterOptions): ReturnType<typeof createStubAdapter>;
   close(): Promise<void>;
 }
 
@@ -383,6 +415,23 @@ export async function createTestGateway(
     oauthRefreshService: {} as never,
     shutdownCoordinator,
     resolvePeerAddress: () => TEST_PEER_ADDRESS,
+    ...(options.console === false
+      ? {}
+      : {
+          consoleApi: {
+            db,
+            accessResolver: () => undefined,
+            routeSnapshotService: snapshotService,
+            poolSelector: new NetworkPoolSelector(undefined),
+            telemetryBuffer,
+            providerRegistry: createDefaultProviderRegistry(),
+            bundledModelCatalog: { modelsByProvider: new Map() },
+            networkBindingFactory,
+            redis: undefined,
+            oauthRefreshService: {} as never,
+            admissionService,
+          },
+        }),
     ...(options.maxBodyBytes === undefined ? {} : { maxBodyBytes: options.maxBodyBytes }),
     ...(options.requestDeadlineMs === undefined
       ? {}
@@ -463,6 +512,7 @@ export function buildSnapshot(routes: readonly TestRoute[]): RouteSnapshot {
     provider_id: route.providerId,
     model_id: route.modelId,
     wire_family: route.wireFamily ?? "chat",
+    ...(route.serviceKind === undefined ? {} : { service_kind: route.serviceKind }),
     endpoint: route.endpoint ?? "/v1/chat/completions",
     capability_profile: route.capabilities ?? PERMISSIVE_CAPABILITIES,
     provider_account_id: route.accountId,

@@ -33,7 +33,30 @@ describe("payload capture", () => {
       },
       new Date("2026-01-01T00:00:00.000Z"),
     );
-
     expect(record.signals).toEqual({ toolCalls: 1, images: 1, attachments: 1 });
+  });
+
+  test("a maxBytes override truncates combined bodies past the cap", () => {
+    const input = {
+      tenantId: "tenant-1",
+      requestId: "request-1",
+      requestBody: { prompt: "x".repeat(1000) },
+      responseBody: { text: "y".repeat(1000) },
+      scope: "tenant" as const,
+      tenantOptIn: true,
+    };
+    const kept = buildPayloadRecord(input, new Date("2026-01-01T00:00:00.000Z"), 10_000_000);
+    expect(kept.request_body).toEqual({ prompt: "x".repeat(1000) });
+    const truncated = buildPayloadRecord(input, new Date("2026-01-01T00:00:00.000Z"), 10);
+    expect(truncated.request_body).toEqual({
+      _truncated: true,
+      _original_bytes: expect.any(Number),
+      _hint: expect.stringContaining("Capture depth"),
+    });
+    expect(truncated.response_body).toEqual({
+      _truncated: true,
+      _original_bytes: expect.any(Number),
+      _hint: expect.stringContaining("Capture depth"),
+    });
   });
 });

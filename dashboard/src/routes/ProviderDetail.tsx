@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { consoleRequest } from "../data/api";
 import { ProviderIcon } from "../components/ProviderIcon";
 import { Button } from "../components/ui/button";
@@ -26,6 +26,7 @@ import { Inline } from "../components/ui/inline";
 import { Stack } from "../components/ui/stack";
 import {
   useProbeAllProviderAccounts,
+  useProbeModel,
   useProviderAccounts,
   useProviderModels,
   useProviders,
@@ -35,7 +36,7 @@ import {
 } from "../hooks/providers";
 import { queryKeys } from "../data/query-keys";
 import { toast } from "../shared/toast";
-import type { ProviderAccountResponse } from "../data/contracts";
+import type { ProviderAccountResponse, ProviderResponse } from "../data/contracts";
 import { providerCanConfigureUserAgent } from "../shared/provider-user-agent";
 import { RoutingStrategyCard } from "./provider-detail/RoutingStrategyCard";
 import { CredentialNotice } from "./provider-detail/CredentialNotice";
@@ -51,9 +52,27 @@ import {
 import { AddModelModal, ModelGrid, ThinkingSelect } from "./provider-detail/Models";
 import { PROBE_REASONING_EFFORTS, type ProbeReasoningEffort } from "../data/contracts";
 
+type DashboardServiceKind = "llm" | "websearch";
+
+function serviceLabel(serviceKind: string): string {
+  if (serviceKind === "llm") return "LLM";
+  if (serviceKind === "websearch") return "Search";
+  return serviceKind;
+}
+
+function normalizedServiceKinds(provider: ProviderResponse): readonly string[] {
+  const kinds = provider.serviceKinds;
+  return Array.isArray(kinds) && kinds.length > 0 ? kinds : ["llm"];
+}
+
 export default function ProviderDetail(): ReactNode {
   const { providerId } = useParams<{ providerId: string }>();
+  const [searchParams] = useSearchParams();
   const id = providerId ?? "";
+  const requestedService = searchParams.get("service");
+  const [selectedService, setSelectedService] = useState<DashboardServiceKind>(
+    requestedService === "websearch" ? "websearch" : "llm",
+  );
   const providersQuery = useProviders();
   const modelsQuery = useProviderModels(id);
   const accountsQuery = useProviderAccounts(id);
@@ -66,6 +85,16 @@ export default function ProviderDetail(): ReactNode {
   const queryClient = useQueryClient();
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [addModelOpen, setAddModelOpen] = useState(false);
+  const searchProbe = useProbeModel();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchModelId, setSearchModelId] = useState("");
+  const [searchTestResult, setSearchTestResult] = useState<{
+    ok: boolean;
+    error?: string;
+    latencyMs?: number;
+    count?: number;
+    results?: ReadonlyArray<{ title: string; url: string; snippet: string }>;
+  } | null>(null);
   // Section-wide reasoning effort for every test in the Models card. Defaults to
   // `auto` — the probe sends no reasoning intent, because whether the model
   // supports reasoning is often exactly what the test is trying to find out.
@@ -120,6 +149,24 @@ export default function ProviderDetail(): ReactNode {
 
   const provider = (providersQuery.data ?? []).find((item) => item.providerId === id);
   const autoModelSyncProvider = id === "opencodeft" || id === "cline";
+  const serviceKinds = provider === undefined ? ["llm"] : normalizedServiceKinds(provider);
+  const supportedServiceKinds: DashboardServiceKind[] = [];
+  for (const kind of serviceKinds) {
+    if (kind === "llm" || kind === "websearch") supportedServiceKinds.push(kind);
+  }
+  useEffect(() => {
+    if (provider === undefined) return;
+    const requested =
+      requestedService === "websearch" || requestedService === "llm" ? requestedService : undefined;
+    const fallback = supportedServiceKinds[0];
+    if (requested !== undefined && supportedServiceKinds.includes(requested)) {
+      if (selectedService !== requested) setSelectedService(requested);
+      return;
+    }
+    if (!supportedServiceKinds.includes(selectedService) && fallback !== undefined) {
+      setSelectedService(fallback);
+    }
+  }, [provider, requestedService, selectedService, supportedServiceKinds.join("|")]);
   useEffect(() => {
     if (
       !autoModelSyncProvider ||
@@ -137,20 +184,55 @@ export default function ProviderDetail(): ReactNode {
   // and sort alphabetically so enable/disable doesn't jump the layout.
   const deduped = (() => {
     const seen = new Map<string, (typeof models)[number]>();
-    for (const m of models) {
-      const existing = seen.get(m.modelId);
-      if (!existing) seen.set(m.modelId, m);
+    for (const model of models) {
+      const serviceKind = model.serviceKind ?? "llm";
+      const key = `${serviceKind}:${model.modelId}`;
+      const existing = seen.get(key);
+      if (!existing) seen.set(key, model);
       else {
-        // Prefer the one with larger context (builtin over discovered)
         const existingCtx = existing.contextLimit ?? 0;
-        const nextCtx = m.contextLimit ?? 0;
-        if (nextCtx > existingCtx) seen.set(m.modelId, m);
+        const nextCtx = model.contextLimit ?? 0;
+        if (nextCtx > existingCtx) seen.set(key, model);
       }
     }
     return [...seen.values()].sort((a, b) => a.modelId.localeCompare(b.modelId));
   })();
   const stableModels = deduped;
-
+  const llmModels = stableModels.filter(
+    (model) => model.serviceKind === "llm" || model.serviceKind === undefined,
+  );
+  const searchModels = stableModels.filter((model) => model.serviceKind === "websearch");
+  const activeService = supportedServiceKinds.includes(selectedService)
+    ? selectedService
+    : supportedServiceKinds[0];
+  const activeSearchModel = searchModelId || searchModels[0]?.modelId || "";
+  const runSearchTest = () => {
+    const query = searchQuery.trim();
+    if (!activeSearchModel || !query) return;
+    setSearchTestResult(null);
+    searchProbe.mutate(
+      {
+        providerId: id,
+        request: { modelId: activeSearchModel, serviceKind: "websearch", prompt: query },
+      },
+      {
+        onSuccess: (result) =>
+          setSearchTestResult({
+            ok: result.ok,
+            latencyMs: result.latencyMs,
+            ...(result.searchResults
+              ? { results: result.searchResults, count: result.searchResults.length }
+              : {}),
+            ...(result.error ? { error: result.error } : {}),
+          }),
+        onError: (error) =>
+          setSearchTestResult({
+            ok: false,
+            error: error instanceof Error ? error.message : "Search test failed",
+          }),
+      },
+    );
+  };
   if (providersQuery.isPending) return <LoadingState label="Loading provider..." />;
   // A failed catalog load is NOT a missing provider. Without this branch a 500
   // rendered "Provider not found", which sends the operator looking for a
@@ -276,6 +358,7 @@ export default function ProviderDetail(): ReactNode {
           modelId: "grok-4.6",
           prompt: "reply my message with exact number 407",
           stream: true,
+          serviceKind: "llm",
         },
       },
       {
@@ -343,13 +426,31 @@ export default function ProviderDetail(): ReactNode {
         }
 
       />
+      {activeService ? (
+        <Inline gap="6px" style={{ flexWrap: "wrap" }}>
+          <span
+            style={{
+              padding: "3px 8px",
+              borderRadius: "999px",
+              fontSize: "10px",
+              fontWeight: 700,
+              color: "var(--text-secondary)",
+              background: "var(--surface-2)",
+              border: "1px solid var(--inner-border)",
+            }}
+          >
+            {serviceLabel(activeService)}
+          </span>
+        </Inline>
+      ) : null}
       {/* Where to obtain this provider's credential */}
       <CredentialNotice provider={provider} />
-      {/* Routing Strategy */}
-      <RoutingStrategyCard
-        providerId={id}
-        showUserAgent={providerCanConfigureUserAgent(provider)}
-      />
+      {activeService === "llm" ? (
+        <RoutingStrategyCard
+          providerId={id}
+          showUserAgent={providerCanConfigureUserAgent(provider)}
+        />
+      ) : null}
       {/* Accounts */}
       {provider.requiresAccount === false ? (
         <Card>
@@ -433,7 +534,7 @@ export default function ProviderDetail(): ReactNode {
                 providerId={id}
                 accounts={accounts}
                 onDelete={(acc) => setDeleteTarget(acc)}
-                showGrokProbe={id === "grok"}
+                showGrokProbe={activeService === "llm" && id === "grok"}
                 grokProbePending={probeAllAccounts.isPending}
                 onGrokProbe={runGrokAccountProbe}
               />
@@ -442,13 +543,15 @@ export default function ProviderDetail(): ReactNode {
         </Card>
       )}
 
-      {/* Models */}
-      <Card>
-        <CardHeader
-          title="Models"
-          subtitle={`${models.length} model${models.length === 1 ? "" : "s"} registered`}
-          icon={<Boxes size={16} />}
-          action={
+      {activeService === "llm" ? (
+        <>
+          {/* LLM models and routing controls */}
+          <Card>
+          <CardHeader
+            title="Models"
+            subtitle={`${llmModels.length} model${llmModels.length === 1 ? "" : "s"} registered`}
+            icon={<Boxes size={16} />}
+            action={
             <Inline gap="6px" style={{ flexWrap: "wrap", alignItems: "center" }}>
               <ThinkingSelect
                 id="models-section-thinking-effort"
@@ -479,10 +582,10 @@ export default function ProviderDetail(): ReactNode {
                   syncModels.isPending ||
                   autoSyncModels.isPending ||
                   bulkDeleting ||
-                  models.filter((m) => m.source !== "builtin" && m.source !== null).length === 0
+                  llmModels.filter((m) => m.source !== "builtin" && m.source !== null).length === 0
                 }
                 onClick={async () => {
-                  const fetched = models.filter((m) => m.source !== "builtin" && m.source !== null);
+                  const fetched = llmModels.filter((m) => m.source !== "builtin" && m.source !== null);
                   if (fetched.length === 0) return;
                   if (!confirm(`Delete ${fetched.length} fetched/manual model(s) for ${id}?`)) return;
                   setBulkDeleting(true);
@@ -536,16 +639,155 @@ export default function ProviderDetail(): ReactNode {
             <LoadingState label="Loading models..." />
           ) : modelsQuery.isError ? (
             <ErrorState message="Failed to load models" onRetry={() => modelsQuery.refetch()} />
-          ) : models.length === 0 ? (
+          ) : llmModels.length === 0 ? (
             <EmptyState
-              title="No models found"
-              message="No models published by this provider yet. Sync or add a custom model above."
+              title="No LLM models found"
+              message="No LLM models published by this provider yet. Sync or add a custom model above."
             />
           ) : (
-            <ModelGrid providerId={id} models={stableModels} thinkingEffort={thinkingEffort} />
+            <ModelGrid
+              providerId={id}
+              models={llmModels}
+              serviceKind="llm"
+              thinkingEffort={thinkingEffort}
+              searchCapable={provider?.supportsWebSearch === true}
+            />
           )}
         </CardBody>
       </Card>
+
+        </>
+      ) : activeService === "websearch" ? (
+        <Card>
+          <CardHeader
+            title="Web Search"
+            subtitle="Run a real search request through the selected provider."
+            icon={<Boxes size={16} />}
+          />
+          <CardBody style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {modelsQuery.isPending ? (
+              <LoadingState label="Loading search models..." />
+            ) : modelsQuery.isError ? (
+              <ErrorState message="Failed to load search models" onRetry={() => modelsQuery.refetch()} />
+            ) : searchModels.length === 0 ? (
+              <EmptyState
+                title="No Search models found"
+                message="This provider advertises Search, but no websearch model is registered yet."
+              />
+            ) : (
+              <>
+                <label style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "11px", color: "var(--text-secondary)" }}>
+                  Search model
+                  <select
+                    value={activeSearchModel}
+                    onChange={(event) => {
+                      setSearchModelId(event.target.value);
+                      setSearchTestResult(null);
+                    }}
+                    style={{
+                      width: "100%",
+                      minHeight: "34px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--inner-border)",
+                      background: "var(--surface-1)",
+                      color: "var(--text-primary)",
+                      padding: "0 9px",
+                    }}
+                  >
+                    {searchModels.map((model) => (
+                      <option key={`${model.modelId}:${model.route}`} value={model.modelId}>
+                        {model.modelId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "11px", color: "var(--text-secondary)" }}>
+                  Query
+                  <input
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        runSearchTest();
+                      }
+                    }}
+                    placeholder="What is the latest news about AI?"
+                    style={{
+                      width: "100%",
+                      minHeight: "34px",
+                      borderRadius: "8px",
+                      border: "1px solid var(--inner-border)",
+                      background: "var(--surface-1)",
+                      color: "var(--text-primary)",
+                      padding: "0 9px",
+                    }}
+                  />
+                </label>
+                <Inline gap="8px" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={searchProbe.isPending || searchQuery.trim().length === 0}
+                    loading={searchProbe.isPending}
+                    onClick={runSearchTest}
+                  >
+                    Test search
+                  </Button>
+                  {searchTestResult ? (
+                    <span style={{ fontSize: "11px", color: searchTestResult.ok ? "var(--green)" : "var(--red)" }}>
+                      {searchTestResult.ok
+                        ? `Search ok · ${searchTestResult.latencyMs}ms · ${searchTestResult.count ?? 0} result(s)`
+                        : searchTestResult.error ?? "Search failed."}
+                    </span>
+                  ) : null}
+                </Inline>
+                {searchTestResult && searchTestResult.results && searchTestResult.results.length > 0 ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px",
+                      maxHeight: "220px",
+                      overflowY: "auto",
+                      border: "1px solid var(--inner-border)",
+                      borderRadius: "8px",
+                      padding: "8px",
+                      background: "var(--surface-1)",
+                    }}
+                  >
+                    {searchTestResult.results.map((hit, index) => (
+                      <div key={`${hit.url}:${index}`} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <a
+                          href={hit.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}
+                        >
+                          {hit.title || hit.url}
+                        </a>
+                        <span style={{ fontSize: "11px", color: "var(--text-tertiary)", wordBreak: "break-all" }}>{hit.url}</span>
+                        {hit.snippet ? (
+                          <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{hit.snippet}</span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </CardBody>
+        </Card>
+      ) : (
+        <Card>
+          <CardBody>
+            <EmptyState
+              title="Service not available"
+              message={`This provider advertises ${serviceKinds.map(serviceLabel).join(", ")}, but the dashboard has no controls for the selected service yet.`}
+            />
+          </CardBody>
+        </Card>
+      )}
 
       {addAccountOpen && (
         <AddAccountModal
@@ -554,9 +796,9 @@ export default function ProviderDetail(): ReactNode {
           onClose={() => setAddAccountOpen(false)}
         />
       )}
-      {addModelOpen && (
+      {activeService === "llm" && addModelOpen ? (
         <AddModelModal providerId={id} provider={provider} onClose={() => setAddModelOpen(false)} />
-      )}
+      ) : null}
       <ConfirmDialog
         open={deleteTarget !== null}
         onClose={() => {

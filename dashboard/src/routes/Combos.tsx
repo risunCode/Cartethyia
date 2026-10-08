@@ -1,4 +1,4 @@
-import { ArrowRight, Copy, CopyPlus, Layers, Pencil, Plus, Route, Search, Trash2, X } from "lucide-react";
+import { ArrowRight, Copy, CopyPlus, GripVertical, Layers, Pencil, Plus, Route, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "../components/ui/button";
 import { Card, CardBody, CardHeader } from "../components/ui/card";
@@ -29,6 +29,11 @@ import {
   useUpdateModelAlias,
   useUpdateModelCombo,
 } from "../hooks/routing";
+
+/** A stable id for a chip in the dialog's SortableList. Browser sessions need
+ *  not be unique across page lifetime — they only need to survive one drag. */
+const makeId = (): string =>
+  `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 // ── Aliases Section ──────────────────────────────────────────────────────────
 
@@ -69,8 +74,14 @@ function AliasesSection(): ReactNode {
     if (!aliasName.trim() || !targetModel.trim()) return;
 
     if (editingAlias) {
+      // Both fields are editable now: the alias name rides along with the
+      // target, and the backend cascades a rename through alias chains and
+      // combo members that referenced the old name.
       updateMutation.mutate(
-        { id: editingAlias.id, request: { targetModel: targetModel.trim() } },
+        {
+          id: editingAlias.id,
+          request: { alias: aliasName.trim(), targetModel: targetModel.trim() },
+        },
         {
           onSuccess: () => {
             setDialogOpen(false);
@@ -233,7 +244,6 @@ function AliasesSection(): ReactNode {
             value={aliasName}
             onChange={(e) => setAliasName(e.target.value)}
             placeholder="e.g. fast, sonnet, smart"
-            disabled={Boolean(editingAlias)}
             required
           />
           <Inline gap="8px" align="flex-end">
@@ -305,8 +315,7 @@ function AliasesSection(): ReactNode {
               Cancel
             </Button>
             <Button
-              variant="primary"
-              style={{ background: "var(--red)", borderColor: "var(--red)" }}
+              variant="danger"
               onClick={() => {
                 if (deleteConfirm) {
                   deleteMutation.mutate(deleteConfirm.id, {
@@ -341,7 +350,14 @@ function CombosSection(): ReactNode {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCombo, setEditingCombo] = useState<ModelComboRow | null>(null);
   const [comboName, setComboName] = useState("");
-  const [membersText, setMembersText] = useState("");
+  /**
+   * The combo's members in the order the operator arranges them. Each one keeps
+   * a stable id so drag reordering stays cheap (a remount would lose the grip
+   * the operator is holding). A `Member` value lives only in this state; the
+   * server contract and the wire payload carry just the string, so we strip the
+   * id when persisting.
+   */
+  const [members, setMembers] = useState<readonly { id: string; value: string }[]>([]);
   const [strategy, setStrategy] = useState<ComboStrategy>("fallback");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<ModelComboRow | null>(null);
@@ -349,18 +365,18 @@ function CombosSection(): ReactNode {
   const { copy } = useClipboard();
   const scheduleCopyReset = useTrackedTimeout();
 
-  const selectedMembers = useMemo(
-    () =>
-      membersText
-        .split("\n")
-        .map((m) => m.trim())
-        .filter((m) => m.length > 0),
-    [membersText],
-  );
-  const handlePickerToggle = (q: string) => {
-    if (selectedMembers.includes(q))
-      setMembersText(selectedMembers.filter((m) => m !== q).join("\n"));
-    else setMembersText([...selectedMembers, q].join("\n"));
+  const memberValues = useMemo(() => members.map((m) => m.value), [members]);
+
+  /**
+   * Toggle a member in/out of the combo. Picker rows are not aware of ordering,
+   * so a newly-toggled value lands at the end of whatever order the operator
+   * had built — that is the least surprising place when "add" means append and
+   * "remove" means drop the chip that already exists.
+   */
+  const handlePickerToggle = (value: string) => {
+    if (memberValues.includes(value))
+      setMembers(members.filter((m) => m.value !== value));
+    else setMembers([...members, { id: makeId(), value: value.trim() }]);
   };
 
   const combos = combosQuery.data ?? [];
@@ -368,7 +384,7 @@ function CombosSection(): ReactNode {
   const openCreate = () => {
     setEditingCombo(null);
     setComboName("");
-    setMembersText("");
+    setMembers([]);
     setStrategy("fallback");
     setDialogOpen(true);
   };
@@ -376,8 +392,10 @@ function CombosSection(): ReactNode {
   const openEdit = (c: ModelComboRow) => {
     setEditingCombo(c);
     setComboName(c.name);
-    setMembersText(c.members.join("\n"));
-    setStrategy(c.strategy);
+    // A fresh id per row keeps SortableList stable across dialog (re)opens —
+    // reusing ids from a prior open would let React's reconciliation reorder
+    // lookups hit a stale tree and lose the chip an operator is mid-drag.
+    setMembers(c.members.map((value) => ({ id: makeId(), value })));
     setDialogOpen(true);
   };
 
@@ -404,12 +422,7 @@ function CombosSection(): ReactNode {
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    const members = membersText
-      .split("\n")
-      .map((m) => m.trim())
-      .filter((m) => m.length > 0);
-
-    if (!comboName.trim() || members.length === 0) return;
+    if (!comboName.trim() || memberValues.length === 0) return;
 
     if (editingCombo) {
       // Rename rides along with the member/strategy edit; the backend cascades
@@ -419,7 +432,7 @@ function CombosSection(): ReactNode {
           id: editingCombo.id,
           request: {
             name: comboName.trim(),
-            members,
+            members: memberValues,
             strategy,
           },
         },
@@ -434,12 +447,12 @@ function CombosSection(): ReactNode {
       );
     } else {
       createMutation.mutate(
-        { name: comboName.trim(), members, strategy },
+        { name: comboName.trim(), members: memberValues, strategy },
         {
           onSuccess: () => {
             setDialogOpen(false);
             setComboName("");
-            setMembersText("");
+            setMembers([]);
             toast.success("Combo created");
           },
           onError: (error) => toast.error(getErrorMessage(error, "Could not create the combo.")),
@@ -641,10 +654,10 @@ function CombosSection(): ReactNode {
               stream and tools; panel models answer non-streaming with tools stripped.
             </p>
           ) : null}
-          <Stack gap="4px">
+          <Stack gap="6px">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>
-                Member models (one per line, e.g. codex/gpt-5.5)
+                Member models — drag to reorder
               </label>
               <Button
                 variant="secondary"
@@ -656,62 +669,105 @@ function CombosSection(): ReactNode {
                 Browse models
               </Button>
             </div>
-            <textarea
-              value={membersText}
-              onChange={(e) => setMembersText(e.target.value)}
-              placeholder="codex/gpt-5.5&#10;openai/gpt-4o&#10;cerebras/llama3.3-70b"
+            <div
+              role="list"
+              aria-label="Combo members"
+              data-testid="combo-members-list"
               style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "12px",
-                padding: "8px 10px",
-                borderRadius: "8px",
-                border: "1px solid var(--inner-border)",
-                background: "var(--input-bg)",
-                color: "var(--text-primary)",
-                resize: "vertical",
+                minHeight: "44px",
+                border: "1px dashed var(--inner-border)",
+                borderRadius: "10px",
+                padding: members.length === 0 ? 0 : "6px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "4px",
               }}
-              required
-            />
-            {selectedMembers.length > 0 && (
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "4px" }}>
-                {selectedMembers.map((m) => (
-                  <span
-                    key={m}
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "11px",
-                      background: "var(--accent-soft)",
-                      color: "var(--accent)",
-                      padding: "2px 8px",
-                      borderRadius: "6px",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "4px",
-                    }}
-                  >
-                    {m}
-                    <button
-                      type="button"
-                      onClick={() => handlePickerToggle(m)}
+            >
+              {members.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
+                  style={{
+                    flex: "1 1 auto",
+                    minHeight: "44px",
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text-tertiary)",
+                    fontSize: "12px",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  Pick models to add
+                </button>
+              ) : (
+                <SortableList
+                  items={members}
+                  label="Combo members"
+                  gap="4px"
+                  onReorder={(ids) => {
+                    const byId = new Map(members.map((m) => [m.id, m]));
+                    setMembers(ids.map((id) => byId.get(id)!).filter(Boolean));
+                  }}
+                  renderItem={(m) => (
+                    <div
                       style={{
-                        background: "transparent",
-                        border: "none",
-                        cursor: "pointer",
-                        padding: 0,
                         display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        padding: "6px 10px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--inner-border)",
+                        background: "var(--surface-2)",
+                        width: "100%",
+                        boxSizing: "border-box",
                       }}
                     >
-                      <X size={12} />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
+                      <GripVertical
+                        size={12}
+                        style={{ color: "var(--text-tertiary)", flexShrink: 0, cursor: "grab" }}
+                      />
+                      <code
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: "12px",
+                          color: "var(--accent)",
+                          flex: "1 1 auto",
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={m.value}
+                      >
+                        {m.value}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => handlePickerToggle(m.value)}
+                        aria-label={`Remove ${m.value}`}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: 0,
+                          color: "var(--text-tertiary)",
+                          display: "flex",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                />
+              )}
+            </div>
           </Stack>
           <ModelPickerModal
             open={pickerOpen}
             onClose={() => setPickerOpen(false)}
-            selected={selectedMembers}
+            selected={memberValues}
             onToggle={handlePickerToggle}
             title="Select combo members"
             multi
@@ -729,7 +785,7 @@ function CombosSection(): ReactNode {
                 createMutation.isPending ||
                 updateMutation.isPending ||
                 !comboName.trim() ||
-                !membersText.trim()
+                memberValues.length === 0
               }
             >
               {editingCombo ? "Save Changes" : "Create Combo"}
@@ -755,8 +811,7 @@ function CombosSection(): ReactNode {
               Cancel
             </Button>
             <Button
-              variant="primary"
-              style={{ background: "var(--red)", borderColor: "var(--red)" }}
+              variant="danger"
               onClick={() => {
                 if (deleteConfirm) {
                   deleteMutation.mutate(deleteConfirm.id, {

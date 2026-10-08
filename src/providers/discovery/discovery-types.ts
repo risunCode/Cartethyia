@@ -1,5 +1,6 @@
 import type { FetchLike } from "../quota/quota-contracts";
 import type { ModelDefinition } from "../model-definition";
+import type { ServiceKind } from "../../transport/canonical-model";
 
 /**
  * Credential-scoped model-discovery input.
@@ -64,6 +65,8 @@ export type ProbeReasoningEffort = (typeof PROBE_REASONING_EFFORTS)[number];
  * shape, or provide `wireFamily` to test a not-yet-registered candidate. */
 export interface ProbeModelRequest {
   modelId: string;
+  /** Native service to probe; omitted means the ordinary LLM route. */
+  serviceKind?: ServiceKind;
   route?: string;
   wireFamily?: string;
   accountId?: string;
@@ -81,6 +84,12 @@ export interface ProbeModelResult {
   sample?: string;
   statusCode?: number;
   error?: string;
+  /** Normalized hits a `websearch` probe returned, so the console can show them. */
+  searchResults?: ReadonlyArray<{
+    readonly title: string;
+    readonly url: string;
+    readonly snippet: string;
+  }>;
 }
 
 /**

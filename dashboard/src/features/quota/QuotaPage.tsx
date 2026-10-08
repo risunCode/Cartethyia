@@ -540,39 +540,37 @@ function QuotaCard({
           )}
           <Button
             variant="ghost"
-            size="icon"
-            className="size-8"
+            size="sm"
             title="Health & Error Log"
             aria-label={`Health log for ${account.name}`}
             disabled={busy}
             onClick={() => onShowHealth(account)}
-            style={{ width: "32px", height: "32px", padding: 0 }}
-          >
-            <Activity size={14} />
-          </Button>
+            icon={<Activity size={12} />}
+          />
           <Button
             variant="ghost"
-            size="icon"
-            className="size-8"
+            size="sm"
             title="Refresh quota"
             aria-label={`Refresh ${account.name} quota`}
             disabled={busy}
             onClick={() => refresh.mutate()}
-            style={{ width: "32px", height: "32px", padding: 0 }}
-          >
-            {refresh.isPending ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
-          </Button>
+            icon={
+              refresh.isPending ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <RotateCcw size={12} />
+              )
+            }
+          />
           <Button
             variant="ghost"
-            size="icon"
-            className="size-8"
+            size="sm"
             title="Delete account"
             aria-label={`Delete ${account.name}`}
             onClick={() => onDelete(account)}
-            style={{ width: "32px", height: "32px", padding: 0, color: "var(--red)" }}
-          >
-            <Trash2 size={14} />
-          </Button>
+            style={{ color: "var(--red)" }}
+            icon={<Trash2 size={12} />}
+          />
           <Switch
             checked={account.active}
             disabled={refresh.isPending}

@@ -26,7 +26,7 @@ import type { NetworkPoolSelector } from "../../network/pool/selector";
 import type { ProxyRequestState } from "../request/state";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { flagPoolCooldown } from "../../network/pool-health";
-import { completeAttempt, estimatedUsage, type ProviderExchangeCapture } from "./attempt-finalize";
+import { completeAttempt, errorClientResponseBody, estimatedUsage, type ProviderExchangeCapture } from "./attempt-finalize";
 import { repriceUsage } from "../../providers/usage";
 import { shouldCooldownPool, isOAuthCredentialInvalidated } from "./retry-policy";
 import { drainAbortReason } from "../shutdown-notice";
@@ -95,6 +95,13 @@ export async function runAttemptLoop<TResult, TAdapter>(
   const { state, deps, candidates, leaseSource } = input;
   let lastError: unknown = input.exhaustedError;
   const refreshedCandidates = new Set<string>();
+  // Every attempt owns a fresh capture sink, but only the terminal attempt's
+  // sink reaches the payload store. When the terminal attempt fails before it
+  // fires an outbound request (lease/acquire/prepare threw, or failover
+  // exhausted), its sink is empty and the drawer reads "—" for a request that
+  // DID reach an upstream on an earlier attempt. Keep the fired exchanges so
+  // the terminal completion can fall back to the last one that has a request.
+  const firedCaptures: ProviderExchangeCapture[] = [];
   const maxAttempts = resolveRouteMaxAttempts();
   for (let index = 0; index < Math.min(candidates.length, maxAttempts); index += 1) {
     const candidate = candidates[index];
@@ -161,6 +168,17 @@ export async function runAttemptLoop<TResult, TAdapter>(
       const cancelled = terminal.status === "cancelled";
       const terminalAttempt =
         cancelled || !isRetryableFailure(error) || index === candidates.length - 1;
+      if (providerCapture.request !== null) firedCaptures.push(providerCapture);
+      // The payload store only keeps the terminal attempt's exchange. When the
+      // terminal attempt never fired (failover walked past the attempt that
+      // did, or prepare/lease threw first), fall back to the last fired
+      // exchange so Request Detail still shows the translated provider
+      // request instead of "—" for a request that reached an upstream.
+      const terminalCapture =
+        providerCapture.request !== null
+          ? providerCapture
+          : [...firedCaptures].reverse().find((capture) => capture.request !== null) ??
+            providerCapture;
       await completeAttempt(state, {
         status: terminal.status,
         providerId: candidate.provider_id,
@@ -191,7 +209,14 @@ export async function runAttemptLoop<TResult, TAdapter>(
         tenantId: input.tenantId,
         ingressBody: state.ingressBody,
         responseBody: null,
-        providerCapture,
+        // The client still receives the public error envelope on the wire —
+        // store it so Request Detail's Client Response panel traces failures
+        // exactly as the client saw them. Cancelled requests have no client
+        // response (the caller is gone).
+        ...(terminalAttempt && !cancelled
+          ? { clientResponseText: errorClientResponseBody(error) }
+          : {}),
+        providerCapture: terminalCapture,
         db: deps.db,
         ...(deps.telemetryBuffer ? { telemetryBuffer: deps.telemetryBuffer } : {}),
         ...(deps.snapshotService ? { snapshotService: deps.snapshotService } : {}),

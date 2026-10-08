@@ -1,6 +1,5 @@
 import {
   Activity,
-  Clock,
   Cloud,
   Download,
   Eye,
@@ -82,17 +81,6 @@ function latencyDetail(summary: ProxyPoolSummary): string {
   return `avg across ${summary.measuredPools} enabled ${summary.measuredPools === 1 ? "pool" : "pools"}`;
 }
 
-/** Human-readable cooldown summary: how many pools are cooling and for how
- * long the nearest one still has to wait. */
-function cooldownDetail(summary: ProxyPoolSummary): string {
-  if (summary.cooldown === 0) return "no pool is waiting";
-  const remaining = summary.soonestCooldownMs;
-  if (remaining === null) return "waiting on a provider or pool";
-  const seconds = Math.ceil(remaining / 1000);
-  const wait = seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)}m`;
-  return `${summary.cooldown} cooling · ${wait} left`;
-}
-
 /** Derives a friendly `host:port` name and a normalized full endpoint URL from a pool. */
 function poolDisplay(pool: NetworkPoolResponse): { name: string; endpoint: string } {
   const raw = pool.endpoint || "";
@@ -122,10 +110,42 @@ function poolName(pool: NetworkPoolResponse): string {
 }
 
 const GIB = 1024 ** 3;
-// A measurement plus when it was taken. The timestamp is dashboard-only state —
-// the API has no reason to record it — but without it a persisted result cannot
-// say "last measured 20 minutes ago", which is the whole point of keeping it.
+// A measurement plus when it was taken. The server now stamps and persists
+// each speed test on the pool row (`measuredAt` + `lastSpeedtest*`), so the
+// localStorage entry is only a fallback for the just-measured moment before
+// the pool list refetches — the server row is the authority after any reload.
 type StoredSpeedResult = PoolSpeedTestResult & { readonly measuredAt?: string };
+
+/** Last server-persisted speed-test measurement for a pool, if any. */
+function serverSpeedResult(pool: NetworkPoolResponse): StoredSpeedResult | undefined {
+  if (pool.lastSpeedtestStatus === undefined || pool.lastSpeedtestAt === undefined) return undefined;
+  const durationMs = pool.lastSpeedtestDurationMs ?? 0;
+  const bytes = pool.lastSpeedtestBytes ?? 0;
+  const bytesPerSecond = durationMs > 0 ? bytes / (durationMs / 1000) : undefined;
+  return {
+    poolId: pool.id,
+    status: pool.lastSpeedtestStatus,
+    bytes,
+    durationMs,
+    ...(bytesPerSecond === undefined
+      ? {}
+      : { bytesPerSecond, megabitsPerSecond: (bytesPerSecond * 8) / 1_000_000 }),
+    ...(pool.lastSpeedtestError ? { errorMessage: pool.lastSpeedtestError } : {}),
+    measuredAt: pool.lastSpeedtestAt,
+  };
+}
+
+/** Newer of the local and server-known measurements wins. */
+function newerSpeedResult(
+  local: StoredSpeedResult | undefined,
+  server: StoredSpeedResult | undefined,
+): StoredSpeedResult | undefined {
+  if (!local) return server;
+  if (!server) return local;
+  const localAt = local.measuredAt ? new Date(local.measuredAt).getTime() : 0;
+  const serverAt = server.measuredAt ? new Date(server.measuredAt).getTime() : 0;
+  return serverAt >= localAt ? server : local;
+}
 // Payload choices for the speed-test split control. Labels are decimal MB
 // (1 MB = 1_000_000 bytes) to match how proxy plans are sold.
 const SPEED_TEST_SIZES = [
@@ -582,8 +602,25 @@ function ProxySummaryTiles({ pools }: { readonly pools: readonly NetworkPoolResp
       ),
     [pools, byId, live],
   );
+  // Cumulated metered usage across all proxies: the same max(metered, session)
+  // rule as the per-row bar, so the tile and the rows can never disagree.
+  const quota = useMemo(() => {
+    let used = 0;
+    let allowance = 0;
+    for (const pool of pools) {
+      const row = live ? byId.get(pool.id) : undefined;
+      const metered = (pool.bytesSentTotal ?? 0) + (pool.bytesReceivedTotal ?? 0);
+      const session = (row?.bytesSent ?? 0) + (row?.bytesReceived ?? 0);
+      used += Math.max(metered, session);
+      if (pool.quotaBytes) allowance += pool.quotaBytes;
+    }
+    return { used, allowance };
+  }, [pools, byId, live]);
   return (
-    <div className="metric-grid" style={{ marginBottom: "14px" }}>
+    <div
+      className="metric-grid"
+      style={{ marginBottom: "14px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}
+    >
       <StatCard
         label="Enabled pool"
         value={String(summary.active)}
@@ -612,13 +649,437 @@ function ProxySummaryTiles({ pools }: { readonly pools: readonly NetworkPoolResp
         icon={<Activity size={13} />}
       />
       <StatCard
-        label="Cooldown"
-        value={summary.cooldown > 0 ? String(summary.cooldown) : "None"}
-        detail={cooldownDetail(summary)}
-        tone={summary.cooldown > 0 ? "orange" : "green"}
-        icon={<Clock size={13} />}
+        label="Quota usage"
+        value={formatBytes(quota.used)}
+        detail={
+          quota.allowance > 0
+            ? `of ${formatBytes(quota.allowance)} allowance · ${pools.length} pools`
+            : `${pools.length} pools · no allowance set`
+        }
+        tone={quota.allowance > 0 && quota.used > quota.allowance ? "red" : quota.allowance > 0 && quota.used / quota.allowance >= 0.8 ? "orange" : "teal"}
+        icon={<Cloud size={13} />}
       />
     </div>
+  );
+}
+
+/**
+ * Everything a pool row or card renders, derived in one place so the desktop
+ * table and the mobile cards cannot disagree about status, load, or quota.
+ */
+interface PoolView {
+  readonly display: { name: string; endpoint: string };
+  readonly poolLabel: string;
+  readonly isEnabled: boolean;
+  readonly checkTone: BadgeTone;
+  readonly checkTooltip: string | undefined;
+  readonly statusText: string;
+  readonly latency: number | undefined;
+  readonly inflight: number;
+  readonly load: number;
+  readonly cooldowns: readonly NonNullable<NetworkPoolResponse["providerCooldowns"]>[number][];
+  readonly cooldownText: string;
+  readonly metered: number;
+  readonly session: number;
+  readonly used: number;
+  readonly proxyFailureLabel: string | undefined;
+}
+
+function derivePoolView(
+  pool: NetworkPoolResponse,
+  checkResult: HealthCheckResult | undefined,
+  isTesting: boolean,
+  liveBytes: PoolUsageRow | null,
+): PoolView {
+  const display = poolDisplay(pool);
+  const poolLabel = poolName(pool);
+  const isEnabled = pool.status !== "disabled";
+  const proxyFailureLabel = proxyResponseLabel(pool.lastErrorCategory);
+  const proxyResponseDisabled = pool.status === "disabled" && proxyFailureLabel !== undefined;
+  const lastSuccess = pool.lastSuccessAt ? new Date(pool.lastSuccessAt).getTime() : 0;
+  const lastError = pool.lastErrorAt ? new Date(pool.lastErrorAt).getTime() : 0;
+  const persistedOk =
+    !checkResult && (lastSuccess > 0 || lastError > 0) ? lastSuccess >= lastError : null;
+  const checkTone: BadgeTone = isTesting
+    ? "default"
+    : proxyResponseDisabled
+      ? "warn"
+      : checkResult
+        ? checkResult.status === "healthy"
+          ? "ok"
+          : checkResult.status === "reachable"
+            ? "warn"
+            : "err"
+        : persistedOk === true
+          ? "ok"
+          : persistedOk === false
+            ? "err"
+            : "default";
+  const checkTooltip = proxyResponseDisabled
+    ? pool.lastError ?? proxyFailureLabel
+    : checkResult?.errorMessage ??
+      (persistedOk !== null
+        ? `last check ${(pool.lastHealthCheckAt ? new Date(pool.lastHealthCheckAt) : new Date()).toLocaleString()}`
+        : undefined);
+  const latency = poolLatencyMs(pool, checkResult);
+  // Live SSE usage wins over the polled snapshot while the stream is up.
+  const inflight = liveBytes?.currentInflight ?? pool.inflight;
+  const load = pool.maxInflight > 0 ? Math.min(1, inflight / pool.maxInflight) : 1;
+  const cooldowns = pool.providerCooldowns ?? [];
+  const cooldownText = cooldowns
+    .slice(0, 2)
+    .map(
+      (cooldown) =>
+        `${cooldown.providerId} until ${new Date(cooldown.until).toLocaleTimeString()}: ${cooldown.reason}`,
+    )
+    .join(" · ");
+  const statusText = isTesting
+    ? "Testing…"
+    : proxyResponseDisabled
+      ? "Proxy reachable"
+      : checkResult
+        ? checkResult.status === "healthy"
+          ? "Connected"
+          : checkResult.status === "reachable"
+            ? "Proxy reachable"
+            : checkResult.status === "timeout"
+              ? "Timeout"
+              : "Unhealthy"
+        : persistedOk === true
+          ? "Connected"
+          : persistedOk === false
+            ? pool.lastErrorCategory === "timeout"
+              ? "Timeout"
+              : "Unhealthy"
+            : "Untested";
+  // Metered lifetime (banked in the pool row, survives restarts) plus the live
+  // session counters. The row is banked on nearly every pool-touching write,
+  // so the session figure is almost entirely contained in the metered one —
+  // max() avoids double-counting while keeping pre-restart history.
+  const metered = (pool.bytesSentTotal ?? 0) + (pool.bytesReceivedTotal ?? 0);
+  const session = (liveBytes?.bytesSent ?? 0) + (liveBytes?.bytesReceived ?? 0);
+  return {
+    display,
+    poolLabel,
+    isEnabled,
+    checkTone,
+    checkTooltip,
+    statusText,
+    latency,
+    inflight,
+    load,
+    cooldowns,
+    cooldownText,
+    metered,
+    session,
+    used: Math.max(metered, session),
+    proxyFailureLabel,
+  };
+}
+
+/** Pool name plus status badges; shared by the table cell and the mobile card. */
+function PoolTitleBlock({
+  pool,
+  view,
+  maskValues,
+}: {
+  readonly pool: NetworkPoolResponse;
+  readonly view: PoolView;
+  readonly maskValues: boolean;
+}): ReactNode {
+  return (
+    <>
+      <span
+        style={{
+          display: "block",
+          fontSize: "12.5px",
+          fontWeight: 600,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={maskValues ? "Proxy name masked" : view.poolLabel}
+      >
+        {maskValues ? maskProxyValue(view.poolLabel) : view.poolLabel}
+      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "3px", minWidth: 0, flexWrap: "wrap" }}>
+        {pool.status === "disabled" ? (
+          <Badge tone="disabled" title={pool.lastError}>
+            Disabled{view.proxyFailureLabel ? ` · ${view.proxyFailureLabel}` : ""}
+          </Badge>
+        ) : (
+          <Badge tone={view.checkTone} title={view.checkTooltip}>
+            {view.latency === undefined ? view.statusText : `${view.statusText} · ${view.latency}ms`}
+          </Badge>
+        )}
+        {view.cooldowns.length > 0 ? (
+          <Badge tone="warn" title={view.cooldownText}>
+            {view.cooldowns.length} cooldown{view.cooldowns.length > 1 ? "s" : ""}
+          </Badge>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+/** Egress address plus the last speed-test badge; shared by table and card. */
+function PoolAddressBlock({
+  pool,
+  view,
+  maskValues,
+  speedResult,
+  isSpeedTesting,
+}: {
+  readonly pool: NetworkPoolResponse;
+  readonly view: PoolView;
+  readonly maskValues: boolean;
+  readonly speedResult?: StoredSpeedResult;
+  readonly isSpeedTesting: boolean;
+}): ReactNode {
+  return (
+    <>
+      {pool.egressIp ? (
+        <span
+          style={{
+            display: "block",
+            fontFamily: "var(--font-mono)",
+            fontSize: "11.5px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+          title={maskValues ? "Proxy address masked" : `egress ${pool.egressIp} · ${view.display.endpoint}`}
+        >
+          {pool.egressIp}
+        </span>
+      ) : (
+        <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }} title="Test the pool to read its egress address">
+          not probed
+        </span>
+      )}
+      {(isSpeedTesting || speedResult) && (
+        <div style={{ marginTop: "3px" }}>
+          <Badge
+            tone={isSpeedTesting ? "default" : speedResult?.status === "ok" ? "ok" : "err"}
+            title={
+              isSpeedTesting
+                ? "Measuring download throughput"
+                : speedResult?.status === "ok"
+                  ? `${formatBytes(speedResult.bytes)} in ${speedResult.durationMs}ms${
+                      speedResult.measuredAt
+                        ? ` · last measured ${new Date(speedResult.measuredAt).toLocaleString()}`
+                        : ""
+                    }`
+                  : `${speedResult?.errorMessage ?? "Speed test failed"}${
+                      speedResult?.measuredAt
+                        ? ` · last measured ${new Date(speedResult.measuredAt).toLocaleString()}`
+                        : ""
+                    }`
+            }
+          >
+            {isSpeedTesting
+              ? "Speed…"
+              : speedResult?.status === "ok"
+                ? `${(speedResult.megabitsPerSecond ?? 0).toFixed(1)} Mbps`
+                : "Speed failed"}
+          </Badge>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Load bar plus metered quota bar; shared by the table cell and the mobile card. */
+function PoolUsageBars({
+  pool,
+  view,
+}: {
+  readonly pool: NetworkPoolResponse;
+  readonly view: PoolView;
+}): ReactNode {
+  const quota = pool.quotaBytes;
+  const ratio = quota && quota > 0 ? Math.min(1, view.used / quota) : 0;
+  const over = quota !== undefined && quota > 0 && view.used > quota;
+  return (
+    <>
+      <div
+        title={`${view.inflight}/${pool.maxInflight} inflight`}
+        style={{ display: "flex", alignItems: "center", gap: "6px" }}
+      >
+        <div
+          style={{
+            flex: 1,
+            height: "6px",
+            borderRadius: "3px",
+            background: "var(--surface-3)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              width: `${Math.round(view.load * 100)}%`,
+              height: "100%",
+              borderRadius: "3px",
+              background: view.load >= 0.8 ? "var(--orange)" : "var(--green)",
+            }}
+          />
+        </div>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "10.5px",
+            color: "var(--text-secondary)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {view.inflight}/{pool.maxInflight}
+        </span>
+      </div>
+      <div
+        title={
+          quota
+            ? `${formatBytes(view.used)} of ${formatBytes(quota)} used · ${formatBytes(view.metered)} metered lifetime`
+            : `${formatBytes(view.used)} carried (no quota set) · ${formatBytes(view.session)} this session`
+        }
+        style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}
+      >
+        <div
+          style={{
+            flex: 1,
+            height: "6px",
+            borderRadius: "3px",
+            background: "var(--surface-3)",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              width: `${Math.round(ratio * 100)}%`,
+              height: "100%",
+              borderRadius: "3px",
+              background: over ? "var(--red)" : ratio >= 0.8 ? "var(--orange)" : "var(--teal)",
+            }}
+          />
+        </div>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "10.5px",
+            color: over ? "var(--red)" : "var(--text-secondary)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {formatBytes(view.used)}
+          {quota ? ` / ${formatBytes(quota)}` : ""}
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** Row/card actions: test, activity, recover, edit, delete, and the enable switch. */
+function PoolActionButtons({
+  pool,
+  view,
+  isTesting,
+  onDelete,
+  onEdit,
+  onHealthCheck,
+  onActivity,
+}: {
+  readonly pool: NetworkPoolResponse;
+  readonly view: PoolView;
+  readonly isTesting: boolean;
+  readonly onDelete: (id: string) => void;
+  readonly onEdit: (pool: NetworkPoolResponse) => void;
+  readonly onHealthCheck: (pool: NetworkPoolResponse) => void;
+  readonly onActivity: (pool: NetworkPoolResponse) => void;
+}): ReactNode {
+  const updatePool = useUpdateNetworkPool();
+  const clearCooldown = useClearNetworkPoolCooldown();
+  const recoverPool = useRecoverNetworkPool();
+  return (
+    <>
+      {view.cooldowns.length > 0 && (
+        <Button
+          size="icon"
+          variant="secondary"
+          disabled={clearCooldown.isPending}
+          icon={
+            clearCooldown.isPending ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <RotateCcw size={12} />
+            )
+          }
+          onClick={() => clearCooldown.mutate({ poolId: pool.id })}
+          title={`Clear provider cooldowns — ${view.cooldownText}`}
+          label="Clear"
+        />
+      )}
+      <Button
+        size="icon"
+        variant="secondary"
+        icon={<Activity size={12} />}
+        onClick={() => onActivity(pool)}
+        title="Health and error activity"
+        label="Activity"
+      />
+      {(pool.status === "cooldown") && (
+        <Button
+          size="icon"
+          variant="secondary"
+          disabled={recoverPool.isPending}
+          icon={<RotateCcw size={12} className={recoverPool.isPending ? "animate-spin" : ""} />}
+          onClick={() => recoverPool.mutate(pool.id)}
+          title="Recover pool"
+        >
+          Recover
+        </Button>
+      )}
+      {!(!view.isEnabled && view.cooldowns.length > 0) && (
+        <Button
+          size="icon"
+          variant="secondary"
+          disabled={isTesting}
+          icon={
+            isTesting ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />
+          }
+          onClick={() => onHealthCheck(pool)}
+          title={view.checkTooltip ?? "Run health check"}
+          label="Test"
+        />
+      )}
+      <Button
+        size="icon"
+        variant="secondary"
+        icon={<Pencil size={12} />}
+        onClick={() => onEdit(pool)}
+        title="Edit pool"
+        label="Edit"
+      />
+      <Button
+        size="icon"
+        variant="secondary"
+        icon={<Trash2 size={12} />}
+        onClick={() => onDelete(pool.id)}
+        title="Delete pool"
+        label="Delete"
+      />
+      <Switch
+        // Pushed to the far right so the on/off control sits apart from
+        // the destructive Delete button beside it.
+        style={{ marginLeft: "6px" }}
+        checked={view.isEnabled}
+        disabled={updatePool.isPending}
+        onChange={(next) =>
+          updatePool.mutate({
+            poolId: pool.id,
+            request: { status: next ? "active" : "disabled" },
+          })
+        }
+      />
+    </>
   );
 }
 
@@ -656,336 +1117,125 @@ const PoolRow = memo(function PoolRow({
   readonly isSpeedTesting: boolean;
   readonly maskValues: boolean;
 }): ReactNode {
-  const updatePool = useUpdateNetworkPool();
-  const clearCooldown = useClearNetworkPoolCooldown();
-  const recoverPool = useRecoverNetworkPool();
   // Read live usage here rather than as a prop: the parent would otherwise have
   // to hand every row a fresh value on each stream tick, which is exactly the
   // re-render this memo exists to avoid. Only rows whose own pool changed
   // actually re-render.
   const live = useContext(PoolUsageContext);
   const usage = live.live ? live.byId.get(pool.id) : undefined;
-  const liveInflight = usage?.currentInflight;
-  const liveBytes = usage ?? null;
-  const display = poolDisplay(pool);
-  const poolLabel = poolName(pool);
-  const isEnabled = pool.status !== "disabled";
-  const proxyFailureLabel = proxyResponseLabel(pool.lastErrorCategory);
-  const proxyResponseDisabled = pool.status === "disabled" && proxyFailureLabel !== undefined;
-  const lastSuccess = pool.lastSuccessAt ? new Date(pool.lastSuccessAt).getTime() : 0;
-  const lastError = pool.lastErrorAt ? new Date(pool.lastErrorAt).getTime() : 0;
-  const persistedOk =
-    !checkResult && (lastSuccess > 0 || lastError > 0) ? lastSuccess >= lastError : null;
-  const checkTone: BadgeTone = isTesting
-    ? "default"
-    : proxyResponseDisabled
-      ? "warn"
-      : checkResult
-        ? checkResult.status === "healthy"
-          ? "ok"
-          : checkResult.status === "reachable"
-            ? "warn"
-            : "err"
-        : persistedOk === true
-          ? "ok"
-          : persistedOk === false
-            ? "err"
-            : "default";
-  const checkTooltip = proxyResponseDisabled
-    ? pool.lastError ?? proxyFailureLabel
-    : checkResult?.errorMessage ??
-      (persistedOk !== null
-        ? `last check ${(pool.lastHealthCheckAt ? new Date(pool.lastHealthCheckAt) : new Date()).toLocaleString()}`
-        : undefined);
-  const latency = poolLatencyMs(pool, checkResult);
-  // Live SSE usage wins over the polled snapshot while the stream is up.
-  const inflight = liveInflight ?? pool.inflight;
-  const load = pool.maxInflight > 0 ? Math.min(1, inflight / pool.maxInflight) : 1;
-  const cooldowns = pool.providerCooldowns ?? [];
-  const cooldownText = cooldowns
-    .slice(0, 2)
-    .map(
-      (cooldown) =>
-        `${cooldown.providerId} until ${new Date(cooldown.until).toLocaleTimeString()}: ${cooldown.reason}`,
-    )
-    .join(" · ");
-  const statusText = isTesting
-    ? "Testing…"
-    : proxyResponseDisabled
-      ? "Proxy reachable"
-      : checkResult
-        ? checkResult.status === "healthy"
-          ? "Connected"
-          : checkResult.status === "reachable"
-            ? "Proxy reachable"
-            : checkResult.status === "timeout"
-              ? "Timeout"
-              : "Unhealthy"
-        : persistedOk === true
-          ? "Connected"
-          : persistedOk === false
-            ? pool.lastErrorCategory === "timeout"
-              ? "Timeout"
-              : "Unhealthy"
-            : "Untested";
-
+  const view = derivePoolView(pool, checkResult, isTesting, usage ?? null);
   return (
-    <tr style={{ opacity: isEnabled ? 1 : 0.6 }}>
+    <tr style={{ opacity: view.isEnabled ? 1 : 0.6 }}>
       <td style={{ width: "26px" }}>
         <input
           type="checkbox"
           checked={isSelected}
           onChange={() => onToggleSelect(pool.id)}
-          aria-label={`Select ${poolLabel}`}
+          aria-label={`Select ${view.poolLabel}`}
         />
       </td>
       <td style={{ minWidth: 0, maxWidth: "300px" }}>
-        <span
-          style={{
-            display: "block",
-            fontSize: "12.5px",
-            fontWeight: 600,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-          title={maskValues ? "Proxy name masked" : poolLabel}
-        >
-          {maskValues ? maskProxyValue(poolLabel) : poolLabel}
-        </span>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "3px", minWidth: 0 }}>
-          {pool.status === "disabled" ? (
-            <Badge tone="disabled" title={pool.lastError}>
-              Disabled{proxyFailureLabel ? ` · ${proxyFailureLabel}` : ""}
-            </Badge>
-          ) : (
-            <Badge tone={checkTone} title={checkTooltip}>
-              {isTesting || latency === undefined ? statusText : `${statusText} · ${latency}ms`}
-            </Badge>
-          )}
-          {cooldowns.length > 0 ? (
-            <Badge tone="warn" title={cooldownText}>
-              {cooldowns.length} cooldown{cooldowns.length > 1 ? "s" : ""}
-            </Badge>
-          ) : null}
-        </div>
+        <PoolTitleBlock pool={pool} view={view} maskValues={maskValues} />
       </td>
       <td style={{ maxWidth: "220px" }}>
-        {pool.egressIp ? (
-          <span
-            style={{
-              display: "block",
-              fontFamily: "var(--font-mono)",
-              fontSize: "11.5px",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={maskValues ? "Proxy address masked" : `egress ${pool.egressIp} · ${display.endpoint}`}
-          >
-            {pool.egressIp}
-          </span>
-        ) : (
-          <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }} title="Test the pool to read its egress address">
-            not probed
-          </span>
-        )}
-        {(isSpeedTesting || speedResult) && (
-          <div style={{ marginTop: "3px" }}>
-            <Badge
-              tone={isSpeedTesting ? "default" : speedResult?.status === "ok" ? "ok" : "err"}
-              title={
-                isSpeedTesting
-                  ? "Measuring download throughput"
-                  : speedResult?.status === "ok"
-                    ? `${formatBytes(speedResult.bytes)} in ${speedResult.durationMs}ms${
-                        speedResult.measuredAt
-                          ? ` · last measured ${new Date(speedResult.measuredAt).toLocaleString()}`
-                          : ""
-                      }`
-                    : `${speedResult?.errorMessage ?? "Speed test failed"}${
-                        speedResult?.measuredAt
-                          ? ` · last measured ${new Date(speedResult.measuredAt).toLocaleString()}`
-                          : ""
-                      }`
-              }
-            >
-              {isSpeedTesting
-                ? "Speed…"
-                : speedResult?.status === "ok"
-                  ? `${(speedResult.megabitsPerSecond ?? 0).toFixed(1)} Mbps`
-                  : "Speed failed"}
-            </Badge>
-          </div>
-        )}
+        <PoolAddressBlock
+          pool={pool}
+          view={view}
+          maskValues={maskValues}
+          speedResult={speedResult}
+          isSpeedTesting={isSpeedTesting}
+        />
       </td>
       <td style={{ minWidth: "110px" }}>
-        <div
-          title={`${inflight}/${pool.maxInflight} inflight`}
-          style={{ display: "flex", alignItems: "center", gap: "6px" }}
-        >
-          <div
-            style={{
-              flex: 1,
-              height: "6px",
-              borderRadius: "3px",
-              background: "var(--surface-3)",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                width: `${Math.round(load * 100)}%`,
-                height: "100%",
-                borderRadius: "3px",
-                background: load >= 0.8 ? "var(--orange)" : "var(--green)",
-              }}
-            />
-          </div>
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "10.5px",
-              color: "var(--text-secondary)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {inflight}/{pool.maxInflight}
-          </span>
-        </div>
-        {(() => {
-          // Egress usage against the operator's allowance. Measured at the wire
-          // (TLS records included), so it matches what the proxy actually bills.
-          const used = (liveBytes?.bytesSent ?? 0) + (liveBytes?.bytesReceived ?? 0);
-          const quota = pool.quotaBytes;
-          const ratio = quota && quota > 0 ? Math.min(1, used / quota) : 0;
-          const over = quota !== undefined && quota > 0 && used > quota;
-          return (
-            <div
-              title={
-                quota
-                  ? `${formatBytes(used)} of ${formatBytes(quota)} used since this process started`
-                  : `${formatBytes(used)} carried since this process started (no quota set)`
-              }
-              style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}
-            >
-              <div
-                style={{
-                  flex: 1,
-                  height: "6px",
-                  borderRadius: "3px",
-                  background: "var(--surface-3)",
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${Math.round(ratio * 100)}%`,
-                    height: "100%",
-                    borderRadius: "3px",
-                    background: over ? "var(--red)" : ratio >= 0.8 ? "var(--orange)" : "var(--teal)",
-                  }}
-                />
-              </div>
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "10.5px",
-                  color: over ? "var(--red)" : "var(--text-secondary)",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {formatBytes(used)}
-                {quota ? ` / ${formatBytes(quota)}` : ""}
-              </span>
-            </div>
-          );
-        })()}
+        <PoolUsageBars pool={pool} view={view} />
       </td>
       <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
         <Inline gap="4px" justify="end">
-          {cooldowns.length > 0 && (
-            <Button
-              size="icon"
-              variant="secondary"
-              disabled={clearCooldown.isPending}
-              icon={
-                clearCooldown.isPending ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <RotateCcw size={12} />
-                )
-              }
-              onClick={() => clearCooldown.mutate({ poolId: pool.id })}
-              title={`Clear provider cooldowns — ${cooldownText}`}
-              label="Clear"
-            />
-          )}
-          <Button
-            size="icon"
-            variant="secondary"
-            icon={<Activity size={12} />}
-            onClick={() => onActivity(pool)}
-            title="Health and error activity"
-            label="Activity"
-          />
-          {(pool.status === "cooldown") && (
-            <Button
-              size="icon"
-              variant="secondary"
-              disabled={recoverPool.isPending}
-              icon={<RotateCcw size={12} className={recoverPool.isPending ? "animate-spin" : ""} />}
-              onClick={() => recoverPool.mutate(pool.id)}
-              title="Recover pool"
-            >
-              Recover
-            </Button>
-          )}
-          {!isEnabled && cooldowns.length > 0 ? null : (
-            <Button
-              size="icon"
-              variant="secondary"
-              disabled={isTesting}
-              icon={
-                isTesting ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />
-              }
-              onClick={() => onHealthCheck(pool)}
-              title={checkTooltip ?? "Run health check"}
-              label="Test"
-            />
-          )}
-          <Button
-            size="icon"
-            variant="secondary"
-            icon={<Pencil size={12} />}
-            onClick={() => onEdit(pool)}
-            title="Edit pool"
-            label="Edit"
-          />
-          <Button
-            size="icon"
-            variant="secondary"
-            icon={<Trash2 size={12} />}
-            onClick={() => onDelete(pool.id)}
-            title="Delete pool"
-            label="Delete"
-          />
-          <Switch
-            // Pushed to the far right so the on/off control sits apart from
-            // the destructive Delete button beside it.
-            style={{ marginLeft: "6px" }}
-            checked={isEnabled}
-            disabled={updatePool.isPending}
-            onChange={(next) =>
-              updatePool.mutate({
-                poolId: pool.id,
-                request: { status: next ? "active" : "disabled" },
-              })
-            }
+          <PoolActionButtons
+            pool={pool}
+            view={view}
+            isTesting={isTesting}
+            onDelete={onDelete}
+            onEdit={onEdit}
+            onHealthCheck={onHealthCheck}
+            onActivity={onActivity}
           />
         </Inline>
       </td>
     </tr>
+  );
+});
+
+/**
+ * One proxy card for narrow viewports: the same status, address, load/quota,
+ * and actions as the table row, stacked so no horizontal scroll is needed.
+ */
+const PoolCard = memo(function PoolCard({
+  pool,
+  isSelected,
+  onToggleSelect,
+  checkResult,
+  isTesting,
+  onDelete,
+  onEdit,
+  onHealthCheck,
+  onActivity,
+  speedResult,
+  isSpeedTesting,
+  maskValues,
+}: {
+  readonly pool: NetworkPoolResponse;
+  readonly isSelected: boolean;
+  readonly onToggleSelect: (id: string) => void;
+  readonly checkResult?: HealthCheckResult;
+  readonly isTesting: boolean;
+  readonly onDelete: (id: string) => void;
+  readonly onEdit: (pool: NetworkPoolResponse) => void;
+  readonly onHealthCheck: (pool: NetworkPoolResponse) => void;
+  readonly onActivity: (pool: NetworkPoolResponse) => void;
+  readonly speedResult?: StoredSpeedResult;
+  readonly isSpeedTesting: boolean;
+  readonly maskValues: boolean;
+}): ReactNode {
+  const live = useContext(PoolUsageContext);
+  const usage = live.live ? live.byId.get(pool.id) : undefined;
+  const view = derivePoolView(pool, checkResult, isTesting, usage ?? null);
+  return (
+    <Card className="proxy-card" style={{ opacity: view.isEnabled ? 1 : 0.6 }}>
+      <CardBody style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelect(pool.id)}
+            aria-label={`Select ${view.poolLabel}`}
+            style={{ marginTop: "4px" }}
+          />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <PoolTitleBlock pool={pool} view={view} maskValues={maskValues} />
+          </div>
+        </div>
+        <PoolAddressBlock
+          pool={pool}
+          view={view}
+          maskValues={maskValues}
+          speedResult={speedResult}
+          isSpeedTesting={isSpeedTesting}
+        />
+        <PoolUsageBars pool={pool} view={view} />
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
+          <PoolActionButtons
+            pool={pool}
+            view={view}
+            isTesting={isTesting}
+            onDelete={onDelete}
+            onEdit={onEdit}
+            onHealthCheck={onHealthCheck}
+            onActivity={onActivity}
+          />
+        </div>
+      </CardBody>
+    </Card>
   );
 });
 
@@ -1457,7 +1707,12 @@ export default function Proxy(): ReactNode {
       </Dialog>
 
 
-      <Card style={pools.length === 0 && !isPending && !isError ? { minHeight: "min(78dvh, calc(100dvh - 160px))", display: "flex", flexDirection: "column" } : undefined}>
+      <Card
+        // Keep the card tall enough to reach the footer even with nothing in
+        // it, so the empty state is a full panel rather than a short strip
+        // floating under the summary tiles.
+        style={pools.length === 0 && !isPending && !isError ? { minHeight: "min(78dvh, calc(100dvh - 160px))", display: "flex", flexDirection: "column" } : undefined}
+      >
         <CardHeader
           title="Proxy Pool"
           subtitle="Outbound proxy servers — HTTP, HTTPS, and SOCKS5"
@@ -1483,7 +1738,9 @@ export default function Proxy(): ReactNode {
             </Inline>
           }
         />
-        <CardBody style={pools.length === 0 && !isPending && !isError ? { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", paddingBottom: "8px" } : undefined}>
+        <CardBody
+          style={pools.length === 0 && !isPending && !isError ? { flex: 1, display: "flex", flexDirection: "column" } : undefined}
+        >
           <ProxySummaryTiles pools={pools} />
 
           {/* Selection & Batch Toolbar (Image 2 style) */}
@@ -1614,27 +1871,20 @@ export default function Proxy(): ReactNode {
                   Export
                 </Button>
                 <Button
+                  variant="secondary"
                   size="sm"
                   disabled={selectedIds.size === 0 || updatePool.isPending}
                   icon={<Power size={12} />}
                   onClick={() => void enableSelected()}
-                  style={{
-                    background: "var(--green-soft)",
-                    color: "var(--green)",
-                    border: "1px solid color-mix(in srgb, var(--green) 35%, transparent)",
-                  }}
                 >
                   Enable selected
                 </Button>
                 <Button
+                  variant="secondary"
                   size="sm"
                   disabled={selectedIds.size === 0 || updatePool.isPending}
                   icon={<PowerOff size={12} />}
                   onClick={() => void disableSelected()}
-                  style={{
-                    color: "var(--orange)",
-                    border: "1px solid color-mix(in srgb, var(--orange) 35%, transparent)",
-                  }}
                 >
                   Disable selected
                 </Button>
@@ -1654,10 +1904,26 @@ export default function Proxy(): ReactNode {
           {isPending && <LoadingState />}
           {isError && <ErrorState title="Error" message="Failed to load network pools" />}
           {!isPending && !isError && pools.length === 0 && (
-            <div style={{ width: "100%", maxWidth: "480px", margin: "0 auto" }}>
+            // Fill the card down to the footer as one full-width panel with the
+            // empty state centred inside it, rather than a narrow box hugging
+            // the text in the middle of an otherwise blank card.
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: "16px",
+                padding: "24px",
+                border: "1px dashed var(--inner-border)",
+                borderRadius: "12px",
+                background: "var(--surface-2)",
+                textAlign: "center",
+              }}
+            >
               <EmptyState
-                title="No network pools"
-                message="No network pools configured. Create one to route traffic through proxies."
+                title="No proxy pools configured"
+                message="The summary above is empty because nothing is routing yet. Use Add proxies or Deploy relay in the header to start one."
               />
             </div>
           )}
@@ -1689,12 +1955,33 @@ export default function Proxy(): ReactNode {
                     onEdit={setEditingPool}
                     onHealthCheck={runCheck}
                     onActivity={setActivityPool}
-                    speedResult={speedResults[pool.id]}
+                    speedResult={newerSpeedResult(speedResults[pool.id], serverSpeedResult(pool))}
                     isSpeedTesting={speedTestingIds.has(pool.id)}
                     maskValues={maskValues}
                   />
                 ))}
               </DataTable>
+            </div>
+          )}
+          {!isPending && !isError && pools.length > 0 && (
+            <div className="proxy-cards">
+              {sortedPools.map((pool) => (
+                <PoolCard
+                  key={pool.id}
+                  pool={pool}
+                  isSelected={selectedIds.has(pool.id)}
+                  onToggleSelect={toggleSelectOne}
+                  checkResult={checkResults[pool.id]}
+                  isTesting={testingIds.has(pool.id)}
+                  onDelete={requestDeletePool}
+                  onEdit={setEditingPool}
+                  onHealthCheck={runCheck}
+                  onActivity={setActivityPool}
+                  speedResult={newerSpeedResult(speedResults[pool.id], serverSpeedResult(pool))}
+                  isSpeedTesting={speedTestingIds.has(pool.id)}
+                  maskValues={maskValues}
+                />
+              ))}
             </div>
           )}
         </CardBody>

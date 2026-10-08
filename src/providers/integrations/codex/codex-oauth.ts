@@ -1,15 +1,17 @@
 import {
   decodeJwtPayload,
   postFormTokenRequest,
+  InMemoryOAuthFlowStore,
+  OAuthFlowStore,
   type OAuthDevicePollResult,
   type OAuthDeviceStartResult,
   type OAuthExchangeResult,
-  OAuthFlowStore,
+  type OAuthFlowStorage,
 } from "../../authentication/oauth-flow-store";
 import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh-service";
 import { OAuthDeviceFlow } from "../../authentication/oauth-device-flow";
 import type { FetchLike } from "../../authentication/oauth-client";
-import { getRedis } from "../../../persistence/redis";
+import { resolveRedisClient } from "../../../persistence/redis";
 import type { RedisClient } from "../../../persistence/redis";
 import { isRecord } from "../../../protocol/primitives";
 import {
@@ -129,6 +131,26 @@ async function exchangeCodeForToken(
   return asExchangeTokenResponse(data);
 }
 
+const sharedMemoryFlowStore = new InMemoryOAuthFlowStore();
+
+function isFlowStorage(value: unknown): value is OAuthFlowStorage {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "savePending" in value &&
+    typeof value.savePending === "function"
+  );
+}
+
+function isRedisClient(value: unknown): value is RedisClient {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "ping" in value &&
+    typeof value.ping === "function"
+  );
+}
+
 /** Codex OAuth login and refresh client (browser PKCE + device code). */
 export class CodexOAuthClient extends OAuthDeviceFlow {
   override readonly supportsDeviceCode = true;
@@ -141,21 +163,20 @@ export class CodexOAuthClient extends OAuthDeviceFlow {
   protected override readonly authorizeUrl = CODEX_AUTHORIZE_URL;
   protected override readonly scopes = CODEX_SCOPE;
 
-  #flowStore: OAuthFlowStore | undefined;
+  #flowStore: OAuthFlowStorage | undefined;
 
-  constructor(fetchFn: FetchLike = globalThis.fetch, flowStore?: OAuthFlowStore | RedisClient) {
+  constructor(fetchFn: FetchLike = globalThis.fetch, flowStore?: OAuthFlowStorage | RedisClient) {
     super(fetchFn);
-    if (flowStore instanceof OAuthFlowStore) {
-      this.#flowStore = flowStore;
-    } else if (flowStore) {
-      this.#flowStore = new OAuthFlowStore(flowStore);
-    }
+    if (isFlowStorage(flowStore)) this.#flowStore = flowStore;
+    else if (isRedisClient(flowStore)) this.#flowStore = new OAuthFlowStore(flowStore);
   }
 
-  #requireStore(): OAuthFlowStore {
+  #requireStore(): OAuthFlowStorage {
     if (this.#flowStore) return this.#flowStore;
-    const redis = getRedis();
-    this.#flowStore = new OAuthFlowStore(redis);
+    const redis = resolveRedisClient();
+    // Memory backend shares one module-level store: device flows are
+    // single-gateway state, and a restart clears them by design.
+    this.#flowStore = redis ? new OAuthFlowStore(redis) : sharedMemoryFlowStore;
     return this.#flowStore;
   }
 

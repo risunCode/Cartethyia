@@ -50,7 +50,6 @@ function mimoModel(
     vision: options.vision ?? false,
     reasoning: options.reasoning ?? false,
     toolCall: options.toolCall ?? true,
-    webSearch: false,
   });
 }
 

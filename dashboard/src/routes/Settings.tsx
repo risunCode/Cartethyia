@@ -63,12 +63,49 @@ function PrivacyPanel(): ReactNode {
                   },
                   {
                     value: "full",
-                    label: "Full — redacted bodies up to 32 MiB, pruned after 15 minutes",
+                    label: "Full — redacted bodies at the depth below, pruned after 15 minutes",
                   },
                   { value: "none", label: "Off — no payload capture" },
                 ]}
               />
               {settings.telemetryPayloads === "full" ? (
+                <div style={{ marginTop: "8px" }}>
+                  <Select
+                    label="Capture depth"
+                    id="privacy-payload-depth"
+                    value={settings.telemetryPayloadDepth}
+                    onValueChange={(value) =>
+                      mutation.mutate(
+                        {
+                          telemetryPayloadDepth:
+                            value === "moderate" || value === "maximum" ? value : "minimum",
+                        },
+                        {
+                          onSuccess: () => toast.success("Capture depth updated"),
+                          onError: (error) =>
+                            toast.error(getErrorMessage(error, "Could not update capture depth.")),
+                        },
+                      )
+                    }
+                    options={[
+                      {
+                        value: "minimum",
+                        label: "Minimum — all four panels, 1 MiB cap (default)",
+                      },
+                      {
+                        value: "moderate",
+                        label: "Moderate — all four panels, 16 MiB cap",
+                      },
+                      {
+                        value: "maximum",
+                        label: "Maximum — all four panels, 32 MiB cap",
+                      },
+                    ]}
+                  />
+                </div>
+              ) : null}
+              {settings.telemetryPayloads === "full" &&
+              settings.telemetryPayloadDepth !== "minimum" ? (
                 <div
                   role="note"
                   style={{
@@ -81,8 +118,10 @@ function PrivacyPanel(): ReactNode {
                     fontSize: "11px",
                   }}
                 >
-                  <strong style={{ color: "var(--amber)" }}>Full capture may reduce performance.</strong>{" "}
-                  Use it only while debugging, then switch back to Metadata.
+                  <strong style={{ color: "var(--amber)" }}>
+                    High CPU and memory spike while active.
+                  </strong>{" "}
+                  Use it only while debugging, then switch back to Metadata or Minimum.
                 </div>
               ) : null}
               <p style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>

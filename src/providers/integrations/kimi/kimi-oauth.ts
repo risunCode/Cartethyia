@@ -2,7 +2,6 @@
  * Kimi Code (Moonshot) device-code OAuth flow.
  */
 import * as crypto from "node:crypto";
-import * as os from "node:os";
 import { isRecord } from "../../../protocol/primitives";
 import { devicePollBackoff, expiryFromSeconds, parseDeviceAuthStart, postFormTokenRequest, readJsonResponse } from "../../authentication/oauth-flow-store";
 import type { OAuthDeviceFlowContext, OAuthDevicePollResult, OAuthDeviceStartResult } from "../../authentication/oauth-flow-store";
@@ -10,6 +9,7 @@ import type { OAuthTokenRefreshResult } from "../../authentication/oauth-refresh
 import { OAuthDeviceFlow } from "../../authentication/oauth-device-flow";
 import type { FetchLike } from "../../authentication/oauth-client";
 import { getKimiCliVersion } from "../../operations/client-versions";
+import { kimiDeviceModel, kimiDeviceName, kimiOsVersion } from "../../operations/cli-platform";
 import { resolveKimiOAuthHost } from "../../../config";
 
 const KIMI_CODE_CLIENT_ID = "17e5f671-d194-4dfb-9706-5516cb48c098";
@@ -70,14 +70,6 @@ function parseRefreshCredential(value: string): KimiRefreshCredential {
   return { refreshToken: trimmed, deviceId: deviceIdForScope(trimmed) };
 }
 
-function deviceModel(): string {
-  const platform = os.platform();
-  const release = os.release();
-  const arch = os.arch();
-  const label =
-    platform === "darwin" ? "macOS" : platform === "win32" ? "Windows" : platform === "linux" ? "Linux" : platform;
-  return [label, release, arch].filter(Boolean).join(" ").trim();
-}
 
 function sanitizeHeaderValue(value: string, fallback = "unknown"): string {
   const sanitized = value.replace(/[^\x20-\x7E]/g, "").trim();
@@ -98,9 +90,9 @@ export function getKimiCommonHeaders(deviceId = deviceIdForScope("process-defaul
     "user-agent": `KimiCLI/${version}`,
     "X-Msh-Platform": "kimi_cli",
     "X-Msh-Version": version,
-    "X-Msh-Device-Name": sanitizeHeaderValue(os.hostname()),
-    "X-Msh-Device-Model": sanitizeHeaderValue(deviceModel()),
-    "X-Msh-Os-Version": sanitizeHeaderValue(os.version()),
+    "X-Msh-Device-Name": sanitizeHeaderValue(kimiDeviceName()),
+    "X-Msh-Device-Model": sanitizeHeaderValue(kimiDeviceModel()),
+    "X-Msh-Os-Version": sanitizeHeaderValue(kimiOsVersion()),
     "X-Msh-Device-Id": sanitizeHeaderValue(deviceId),
   });
 }

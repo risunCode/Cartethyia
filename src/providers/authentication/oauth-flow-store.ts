@@ -2,6 +2,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import type { RedisClient } from "../../persistence/redis";
+import { TtlCache } from "../../runtime/ttl-cache";
 
 // Shared OAuth client-protocol kit: the provider-agnostic `OAuthLoginClient`
 // generic token-response parsing helpers, and tenant-scoped device-flow correlation.
@@ -504,7 +505,23 @@ export interface DeviceFlowCorrelation {
   /** Provider-specific start inputs, kept so a poll can rebuild its context. */
   readonly parameters?: Readonly<Record<string, string>>;
 }
-export class OAuthFlowStore {
+/**
+ * Ephemeral OAuth flow storage contract: browser pending state, provider
+ * pointers, and device-flow correlation. Redis-backed in shared deployments,
+ * in-process memory on a single gateway — the console only ever sees this.
+ */
+export interface OAuthFlowStorage {
+  savePending(state: string, flow: PendingOAuthFlow): Promise<void>;
+  consumePendingByProvider(providerId: string): Promise<PendingOAuthFlow | undefined>;
+  consumePending(state: string): Promise<PendingOAuthFlow | undefined>;
+  saveDevice(deviceAuthId: string, correlation: DeviceFlowCorrelation): Promise<void>;
+  getDevice(deviceAuthId: string): Promise<DeviceFlowCorrelation | undefined>;
+  deleteDevice(deviceAuthId: string): Promise<void>;
+  saveDeviceState(deviceAuthId: string, state: Record<string, unknown>): Promise<void>;
+  getDeviceState(deviceAuthId: string): Promise<Record<string, unknown> | undefined>;
+  deleteDeviceState(deviceAuthId: string): Promise<void>;
+}
+export class OAuthFlowStore implements OAuthFlowStorage {
   readonly #redis: RedisClient;
   readonly #ttlSeconds: number;
 
@@ -641,5 +658,91 @@ export class OAuthFlowStore {
 
   async deleteDeviceState(deviceAuthId: string): Promise<void> {
     await this.#redis.del(DEVICE_STATE_PREFIX + deviceAuthId);
+  }
+}
+
+/**
+ * In-process twin of {@link OAuthFlowStore} for the memory backend: same
+ * contract, same TTLs, same last-write-wins provider pointers. Restart clears
+ * it by design, and single-threaded get+delete is the atomicity story — no
+ * Lua needed on one process.
+ */
+export class InMemoryOAuthFlowStore implements OAuthFlowStorage {
+  private readonly pending: TtlCache<string>;
+  private readonly devices: TtlCache<string>;
+  private readonly deviceStates: TtlCache<string>;
+
+  constructor(ttlSeconds = DEFAULT_TTL_SECONDS) {
+    const opts = { ttlMs: ttlSeconds * 1000, maxEntries: 512 };
+    this.pending = new TtlCache<string>(opts);
+    this.devices = new TtlCache<string>(opts);
+    this.deviceStates = new TtlCache<string>(opts);
+  }
+
+  async savePending(state: string, flow: PendingOAuthFlow): Promise<void> {
+    const raw = JSON.stringify(flow);
+    this.pending.set(PENDING_PREFIX + state, raw);
+    this.pending.set(PENDING_PROVIDER_PREFIX + flow.providerId, state);
+  }
+
+  async consumePendingByProvider(providerId: string): Promise<PendingOAuthFlow | undefined> {
+    const pointer = PENDING_PROVIDER_PREFIX + providerId;
+    const state = this.pending.get(pointer);
+    if (!state) return undefined;
+    this.pending.delete(pointer);
+    return this.consumePending(state);
+  }
+
+  async consumePending(state: string): Promise<PendingOAuthFlow | undefined> {
+    const key = PENDING_PREFIX + state;
+    const raw = this.pending.get(key);
+    if (!raw) return undefined;
+    this.pending.delete(key);
+    try {
+      const flow = JSON.parse(raw) as PendingOAuthFlow;
+      this.pending.delete(PENDING_PROVIDER_PREFIX + flow.providerId);
+      return flow;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async saveDevice(deviceAuthId: string, correlation: DeviceFlowCorrelation): Promise<void> {
+    this.devices.set(DEVICE_PREFIX + deviceAuthId, JSON.stringify(correlation));
+  }
+
+  async getDevice(deviceAuthId: string): Promise<DeviceFlowCorrelation | undefined> {
+    const raw = this.devices.get(DEVICE_PREFIX + deviceAuthId);
+    if (!raw) return undefined;
+    try {
+      return JSON.parse(raw) as DeviceFlowCorrelation;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async deleteDevice(deviceAuthId: string): Promise<void> {
+    this.devices.delete(DEVICE_PREFIX + deviceAuthId);
+  }
+
+  async saveDeviceState(deviceAuthId: string, state: Record<string, unknown>): Promise<void> {
+    this.deviceStates.set(DEVICE_STATE_PREFIX + deviceAuthId, JSON.stringify(state));
+  }
+
+  async getDeviceState(deviceAuthId: string): Promise<Record<string, unknown> | undefined> {
+    const raw = this.deviceStates.get(DEVICE_STATE_PREFIX + deviceAuthId);
+    if (!raw) return undefined;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async deleteDeviceState(deviceAuthId: string): Promise<void> {
+    this.deviceStates.delete(DEVICE_STATE_PREFIX + deviceAuthId);
   }
 }

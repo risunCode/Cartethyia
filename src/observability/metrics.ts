@@ -1,8 +1,8 @@
 /**
  * Hand-rolled Prometheus text-format registry (Requirement: no new dependency).
- * A module-level singleton (`metrics`) mirrors the existing `getDb`/`getRedis`
- * singleton pattern. Callers obtain pre-registered families as named
- * properties; `render()` emits the Prometheus exposition format on demand.
+ * A module-level singleton (`metrics`) mirrors the existing `getDb` singleton
+ * pattern. Callers obtain pre-registered families as named properties;
+ * `render()` emits the Prometheus exposition format on demand.
  */
 
 export type MetricLabels = Readonly<Record<string, string | number>>;

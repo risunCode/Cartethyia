@@ -104,7 +104,8 @@ describe("Docker Contract", () => {
     // host-oriented DATABASE_URL inherited from .env: inside the network the
     // service name is the only host that resolves.
     expect(composeContent).toContain("@postgres:5432/");
-    expect(composeContent).toContain("REDIS_URL: redis://redis:6379");
+    // Defaulted, not hardcoded, so an operator can still empty REDIS_URL.
+    expect(composeContent).toMatch(/REDIS_URL:.*redis:\/\/redis:6379/);
     // The app migrates at boot, so it must wait for Postgres to accept
     // connections rather than crash-loop against a starting server.
     expect(composeContent).toMatch(

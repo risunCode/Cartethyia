@@ -83,7 +83,6 @@ export async function fetchOpenAICompatibleModels(
         modalities: { input: hasImage ? ["text", "image"] : ["text"], output: ["text"] },
         reasoning: false,
         toolCall: true,
-        webSearch: false,
         cost,
       });
     }

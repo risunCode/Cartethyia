@@ -49,7 +49,6 @@ const museModel = (
     vision: true,
     reasoning: true,
     toolCall: true,
-    webSearch: false,
   });
 
 export const MUSE_CODE_MODELS: readonly ModelDefinition[] = [

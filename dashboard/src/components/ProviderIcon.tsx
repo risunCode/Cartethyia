@@ -79,9 +79,6 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   kiro: { file: "kiro", ext: "webp" },
   kimchi: { file: "kimchi", ext: "webp" },
   commandcode: { file: "commandcode", ext: "webp" },
-  // Web-search providers (exa already has an entry above).
-  tavily: { file: "tavily", ext: "svg" },
-  brave: { file: "brave", ext: "svg" },
 };
 
 function assetFor(icon: string): { file: string; ext: "svg" | "webp" } {

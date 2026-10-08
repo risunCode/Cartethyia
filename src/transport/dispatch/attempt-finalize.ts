@@ -1,4 +1,4 @@
-import { GatewayError } from "../gateway-error";
+import { GatewayError, publicGatewayErrorBody } from "../gateway-error";
 // Attempt completion bookkeeping: one home for everything every dispatch attempt ends with.
 import type { ValidatedOutboundFetch } from "../../providers/provider-registry";
 import { reportAttemptOutcome } from "../../providers/operations/account-health-service";
@@ -9,7 +9,7 @@ import type { CartethyiaDatabase } from "../../persistence/postgres";
 import { TelemetryPayloadCapture } from "../../observability/payload-capture";
 import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer";
 import { CachedPreferencesReader, DrizzlePreferencesReader } from "../../persistence/tenant-preferences";
-import type { TelemetryPayloadMode } from "../../console/settings/contracts";
+import type { TelemetryPayloadDepth, TelemetryPayloadMode } from "../../console/settings/contracts";
 import type { ProxyRequestOutcome, ProxyRequestState } from "../request/state";
 import { finalizeRequestTelemetry } from "../middleware/error-lifecycle";
 import { log } from "../../observability/logger";
@@ -37,27 +37,70 @@ export function clearConsoleSettingsCacheForTests(): void {
 }
 
 /**
- * Settings-gated payload capture mode. Request-event metadata is always
- * retained; tenants opt into drawer capture through Settings → Privacy:
- * `metadata` keeps only the Proxy→Provider request line, `full` keeps
- * redacted bodies up to the configured capture limit. Fail-closed on error.
+ * Settings-gated payload capture. Request-event metadata is always retained;
+ * tenants opt into drawer capture through Settings → Privacy: `metadata`
+ * keeps only the Proxy→Provider request line, `full` keeps redacted bodies
+ * at the tenant's chosen depth. Fail-closed on error.
  */
-async function resolvePayloadCaptureMode(
+async function resolvePayloadCapture(
   db: CartethyiaDatabase,
   tenantId: string | null,
-): Promise<TelemetryPayloadMode> {
-  if (!tenantId) return "none";
+): Promise<{ mode: TelemetryPayloadMode; depth: TelemetryPayloadDepth }> {
+  if (!tenantId) return { mode: "none", depth: "minimum" };
   try {
     const prefs = await preferencesReaderFor(db).readPreferences(tenantId);
     const mode = prefs?.telemetryPayloads;
-    if (mode === "full" || mode === "metadata" || mode === "none") return mode;
-    // Unset preferences default to metadata (Proxy→Provider request line).
-    return "metadata";
+    const depth = prefs?.telemetryPayloadDepth;
+    return {
+      mode: mode === "full" || mode === "metadata" || mode === "none" ? mode : "metadata",
+      depth:
+        depth === "minimum" || depth === "moderate" || depth === "maximum"
+          ? depth
+          : depth === "medium"
+            ? "minimum"
+            : depth === "high"
+              ? "moderate"
+              : depth === "full"
+                ? "maximum"
+                : "minimum",
+    };
   } catch {
     // Preference read failure must not invent body capture; metadata is the
     // safe default that still matches Settings → Privacy.
-    return "metadata";
+    return { mode: "metadata", depth: "minimum" };
   }
+}
+
+/**
+ * Combined body cap for one capture depth. Fixed size tiers: every depth
+ * stores all four drawer panels (client request, translated provider
+ * request, raw provider response, final client response) — only the cap
+ * changes, so raising the depth never changes *what* is visible, only how
+ * much of large bodies survives. Moderate and maximum spike CPU/memory while
+ * active; minimum is light enough to leave on.
+ */
+function captureDepthMaxBytes(depth: TelemetryPayloadDepth): number {
+  if (depth === "moderate") return 16 * 1024 * 1024;
+  if (depth === "maximum") return 32 * 1024 * 1024;
+  return 1 * 1024 * 1024;
+}
+
+/**
+ * What the client received for a failed terminal attempt, in the same public
+ * envelope the error middleware sends on the wire (`{ error: { origin, code,
+ * message, details } }`). Stored so Request Detail's "Client Response"
+ * panel can trace an error exactly as the client saw it — failures used to
+ * leave that panel empty.
+ */
+export function errorClientResponseBody(error: unknown): string {
+  if (error instanceof GatewayError) {
+    // Same serializer the error middleware sends on the wire, so the stored
+    // copy cannot drift from what the client received.
+    return JSON.stringify(publicGatewayErrorBody(error));
+  }
+  return JSON.stringify({
+    error: { origin: "cartethyia", code: "internal_error", message: "Internal server error" },
+  });
 }
 
 export function parseCapturedBody(value: unknown): unknown {
@@ -230,7 +273,7 @@ async function captureTerminalPayload(
 ): Promise<void> {
   if (!tenantId) return;
   try {
-    const mode = await resolvePayloadCaptureMode(db, tenantId);
+    const { mode, depth } = await resolvePayloadCapture(db, tenantId);
     if (mode === "none") return;
     if (mode === "metadata") {
       const providerRequest = providerRequestMetadataOnly(providerCapture?.request ?? null);
@@ -246,6 +289,7 @@ async function captureTerminalPayload(
       });
       return;
     }
+    const maxBytes = captureDepthMaxBytes(depth);
     const providerRequest = providerCapture?.request ?? null;
     const providerResponse = await resolvedProviderResponse(providerCapture);
     await new TelemetryPayloadCapture(db).capture({
@@ -256,6 +300,7 @@ async function captureTerminalPayload(
       ...(clientResponseBody === undefined ? {} : { clientResponseBody: clientResponseBody ?? null }),
       ...(providerRequest === null ? {} : { providerRequestBody: providerRequest }),
       ...(providerResponse === null ? {} : { providerResponseBody: providerResponse }),
+      maxBytes,
       scope: "tenant",
       tenantOptIn: true,
     });

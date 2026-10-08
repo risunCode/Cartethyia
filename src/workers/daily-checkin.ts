@@ -46,10 +46,13 @@ export function ledgerKey(dayKey: string, accountId: string): string {
 
 /** True when this pass won the account's day slot and must do the work. */
 async function reserveDaySlot(
-  redis: RedisClient,
+  redis: RedisClient | undefined,
   dayKey: string,
   accountId: string,
 ): Promise<boolean> {
+  // Memory backend: one process needs no distributed guard — the slot is
+  // always won, and the sweep's once-a-day cadence is the only throttle.
+  if (redis === undefined) return true;
   // `SET NX EX` is the whole coordination mechanism: one Redis round trip that
   // is atomic across processes, so two gateway instances cannot both attempt
   // the same account on the same day.
@@ -84,7 +87,7 @@ export type DailyGrowthPassResult = {
  * Returns `null` when no slot could be reserved (already settled today).
  */
 export async function attemptDailyGrowthPass(args: {
-  readonly redis: RedisClient;
+  readonly redis: RedisClient | undefined;
   readonly providerId: ProviderId;
   readonly accountId: string;
   /** Refresh-aware credential resolution (the quota sweep's own resolver). */
@@ -108,7 +111,7 @@ export async function attemptDailyGrowthPass(args: {
   try {
     credential = await resolveCredential(providerId, accountId);
   } catch (error) {
-    await redis.del(ledgerKey(dayKey, accountId)).catch(() => undefined);
+    if (redis !== undefined) await redis.del(ledgerKey(dayKey, accountId)).catch(() => undefined);
     return {
       checkin: {
         providerId,
@@ -149,7 +152,7 @@ export async function attemptDailyGrowthPass(args: {
   if (checkin.state === "error") {
     // Same release rule as the check-in-only path: a transient failure retries
     // on a later pass today, and the report is skipped with it.
-    await redis.del(ledgerKey(dayKey, accountId)).catch(() => undefined);
+    if (redis !== undefined) await redis.del(ledgerKey(dayKey, accountId)).catch(() => undefined);
     return {
       checkin,
       report: { providerId, accountId, state: "error", error: "Skipped (check-in failed)." },

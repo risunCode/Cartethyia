@@ -12,6 +12,7 @@ import { and, eq, isNull, or } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../../persistence/postgres";
 import { modelAliases, modelCombos, models, providerAccounts, providers } from "../../../persistence/schema";
 import { isModelAllowed, listIncludes, type ApiKeyAuthorizationSnapshot } from "../../../security/api-key-auth";
+import { providerSupportsWebSearch } from "../../../providers/provider-metadata";
 
 export interface AllowedModelEntry {
   id: string;
@@ -23,7 +24,6 @@ export interface AllowedModelEntry {
   capabilities?: unknown;
   reasoning?: boolean;
   tool_call?: boolean;
-  web_search?: boolean;
   cost?: unknown;
   /**
    * Protocol shape of the model. Absent means `llm` (the canonical chat wire);
@@ -119,6 +119,7 @@ export interface ModelMetadata {
   readonly modalities: unknown;
   readonly reasoning: boolean;
   readonly toolCall: boolean;
+  /** Provider-level: the provider's adapter drives a hosted web-search tool. */
   readonly webSearch: boolean;
   readonly cost: unknown;
 }
@@ -324,7 +325,6 @@ export class PublicModelCatalogStore {
         modalities: models.modalities,
         reasoning: models.reasoning,
         toolCall: models.toolCall,
-        webSearch: models.webSearch,
         cost: models.cost,
         providerRequiresAccount: providers.requiresAccount,
       })
@@ -398,7 +398,6 @@ export class PublicModelCatalogStore {
           ...(capabilities ? { capabilities } : {}),
           ...(m.reasoning ? { reasoning: true } : {}),
           ...(m.toolCall ? { tool_call: true } : {}),
-          ...(m.webSearch ? { web_search: true } : {}),
           ...(m.cost != null ? { cost: m.cost } : {}),
           // Only a non-`llm` row is labelled: absence already means "chat wire".
           ...(m.serviceKind && m.serviceKind !== "llm"
@@ -446,7 +445,6 @@ export class PublicModelCatalogStore {
           ...(capabilities ? { capabilities } : {}),
           ...(target.reasoning ? { reasoning: true } : {}),
           ...(target.toolCall ? { tool_call: true } : {}),
-          ...(target.webSearch ? { web_search: true } : {}),
           ...(target.cost != null ? { cost: target.cost } : {}),
         });
       }
@@ -466,7 +464,6 @@ export class PublicModelCatalogStore {
           ...(capabilities ? { capabilities } : {}),
           ...(target.reasoning ? { reasoning: true } : {}),
           ...(target.toolCall ? { tool_call: true } : {}),
-          ...(target.webSearch ? { web_search: true } : {}),
           ...(target.cost != null ? { cost: target.cost } : {}),
         });
       }
@@ -503,7 +500,6 @@ export class PublicModelCatalogStore {
         modalities: models.modalities,
         reasoning: models.reasoning,
         toolCall: models.toolCall,
-        webSearch: models.webSearch,
         cost: models.cost,
       })
       .from(models)
@@ -531,7 +527,7 @@ export class PublicModelCatalogStore {
         modalities: row.modalities,
         reasoning: row.reasoning,
         toolCall: row.toolCall,
-        webSearch: row.webSearch,
+        webSearch: providerSupportsWebSearch(row.providerId),
         cost: row.cost,
       } satisfies ModelMetadata;
       out.set(`${row.providerId}/${row.modelId}`, metadata);
@@ -573,7 +569,6 @@ export class PublicModelCatalogStore {
           modalities: models.modalities,
           reasoning: models.reasoning,
           toolCall: models.toolCall,
-          webSearch: models.webSearch,
           cost: models.cost,
         })
         .from(models)
@@ -605,7 +600,6 @@ export class PublicModelCatalogStore {
           ...(capabilities ? { capabilities } : {}),
           ...(row.reasoning ? { reasoning: true } : {}),
           ...(row.toolCall ? { tool_call: true } : {}),
-          ...(row.webSearch ? { web_search: true } : {}),
           ...(row.cost != null ? { cost: row.cost } : {}),
         };
       }

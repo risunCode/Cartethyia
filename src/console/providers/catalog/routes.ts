@@ -1,7 +1,7 @@
 import { consoleErrorHandler } from "../../shared/errors";
 import { literalUnion } from "../../shared/elysia-schema";
 import { Elysia, t } from "elysia";
-import { WIRE_FAMILIES } from "../../../transport/canonical-model";
+import { SERVICE_KINDS, WIRE_FAMILIES } from "../../../transport/canonical-model";
 import { PROBE_REASONING_EFFORTS } from "../../../providers/discovery/discovery-types";
 import {
   ACCOUNT_STATUSES,
@@ -85,6 +85,7 @@ const registerModelsBody = t.Object({
 });
 const probeModelBody = t.Object({
   modelId: t.String(),
+  serviceKind: t.Optional(literalUnion(SERVICE_KINDS)),
   route: t.Optional(t.String()),
   wireFamily: t.Optional(t.String()),
   accountId: t.Optional(t.String()),

@@ -17,13 +17,14 @@ import {
   getClaudeSdkVersion,
   getCodexVersion,
 } from "./client-versions";
+import { buildCodexUserAgent } from "./cli-platform";
 import type { WireFamily } from "../../transport/canonical-model";
 
 /** Builds Codex CLI identity headers for OpenAI-compatible wire families. */
 export function buildCustomCodexCliHeaders(): Record<string, string> {
   const version = getCodexVersion();
   return {
-    "user-agent": `codex_cli_rs/${version}`,
+    "user-agent": buildCodexUserAgent(version),
     originator: "codex_cli_rs",
   };
 }

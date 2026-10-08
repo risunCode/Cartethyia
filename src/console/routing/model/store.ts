@@ -110,11 +110,72 @@ export class DrizzleModelRoutingStore implements ModelRoutingStore {
     return mapAliasRow(row);
   }
 
+  /**
+   * Renames an alias and rewrites every reference to its old name.
+   *
+   * Two referrer shapes point at an alias by name: another alias's
+   * `target_model` (a single value) and a combo's `members` (a JSONB array).
+   * Both are rewritten in one transaction — a rename that left a stale
+   * reference would silently break resolution for whoever used the old name.
+   */
+  async renameAlias(
+    tenantId: string,
+    id: string,
+    nextAlias: string,
+  ): Promise<ModelAliasRow | undefined> {
+    return this.db.transaction(async (tx) => {
+      const currentRows = await tx
+        .select()
+        .from(modelAliases)
+        .where(and(eq(modelAliases.tenantId, tenantId), eq(modelAliases.id, id)))
+        .limit(1);
+      const current = currentRows[0];
+      if (!current) return undefined;
+      const oldAlias = current.alias;
+      if (oldAlias === nextAlias) return mapAliasRow(current);
+
+      const updatedRows = await tx
+        .update(modelAliases)
+        .set({ alias: nextAlias, updatedAt: new Date() })
+        .where(and(eq(modelAliases.tenantId, tenantId), eq(modelAliases.id, id)))
+        .returning();
+      const updated = updatedRows[0];
+      if (!updated) return undefined;
+
+      // Alias chains: another alias targeting this one by name now points at
+      // the new name, so the chain stays intact.
+      await tx
+        .update(modelAliases)
+        .set({ targetModel: nextAlias, updatedAt: new Date() })
+        .where(
+          and(eq(modelAliases.tenantId, tenantId), eq(modelAliases.targetModel, oldAlias)),
+        );
+
+      // Combo members: `members` is a JSONB text array, so the rewrite has to
+      // replace the element in place rather than overwrite the whole column.
+      const comboRows = await tx
+        .select({ id: modelCombos.id, members: modelCombos.members })
+        .from(modelCombos)
+        .where(eq(modelCombos.tenantId, tenantId));
+      for (const combo of comboRows) {
+        if (!combo.members.includes(oldAlias)) continue;
+        const nextMembers = combo.members.map((m) => (m === oldAlias ? nextAlias : m));
+        await tx
+          .update(modelCombos)
+          .set({ members: nextMembers, updatedAt: new Date() })
+          .where(and(eq(modelCombos.tenantId, tenantId), eq(modelCombos.id, combo.id)));
+      }
+
+      return mapAliasRow(updated);
+    });
+  }
+
   async updateAlias(
     tenantId: string,
     id: string,
     patch: ModelAliasPatchInput,
   ): Promise<ModelAliasRow | undefined> {
+    if (patch.alias !== undefined) return this.renameAlias(tenantId, id, patch.alias);
     const rows = await this.db
       .update(modelAliases)
       .set({ targetModel: patch.targetModel, updatedAt: new Date() })

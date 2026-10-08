@@ -54,7 +54,6 @@ export interface ModelDefinition {
   /** Explicitly supported reasoning effort scale (e.g. `["minimal", "low", "medium", "high", "xhigh"]`). */
   readonly reasoningEfforts?: readonly string[];
   readonly toolCall: boolean;
-  readonly webSearch: boolean;
   readonly cost: ModelCostDefinition;
   /**
    * Whether the provider serves this row on a free plan tier.
@@ -102,8 +101,6 @@ export interface ModelHelperRow {
   /** Explicitly supported reasoning effort scale. */
   readonly reasoningEfforts?: readonly string[];
   readonly toolCall?: boolean;
-  /** Defaults to false. */
-  readonly webSearch?: boolean;
   /**
    * Marks a row served by a free plan tier. Such rows bill zero per token
    * regardless of what the base catalog charges for the underlying model.
@@ -212,7 +209,6 @@ export function defineModel(row: ModelHelperRow): ModelDefinition {
     reasoning: row.reasoning ?? false,
     ...(row.reasoningEfforts !== undefined ? { reasoningEfforts: row.reasoningEfforts } : {}),
     toolCall: row.toolCall ?? true,
-    webSearch: row.webSearch ?? false,
     cost,
     ...(row.freeTier === undefined ? {} : { freeTier: row.freeTier }),
   };
@@ -225,7 +221,6 @@ export interface ManualModelMetadata {
   readonly modalities: { readonly input: readonly string[]; readonly output: readonly string[] };
   readonly reasoning: boolean;
   readonly toolCall: boolean;
-  readonly webSearch: boolean;
 }
 
 /**
@@ -255,6 +250,5 @@ export function resolveManualModelMetadata(
     },
     reasoning: true,
     toolCall: true,
-    webSearch: false,
   };
 }

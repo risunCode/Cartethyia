@@ -29,7 +29,7 @@ import {
 } from "./route-model";
 import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS, isBundledProviderId } from "../../providers/provider-registry";
 import type { ServiceKind, WireFamily } from "../canonical-model";
-import { providerHasAdapterUserAgent, providerUsesBespokeWire } from "../../providers/provider-metadata";
+import { providerHasAdapterUserAgent, providerSupportsWebSearch, providerUsesBespokeWire } from "../../providers/provider-metadata";
 
 const CLAUDE_MODEL_FAMILIES = new Set(["opus", "sonnet", "haiku", "fable", "mythos"]);
 
@@ -93,7 +93,6 @@ export function buildCapabilityProfile(row: {
   modalities: unknown;
   reasoning: boolean;
   toolCall: boolean;
-  webSearch: boolean;
   providerId: string;
 }): Record<string, boolean> {
   const mods =
@@ -132,7 +131,10 @@ export function buildCapabilityProfile(row: {
     parallelToolCalls: true,
     reasoning: true,
     reasoningEncryptedContent: true,
-    webSearch: row.webSearch,
+    // Search capability is the provider's, not the model row's: the adapter
+    // either frames a hosted search tool or it does not, and every model it
+    // serves inherits that. See `providerSupportsWebSearch`.
+    webSearch: providerSupportsWebSearch(row.providerId),
     responseJsonObject: true,
     responseJsonSchema: true,
     promptCaching: true,
@@ -159,7 +161,6 @@ interface MergedModelRow {
   modalities: unknown;
   reasoning: boolean;
   toolCall: boolean;
-  webSearch: boolean;
   enabled: boolean;
 }
 
@@ -181,7 +182,6 @@ function mergeModelCatalog(
       modalities: row.modalities,
       reasoning: row.reasoning,
       toolCall: row.toolCall,
-      webSearch: row.webSearch,
       enabled: row.enabled,
     }));
 }
@@ -218,7 +218,6 @@ const MODEL_COLUMNS = {
   modalities: models.modalities,
   reasoning: models.reasoning,
   toolCall: models.toolCall,
-  webSearch: models.webSearch,
   enabled: models.enabled,
 } as const;
 
@@ -232,6 +231,7 @@ const ACCOUNT_COLUMNS = {
   modelCooldowns: providerAccounts.modelCooldowns,
   lastErrorCategory: providerAccounts.lastErrorCategory,
   lastRemainingCredit: providerAccounts.lastRemainingCredit,
+  lastRemainingPercent: providerAccounts.lastRemainingPercent,
 } as const;
 
 const ALIAS_COLUMNS = {
@@ -430,9 +430,10 @@ class RouteCatalogRepository {
     }
 
     /**
-     * Global credit protection for every account of this provider/tenant.
-     * Tenant setting wins over global; an unconfigured provider still gets the
-     * documented default (enabled, 200) so the feature is on out of the box.
+     * Minimum-balance protection for every account of this provider/tenant.
+     * Tenant setting wins over global; an unconfigured provider resolves to
+     * the documented default (disabled, 50) so the floor is opt-in and the
+     * value fits both units — 50 credits or 50%.
      */
     function resolveCreditProtection(
       providerId: string,
@@ -442,7 +443,7 @@ class RouteCatalogRepository {
       const globalSetting = providerRouting.__global__?.[providerId];
       const enabled = tenantSetting?.creditLimitEnabled ?? globalSetting?.creditLimitEnabled;
       const limit = tenantSetting?.creditLimit ?? globalSetting?.creditLimit;
-      return { enabled: enabled ?? true, limit: limit ?? 200 };
+      return { enabled: enabled ?? false, limit: limit ?? 50 };
     }
 
     /** Every active pool the account's tenant owns — dispatch picks the
@@ -589,6 +590,11 @@ class RouteCatalogRepository {
             : account.lastRemainingCredit === null || account.lastRemainingCredit === undefined
               ? {}
               : { last_remaining_credit: account.lastRemainingCredit }),
+          ...(typeof account.lastRemainingPercent === "string"
+            ? { last_remaining_percent: Number(account.lastRemainingPercent) }
+            : account.lastRemainingPercent === null || account.lastRemainingPercent === undefined
+              ? {}
+              : { last_remaining_percent: account.lastRemainingPercent }),
           // Provider-wide concurrency ceiling from Routing Strategy; legacy
           // account overrides are never read here.
           ...(() => {

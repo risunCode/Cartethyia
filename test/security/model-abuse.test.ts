@@ -3,8 +3,8 @@
  * its access is warned, then banned.
  *
  * The suite covers the in-memory store, which is the implementation used
- * whenever Redis is absent — the `single_instance_local` mode — so its
- * behaviour is what a single-node deployment actually enforces.
+ * whenever Redis is absent — the memory backend — so its behaviour is what a
+ * single-node deployment actually enforces.
  *
  * Four properties matter, and each is a way the mechanism fails open or closed:
  *

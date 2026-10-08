@@ -21,7 +21,6 @@ export const CEREBRAS_MODELS: readonly ModelDefinition[] = [
     out: 32768,
     reasoning: true,
     toolCall: true,
-    webSearch: false,
   }),
   defineModel({
     id: "qwen-3.8-27b",
@@ -31,7 +30,6 @@ export const CEREBRAS_MODELS: readonly ModelDefinition[] = [
     out: 32768,
     reasoning: true,
     toolCall: true,
-    webSearch: false,
   }),
 ];
 

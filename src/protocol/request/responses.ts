@@ -16,6 +16,7 @@ import {
 import { isClaudeBillingHeaderText, resolveImageSource, resolveOutputVerbosity } from "../primitives";
 import { resolvePromptCacheKey } from "../../providers/operations/session-resolution";
 import { reasoningEffortFromIntent } from "../../providers/reasoning";
+import { isWebSearchTool } from "../../transport/translation/capabilities";
 
 const RESPONSES_CACHEABLE_BLOCK_TYPES: ReadonlySet<string> = new Set([
   "input_text",
@@ -248,6 +249,11 @@ export function canonicalToResponsesPayload(
             : {}),
         };
       }
+      // A hosted web-search tool is a first-class tool on this wire. Emitting
+      // the caller's Anthropic `web_search_*` payload verbatim sent Codex
+      // `{"type": null}` and a 400 ("Unsupported tool type: None"); Responses
+      // names the same capability `web_search_preview`.
+      if (isWebSearchTool(tool)) return { type: "web_search_preview" };
       if (tool.tool_type !== undefined && tool.tool_type !== "function" && isRecord(tool.jsonSchema))
         return tool.jsonSchema;
       return {

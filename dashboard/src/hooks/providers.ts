@@ -11,18 +11,32 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 
 
-/** Loads the tenant provider catalog and observes background metadata refreshes. */
+/**
+ * Loads the tenant provider catalog and observes background metadata refreshes.
+ *
+ * Lazy by design: the cached list renders instantly on revisit and revalidates
+ * in the background (60 s freshness + 60 s poll). Mutations invalidate this
+ * key, so a longer stale window can never strand a create/update/delete.
+ */
 export function useProviders() {
   return useQuery({
     queryKey: queryKeys.providers.all,
     queryFn: (context) =>
       consoleRequest<unknown>("/providers", { signal: querySignal(context) }).then(assertProviders),
     ...DASHBOARD_QUERY_OPTIONS,
+    staleTime: 60_000,
+    gcTime: 600_000,
     refetchInterval: 60_000,
   });
 }
 
-/** Loads models for one provider; no request is made until a provider is selected. */
+/**
+ * Loads models for one provider; no request is made until a provider is selected.
+ *
+ * The catalog barely moves, so a 5-minute stale window stops every provider
+ * card from flashing "Loading models…" on each visit. Registration and sync
+ * mutations invalidate this key.
+ */
 export function useProviderModels(providerId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.providers.models(providerId),
@@ -33,6 +47,8 @@ export function useProviderModels(providerId: string | undefined) {
       }).then(assertModels);
     },
     ...DASHBOARD_QUERY_OPTIONS,
+    staleTime: 300_000,
+    gcTime: 600_000,
     enabled: Boolean(providerId),
   });
 }
@@ -168,7 +184,13 @@ export function useDeleteProviderModel() {
   });
 }
 
-/** Loads accounts configured for one provider. */
+/**
+ * Loads accounts configured for one provider.
+ *
+ * Health and usage move faster than the catalog, so 30 s freshness — still
+ * lazy (cached render first, background revalidate), with account mutations
+ * invalidating this key on write.
+ */
 export function useProviderAccounts(providerId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.providers.accounts(providerId),
@@ -179,6 +201,8 @@ export function useProviderAccounts(providerId: string | undefined) {
       ),
     enabled: Boolean(providerId),
     ...DASHBOARD_QUERY_OPTIONS,
+    staleTime: 30_000,
+    gcTime: 600_000,
   });
 }
 

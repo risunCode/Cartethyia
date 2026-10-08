@@ -4,12 +4,12 @@
   "private": true,
   "license": "GPL-3.0-only",
   "type": "module",
-  "packageManager": "bun@1.4.2",
+  "packageManager": "bun@1.4.0",
   "workspaces": [
     "dashboard"
   ],
   "engines": {
-    "bun": "1.4.2"
+    "bun": ">=1.4.0"
   },
   "scripts": {
     "dev": "bun run dev:stack",
@@ -34,11 +34,11 @@
     "dashboard:test": "bun run scripts/ci-run-tests.ts --scope dashboard",
     "test-db:reset": "docker compose -f docker-compose.test.yml down -v && docker compose -f docker-compose.test.yml up -d --wait postgres-test",
     "dashboard:build": "bun run --cwd dashboard build",
-    "setup:interactive": "bun run scripts/commands/install.ts",
     "dashboard:typecheck": "bun run --cwd dashboard typecheck"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.14.1",
+    "@electric-sql/pglite": "^0.5.8",
     "drizzle-orm": "0.45.2",
     "elysia": "^2.0.0-beta.16",
     "exact-mirror": "^1.2.6",

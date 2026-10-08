@@ -1,6 +1,5 @@
 // Typed gateway failures: the stable public error codes, the error class, and
 // the sanitizers that keep upstream payloads out of public envelopes.
-import { redactTelemetryValue } from "../observability/redaction";
 
 /** Stable typed error codes returned at gateway boundaries. */
 export type GatewayErrorCode =
@@ -26,6 +25,9 @@ export type GatewayErrorCode =
   | "invalid_request"
   | "not_found"
   | "link_not_found"
+  | "link_expired"
+  | "link_revoked"
+  | "link_disabled"
   | "invalid_sequence"
   | "invalid_lifecycle"
   | "unsupported_field"
@@ -165,20 +167,14 @@ function sanitizePublicDetail(value: unknown, depth = 0): unknown {
   );
 }
 
-/** Returns bounded allowlisted details suitable for public error envelopes.
- *  The `raw` field is passed through `redactTelemetryValue` before size
- *  bounding so upstream error bodies that echo API keys / bearer tokens are
- *  not leaked to public API clients through the error envelope. */
+/** Returns bounded allowlisted details suitable for public error envelopes. */
 export function publicGatewayErrorDetails(
   error: GatewayError,
 ): Readonly<Record<string, unknown>> {
   return Object.fromEntries(
     Object.entries(error.details)
       .filter(([key]) => PUBLIC_ERROR_DETAIL_KEYS.has(key))
-      .map(([key, value]) => [
-        key,
-        sanitizePublicDetail(key === "raw" ? redactTelemetryValue(value) : value),
-      ]),
+      .map(([key, value]) => [key, sanitizePublicDetail(value)]),
   );
 }
 

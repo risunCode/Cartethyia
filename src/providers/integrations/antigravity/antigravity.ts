@@ -74,7 +74,6 @@ const antigravityModel = (
     vision: true,
     reasoning,
     toolCall: true,
-    webSearch: false,
   });
 
 export const ANTIGRAVITY_MODELS: readonly ModelDefinition[] = [

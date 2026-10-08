@@ -6,7 +6,7 @@ import { mapUpstreamHttpError } from "../../transport/failure-policy";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../transport/canonical-model";
 import { decodeSseEvents } from "../../transport/streaming";
 import { usageFromProvider } from "../usage";
-import { readCredentialSecret, type ProviderDispatchTarget, type ModelDefinition, type ProviderAdapter, type ProviderDispatchContext } from "../provider-registry";
+import { readCredentialSecret, type ProviderDispatchTarget, type ModelDefinition, type ProviderAdapter, type ProviderDispatchContext, type WebSearchOutcome, type WebSearchResult } from "../provider-registry";
 import { fetchOpenAICompatibleModels } from "../discovery/openai-model-discovery";
 import { isRecord } from "../../protocol/primitives";
 import { providerBaseUrl } from "../provider-metadata";
@@ -24,6 +24,7 @@ import {
 
 export const GEMINI_BASE_URL = providerBaseUrl("gemini");
 export const GEMINI_PROVIDER_ID = "gemini" as const;
+export const GEMINI_SEARCH_MODEL = "gemini-2.5-flash" as const;
 
 
 
@@ -37,11 +38,56 @@ export const GEMINI_MODELS: readonly ModelDefinition[] = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
 ].map((id) =>
-  defineModel({ id, endpoint: "/v1beta/models", ctx: 1_000_000, out: 32768, vision: true, reasoning: true }),
+  defineModel({
+    id,
+    endpoint: "/v1beta/models",
+    ctx: 1_000_000,
+    out: 32768,
+    vision: true,
+    reasoning: true,
+  }),
 );
 
 import type { DiscoveryInput } from "../discovery/discovery-types";
 
+
+function normalizeGroundingResults(data: unknown, maxResults: number): readonly WebSearchResult[] {
+  if (!isRecord(data)) return [];
+  const candidate = Array.isArray(data.candidates) && isRecord(data.candidates[0]) ? data.candidates[0] : undefined;
+  const metadata = candidate && isRecord(candidate.groundingMetadata) ? candidate.groundingMetadata : undefined;
+  const chunks = metadata && Array.isArray(metadata.groundingChunks) ? metadata.groundingChunks : [];
+  const snippetsByUrl = new Map<string, Set<string>>();
+  const supports = metadata && Array.isArray(metadata.groundingSupports) ? metadata.groundingSupports : [];
+  for (const support of supports) {
+    if (!isRecord(support) || !isRecord(support.segment)) continue;
+    const text = typeof support.segment.text === "string" ? support.segment.text.trim() : "";
+    if (!text || !Array.isArray(support.groundingChunkIndices)) continue;
+    for (const rawIndex of support.groundingChunkIndices) {
+      if (!Number.isInteger(rawIndex)) continue;
+      const chunk = chunks[rawIndex];
+      const web = isRecord(chunk) && isRecord(chunk.web) ? chunk.web : undefined;
+      const url = web && (typeof web.uri === "string" ? web.uri : typeof web.url === "string" ? web.url : "");
+      if (!url) continue;
+      const snippets = snippetsByUrl.get(url) ?? new Set<string>();
+      snippets.add(text);
+      snippetsByUrl.set(url, snippets);
+    }
+  }
+  const results: WebSearchResult[] = [];
+  const seen = new Set<string>();
+  for (const chunk of chunks) {
+    if (!isRecord(chunk) || !isRecord(chunk.web)) continue;
+    const web = chunk.web;
+    const url = typeof web.uri === "string" ? web.uri : typeof web.url === "string" ? web.url : "";
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    const title = typeof web.title === "string" ? web.title : "";
+    const snippet = [...(snippetsByUrl.get(url) ?? [])].join(" ").trim() || title;
+    results.push({ title, url, snippet, published_at: null, score: null });
+    if (results.length >= maxResults) break;
+  }
+  return results;
+}
 
 // SSE mapper
 // (removed: dead pre-refactor `geminiSseToCanonical` helper — live dispatch
@@ -79,7 +125,23 @@ class GeminiAdapter implements ProviderAdapter {
     const url = geminiModelUrl(this.baseUrl, model, action);
 
     const payload = buildGeminiPayload(request);
-    const outboundFetch: typeof fetch = (context.outbound_fetch as unknown as typeof fetch) ?? this.fetchFn;
+    if (
+      request.tools?.some(
+        (tool) =>
+          tool.name === "web_search" ||
+          tool.name === "web_search_preview",
+      )
+    ) {
+      const tools = Array.isArray(payload.tools)
+        ? [...(payload.tools as Record<string, unknown>[])]
+        : [];
+      if (!tools.some((tool) => isRecord(tool) && isRecord(tool.google_search))) {
+        tools.push({ google_search: {} });
+      }
+      payload.tools = tools;
+    }
+    const outboundFetch: typeof fetch =
+      (context.outbound_fetch as unknown as typeof fetch) ?? this.fetchFn;
 
     const lifecycle = createUpstreamDeadlineLifecycle(context);
 
@@ -201,6 +263,55 @@ class GeminiAdapter implements ProviderAdapter {
       lifecycle.release();
     }
   }
+  async websearch(
+    body: Record<string, unknown>,
+    _candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<WebSearchOutcome> {
+    const query = typeof body.query === "string" ? body.query.trim() : "";
+    if (!query) throw new GatewayError("invalid_request", 400, "search query is required");
+    const rawMax = body.max_results;
+    const maxResults =
+      typeof rawMax === "number" && Number.isFinite(rawMax)
+        ? Math.min(Math.max(1, Math.floor(rawMax)), 50)
+        : 10;
+    const apiKey = readCredentialSecret(context.credential, "Gemini API key is required");
+    const outboundFetch = context.outbound_fetch ?? this.fetchFn;
+    let response: Response;
+    try {
+      response = await outboundFetch(geminiModelUrl(this.baseUrl, GEMINI_SEARCH_MODEL, "generateContent"), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: query }] }],
+          tools: [{ google_search: {} }],
+        }),
+        signal: context.abort_signal,
+      });
+    } catch (error) {
+      throw new GatewayError(
+        "platform_unavailable",
+        502,
+        `Gemini search unreachable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!response.ok) throw await mapUpstreamHttpError(response, "gemini search");
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new GatewayError("platform_unavailable", 502, "Gemini search returned invalid JSON");
+    }
+    const results = normalizeGroundingResults(data, maxResults);
+    if (results.length === 0)
+      throw new GatewayError("platform_unavailable", 502, "Gemini search returned no grounded results");
+    return { results, total_results: results.length };
+  }
+
 }
 
 export function createGeminiAdapter(options: GeminiAdapterOptions = {}): ProviderAdapter {

@@ -183,7 +183,6 @@ function devinModelFromConfig(config: {
     },
     reasoning: features?.supportsThinking ?? false,
     toolCall: features?.supportsToolCalls ?? true,
-    webSearch: false,
     cost: modelsDevCatalog.costFor(DEVIN_PROVIDER_ID, id),
   };
 }

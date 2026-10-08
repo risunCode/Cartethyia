@@ -56,7 +56,16 @@ const GROK_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  * re-enable it by hand.
  */
 const POLICY_BLOCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-/** Providers whose `11140` policy block parks the account for a long cooldown. */
+/**
+ * The buddy family also answers with HTTP 400 code `11128` ("Illegal API
+ * invocation from an unapproved channel") when it rejects the calling channel
+ * rather than the content. Like the policy block it is account-wide and
+ * repeats on every invocation until the upstream lifts it, so the account is
+ * parked the same way. Shorter than the policy block: a channel rejection can
+ * follow a transient upstream rule change, while a content-policy block
+ * follows a request the account itself made.
+ */
+const CHANNEL_BLOCK_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 // ===== health/account-recorder.ts =====
 export interface AccountHealthEventRecord {
@@ -235,11 +244,8 @@ export function classifyAccountError(
     lower.includes("safety review") ||
     lower.includes("content did not pass") ||
     lower.includes("request illegal") ||
-    lower.includes("content blocked");
-  // ...but on the buddy family a policy block is not a one-off rejection: the
-  // account keeps failing every invocation until the upstream lifts it. Park
-  // the account for a long cooldown (never `disabled`) so routing stops
-  // selecting it instead of retrying into the same wall.
+    lower.includes("content blocked") ||
+    lower.includes("account suspended");
   const policyBlock =
     policyRejection &&
     options?.providerId !== undefined &&
@@ -254,7 +260,28 @@ export function classifyAccountError(
       origin === "upstream",
     );
   }
-  // A hosted-tool failure is a per-request outcome of the provider's own
+  // A channel rejection (`11128`) is the same shape: the upstream is refusing
+  // the caller for this account, not this particular prompt, and it keeps
+  // refusing on every invocation. It used to fall through to `unknown` with
+  // `mutates=false`, so the account stayed in rotation and failed every
+  // request — and since every account failed the same way, the whole pool
+  // looked dead with nothing ever parked.
+  const channelRejection =
+    providerCode === "11128" || lower.includes("unapproved channel");
+  const channelBlock =
+    channelRejection &&
+    options?.providerId !== undefined &&
+    BUDDY_PROVIDER_IDS.has(options.providerId.toLowerCase());
+  if (channelBlock) {
+    return result(
+      "policy_blocked",
+      "cooldown",
+      CHANNEL_BLOCK_COOLDOWN_MS,
+      new Date(Date.now() + CHANNEL_BLOCK_COOLDOWN_MS),
+      reason("Provider channel rejection"),
+      origin === "upstream",
+    );
+  }
   // server-side tool (web search, x search, web fetch), not evidence about the
   // credential or the account's quota. Some providers surface it as 403, which
   // would otherwise look like an auth signal — refreshing the token cannot fix

@@ -1,4 +1,3 @@
-import { redactTelemetryValue } from "./redaction";
 import type { CartethyiaDatabase } from "../persistence/postgres";
 import { DrizzleTelemetryStore } from "../persistence/telemetry-store";
 import { prunePayloadFrames, writePayloadFrame } from "./payload-store";
@@ -12,6 +11,11 @@ export interface PayloadCaptureInput {
   clientResponseBody?: unknown;
   providerRequestBody?: unknown;
   providerResponseBody?: unknown;
+  /**
+   * Combined body cap override for this capture (Settings → capture depth).
+   * Defaults to the configured capture limit.
+   */
+  maxBytes?: number;
   scope: CaptureScope;
   /** Links the row to `telemetry_events.request_id`. */
   requestId?: string;
@@ -98,24 +102,23 @@ function payloadSignals(values: readonly unknown[]): PayloadSignals {
 /**
  * Shapes a captured payload without persisting it — a pure helper reused by
  * `TelemetryPayloadCapture.capture` and exercised directly in tests. Bodies
- * larger than 1MB (combined, post-redaction) are dropped and replaced with a
- * truncation marker — no object store exists, so an oversized body is never
- * referenced, only accounted. Payloads remain redacted and bounded during the
- * 15-minute retention window.
+ * larger than `maxBytes` (combined, post-redaction, defaulting to the
+ * configured capture limit) are dropped and replaced with a truncation
+ * marker — no object store exists, so an oversized body is never referenced,
+ * only accounted. Payloads remain redacted and bounded during the 15-minute
+ * retention window.
  */
 export function buildPayloadRecord(
   input: PayloadCaptureInput,
   now = new Date(),
+  maxBytes = resolveTelemetryPayloadMaxBytes(),
 ): Omit<StoredPayload, "id"> {
   const expiresAt = new Date(now.getTime() + payloadRetentionMs());
-  const requestBody = redactTelemetryValue(input.requestBody);
-  const responseBody = redactTelemetryValue(input.responseBody);
-  const clientResponseBody =
-    input.clientResponseBody === undefined ? undefined : redactTelemetryValue(input.clientResponseBody);
-  const providerRequestBody =
-    input.providerRequestBody === undefined ? undefined : redactTelemetryValue(input.providerRequestBody);
-  const providerResponseBody =
-    input.providerResponseBody === undefined ? undefined : redactTelemetryValue(input.providerResponseBody);
+  const requestBody = input.requestBody;
+  const responseBody = input.responseBody;
+  const clientResponseBody = input.clientResponseBody;
+  const providerRequestBody = input.providerRequestBody;
+  const providerResponseBody = input.providerResponseBody;
   // Serialize each body exactly once: the text is both measured and stored,
   // so the hot path pays one JSON.stringify per body instead of five.
   const bodies = [requestBody, responseBody, clientResponseBody, providerRequestBody, providerResponseBody];
@@ -126,10 +129,11 @@ export function buildPayloadRecord(
   let storedClientResponseBody: unknown = clientResponseBody;
   let storedProviderRequestBody: unknown = providerRequestBody;
   let storedProviderResponseBody: unknown = providerResponseBody;
-  if (approxSize > resolveTelemetryPayloadMaxBytes()) {
-    const truncated = (): { _truncated: true; _original_bytes: number } => ({
+  if (approxSize > maxBytes) {
+    const truncated = (): { _truncated: true; _original_bytes: number; _hint: string } => ({
       _truncated: true,
       _original_bytes: approxSize,
+      _hint: "Truncated by the capture cap — raise Settings → Telemetry payloads → Capture depth to keep more.",
     });
     storedRequestBody = truncated();
     storedResponseBody = truncated();
@@ -174,7 +178,7 @@ export class TelemetryPayloadCapture {
         code: "capture_not_opted_in",
       });
     }
-    const record = buildPayloadRecord(input);
+    const record = buildPayloadRecord(input, new Date(), input.maxBytes ?? resolveTelemetryPayloadMaxBytes());
     const reference = await writePayloadFrame(record, record.expires_at);
     // Typed columns only — bodies live in the frame file. The schema has no
     // jsonb body column, so a body cannot be written to Postgres here.

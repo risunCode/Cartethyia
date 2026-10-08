@@ -90,8 +90,12 @@ dbDescribe("migration: add the bridge network-pool kind", () => {
       await client.query(migrationSql());
 
       expect(await poolKindLabels(client)).toEqual(["http", "socks5", "bridge"]);
+      // Scoped to this test's own tenant: other suites share this database
+      // and insert their own pools concurrently, so an unscoped scan flakes
+      // depending on parallel scheduling rather than on the migration.
       const kinds = await client.query(
-        `select distinct "kind"::text as kind from "public"."network_pools"`,
+        `select distinct "kind"::text as kind from "public"."network_pools" where tenant_id = $1`,
+        [tenantId],
       );
       expect((kinds.rows as Array<{ kind: string }>).every((row) => row.kind === "socks5")).toBe(true);
     });

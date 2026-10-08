@@ -320,7 +320,6 @@ export interface ModelCatalogEntry {
   /** Accepts audio input parts. */
   audio: boolean;
   mediaGeneration: boolean;
-  webSearch: boolean;
   cost: {
     input: number | null;
     output: number | null;
@@ -432,6 +431,8 @@ export interface ProviderAccountResponse {
   staticToken?: boolean;
   /** Last remaining credit the quota sweep fetched; `null` = never fetched. */
   lastRemainingCredit: number | null;
+  /** Lowest remaining quota percent the sweep fetched; `null` = never fetched. */
+  lastRemainingPercent: number | null;
   /** Stable list position within this provider; the console's "Added" order. */
   sortIndex: number;
 }
@@ -494,6 +495,8 @@ export interface ProviderClientVersion {
 
 export interface ProviderResponse {
   providerId: string;
+  /** Executable service surfaces; missing legacy declarations mean LLM only. */
+  serviceKinds: readonly ServiceKind[];
   /** Canonical backend display name; custom providers fall back to providerId. */
   displayName: string;
   label?: string;
@@ -506,6 +509,15 @@ export interface ProviderResponse {
   requiresAccount: boolean;
   /** Whether its built-in adapter constructs a User-Agent header itself. */
   hasAdapterUserAgent: boolean;
+  /**
+   * Whether this provider serves a hosted web-search tool on its chat wire.
+   *
+   * A provider-level fact, not a model-row fact: the adapter either frames a
+   * hosted search tool or it does not, and every model it serves inherits it.
+   * A pure search provider (`serviceKinds: ["websearch"]`) is `false` here —
+   * it answers `/v1/search` but never a chat turn.
+   */
+  supportsWebSearch: boolean;
   /** Where the operator obtains this provider's credential. Presentation-only. */
   credentialUrl?: string;
   /** One line of guidance beside {@link credentialUrl} when the flow is not a plain paste. */
@@ -660,9 +672,9 @@ export interface ProviderRoutingResponse {
   readonly rotateCount: number;
   /** Per-account inflight ceiling; `null` = unlimited concurrency. */
   readonly maxInflight: number | null;
-  /** Global minimum credit protection for every account of this provider/tenant. */
+  /** Minimum-balance protection for every account of this provider/tenant. */
   readonly creditLimitEnabled: boolean;
-  /** Minimum remaining credits to keep globally; default 200. */
+  /** Minimum remaining balance to keep; credits or percent, default 50. */
   readonly creditLimit: number;
   readonly enabled: boolean;
   /** When true, this provider's requests always dial direct. When false,

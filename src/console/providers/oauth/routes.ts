@@ -11,7 +11,7 @@ import { GatewayError } from "../../../transport/gateway-error";
 import { Elysia, t } from "elysia";
 import { ConsoleDomainError, errorResponse, requireScope } from "../../shared/errors";
 import { generateOAuthState, generatePkcePair } from "../../../providers/authentication/oauth-flow-store";
-import type { OAuthFlowStore } from "../../../providers/authentication/oauth-flow-store";
+import type { OAuthFlowStorage } from "../../../providers/authentication/oauth-flow-store";
 import type { OAuthCallbackListener } from "./callback-listener";
 import { validateIssuedAccessToken } from "../../../providers/authentication/jwt-validator";
 import { inlineScriptContentSecurityPolicy } from "../../../security/outbound-headers";
@@ -180,7 +180,7 @@ export interface OAuthAccountStore {
 
 export interface OAuthLoginConfig {
   readonly providerRegistry: ProviderRegistry;
-  readonly oauthFlowStore: OAuthFlowStore;
+  readonly oauthFlowStore: OAuthFlowStorage;
   readonly accountStore: OAuthAccountStore;
   readonly accessResolver: ConsoleAccessResolver;
   readonly snapshotInvalidator?: { invalidate(): Promise<number> };

@@ -35,6 +35,8 @@ import type {
   ProviderAdapter,
   ProviderDispatchContext,
   ResolvedCredential,
+  WebSearchOutcome,
+  WebSearchResult,
 } from "../../provider-registry";
 import {
   createCodexIdentity,
@@ -76,7 +78,8 @@ function codexResponsesModel(
     out: outputLimit,
     vision: true,
     reasoning: true,
-    toolCall: true,});
+    toolCall: true,
+  });
 }
 
 export const CODEX_MODELS: readonly ModelDefinition[] = [
@@ -102,6 +105,37 @@ export const CODEX_MODELS: readonly ModelDefinition[] = [
   codexResponsesModel("gpt-5.6-luna", 1_000_000, 128_000),
   codexResponsesModel("gpt-5.5", 272_000, 128_000),
 ];
+const CODEX_SEARCH_UPSTREAM_MODEL = "gpt-5.6-sol";
+
+function normalizeCodexSearchCitations(
+  citations: readonly unknown[],
+  answerText: string,
+): readonly WebSearchResult[] {
+  const results: WebSearchResult[] = [];
+  const seen = new Set<string>();
+  const snippet = answerText.trim().slice(0, 400);
+  for (const raw of citations) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const record = raw as Record<string, unknown>;
+    const nested = record.url_citation;
+    const source =
+      nested && typeof nested === "object" && !Array.isArray(nested)
+        ? (nested as Record<string, unknown>)
+        : record;
+    const url = typeof source.url === "string" ? source.url : "";
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    results.push({
+      title: typeof source.title === "string" ? source.title : "",
+      url,
+      snippet,
+      published_at: null,
+      score: null,
+    });
+  }
+  return results;
+}
+
 
 
 /** OAuth-family credential kinds accepted by the Codex adapter. */
@@ -422,6 +456,48 @@ export function createCodexAdapter(
         release();
       }
     },
+    async websearch(
+      body: Record<string, unknown>,
+      candidate: ProviderDispatchTarget,
+      context: ProviderDispatchContext,
+    ): Promise<WebSearchOutcome> {
+      const query = typeof body.query === "string" ? body.query.trim() : "";
+      if (!query) throw new GatewayError("invalid_request", 400, "search query is required");
+      const request: CanonicalRequest = {
+        model: CODEX_SEARCH_UPSTREAM_MODEL,
+        messages: [{ role: "user", content: [{ kind: "text", text: query }] }],
+        tools: [{ name: "web_search", tool_type: "web_search", jsonSchema: {} }],
+        generation_controls: { max_output_tokens: 1024 },
+        provider_options: { capture_web_search_citations: true },
+        stream: false,
+        source_surface: "responses",
+      };
+      const citations: unknown[] = [];
+      let answerText = "";
+      for await (const event of this.dispatch(request, candidate, context)) {
+        if (event.type !== "content_delta") continue;
+        if (event.content.kind === "text") answerText += event.content.text;
+        if (event.content.kind === "extension" && event.content.name === "web_search_citations") {
+          const payload = event.content.payload;
+          if (Array.isArray(payload)) {
+            citations.push(...payload);
+          } else if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+            const record = payload as Record<string, unknown>;
+            if (Array.isArray(record.annotations)) citations.push(...record.annotations);
+            if (typeof record.text === "string") answerText += record.text;
+          }
+        }
+      }
+      const results = normalizeCodexSearchCitations(citations, answerText);
+      if (results.length === 0)
+        throw new GatewayError("platform_unavailable", 502, "Codex search returned no citations");
+      const rawMax = body.max_results;
+      const maxResults =
+        typeof rawMax === "number" && Number.isFinite(rawMax)
+          ? Math.min(Math.max(1, Math.floor(rawMax)), 50)
+          : 10;
+      return { results: results.slice(0, maxResults), total_results: Math.min(results.length, maxResults) };
+    },
     async *dispatch(
       request: CanonicalRequest,
       candidate: ProviderDispatchTarget,
@@ -612,7 +688,10 @@ export function createCodexAdapter(
       const body = sniffed?.body ?? res.body;
       const isSse = typedSse || request.stream === true || sniffed?.sse === true;
       if (isSse) {
-        const processor = new CodexStreamFrameProcessor(2);
+        const processor = new CodexStreamFrameProcessor(
+          2,
+          request.provider_options?.capture_web_search_citations === true,
+        );
         const respId = `codex_${Date.now()}`;
         yield {
           type: "response_start",

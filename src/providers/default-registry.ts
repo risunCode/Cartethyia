@@ -119,7 +119,10 @@ export const PROVIDER_CAPABILITIES = {
   },
   codex: {
     loadAdapter: async () => (await import("./integrations/codex/codex")).createCodexAdapter({ provider_id: "codex" }),
-    loadModels: async () => (await import("./integrations/codex/codex")).CODEX_MODELS,
+    loadModels: async () => [
+      ...(await import("./integrations/codex/codex")).CODEX_MODELS,
+      ...(await import("./search/search-catalog")).CODEX_SEARCH_MODELS,
+    ],
     loadAuthentication: oauthCapability(() => import("./integrations/codex/codex-oauth"), "codexOAuthClient", { withRefresher: true }),
     loadQuotaCollector: quotaCapability(() => import("./integrations/codex/codex-quota"), "fetchCodexQuota"),
   },
@@ -278,7 +281,10 @@ export const PROVIDER_CAPABILITIES = {
   },
   gemini: {
     loadAdapter: async () => (await import("./integrations/gemini")).createGeminiAdapter(),
-    loadModels: async () => (await import("./integrations/gemini")).GEMINI_MODELS,
+    loadModels: async () => [
+      ...(await import("./integrations/gemini")).GEMINI_MODELS,
+      ...(await import("./search/search-catalog")).GEMINI_SEARCH_MODELS,
+    ],
     loadModelDiscovery: async () => async ({ credential }) => (await import("./integrations/gemini")).discoverGeminiModels({ credential }),
   },
   aihubmix: {
@@ -353,6 +359,10 @@ export const PROVIDER_CAPABILITIES = {
   qoder: {
     loadAdapter: async () => (await import("./integrations/qoder")).createQoderAdapter(),
     loadModels: async () => (await import("./integrations/qoder")).QODER_MODELS,
+    // No `withRefresher`: the upstream refresh endpoint answers 403 for the
+    // device flow, so the issued token is used exactly as issued until the
+    // operator re-runs login — same shape as Kilo Code.
+    loadAuthentication: oauthCapability(() => import("./integrations/qoder-oauth"), "qoderOAuthClient"),
   },
   inferhub: {
     loadAdapter: async () => (await import("./integrations/inferhub")).createInferhubAdapter(),
@@ -418,20 +428,6 @@ export const PROVIDER_CAPABILITIES = {
       ),
     loadModels: async () => (await import("./search/search-catalog")).EXA_SEARCH_MODELS,
   },
-  tavily: {
-    loadAdapter: async () =>
-      (await import("./search/search-provider")).createSearchAdapter(
-        (await import("./search/search-providers")).SEARCH_PROVIDER_SPECS.tavily,
-      ),
-    loadModels: async () => (await import("./search/search-catalog")).TAVILY_SEARCH_MODELS,
-  },
-  brave: {
-    loadAdapter: async () =>
-      (await import("./search/search-provider")).createSearchAdapter(
-        (await import("./search/search-providers")).SEARCH_PROVIDER_SPECS.brave,
-      ),
-    loadModels: async () => (await import("./search/search-catalog")).BRAVE_SEARCH_MODELS,
-  },
   "github": {
     // Chat only. Copilot also serves some SKUs on `/responses`, but those arrive
     // through discovery, which carries its own endpoint path with the wire
@@ -476,6 +472,7 @@ export const BUNDLED_PROVIDER_MODULES: readonly ProviderModule[] = BUNDLED_PROVI
     id: definition.id,
     displayName: definition.displayName,
     baseUrl: definition.baseUrl,
+    serviceKinds: definition.serviceKinds,
     defaultBypassProxy: definition.defaultBypassProxy,
     ...implementation,
     upstreamHost: providerUpstreamHost(definition.id),

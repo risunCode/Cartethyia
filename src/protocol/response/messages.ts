@@ -100,7 +100,11 @@ export function parseClaudeContent(value: unknown, isOAuth = false): ContentPart
   if (type === "redacted_thinking") {
     return { kind: "reasoning", payload: value, opaque: true };
   }
-  if (type === "server_tool_use" || type === "search_result") {
+  if (
+    type === "server_tool_use" ||
+    type === "search_result" ||
+    type === "web_search_tool_result"
+  ) {
     return { kind: "extension", name: type, payload: value };
   }
   return {
@@ -273,7 +277,8 @@ function streamEventToCanonical(
       }
     } else if (
       block.type === "server_tool_use" ||
-      block.type === "search_result"
+      block.type === "search_result" ||
+      block.type === "web_search_tool_result"
     ) {
       events.push({
         type: "content_delta",

@@ -60,6 +60,32 @@ export function totalRemainingCredit(
   return total;
 }
 
+/**
+ * The account's lowest remaining quota percent across its percent windows, or
+ * `null` when the provider reports no percent window.
+ *
+ * The minimum is what matters for routing: an account with several windows
+ * (Codex 5h + weekly, Muse rolling + weekly) is only as usable as its most
+ * exhausted one. Absolute-credit windows are ignored here — they feed
+ * `totalRemainingCredit` instead, and the floor compares in whichever unit
+ * the account actually reported.
+ */
+export function totalRemainingPercent(
+  windows: readonly ProviderQuotaWindow[],
+): number | null {
+  let remaining: number | null = null;
+  for (const window of windows) {
+    const value =
+      typeof window.remainingPercent === "number" && Number.isFinite(window.remainingPercent)
+        ? window.remainingPercent
+        : null;
+    if (value === null) continue;
+    const clamped = Math.min(100, Math.max(0, value));
+    remaining = remaining === null ? clamped : Math.min(remaining, clamped);
+  }
+  return remaining;
+}
+
 const TIMEOUT_MS = 15_000;
 
 export function record(value: unknown): Record<string, unknown> | null {

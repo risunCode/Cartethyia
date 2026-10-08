@@ -20,6 +20,7 @@ import { GatewayError, publicGatewayErrorBody } from "../../transport/gateway-er
 import {
   hashShareToken,
   type ShareLinkPolicy,
+  type ShareLinkRefusal,
   type ShareLinkStore,
 } from "../../persistence/share-store";
 
@@ -44,6 +45,7 @@ export interface ShareModelInfo {
   readonly capabilities: { readonly input?: string[]; readonly output?: string[] } | null;
   readonly reasoning: boolean;
   readonly toolCall: boolean;
+  /** Provider-level: the provider's adapter drives a hosted web-search tool. */
   readonly webSearch: boolean;
 }
 
@@ -71,8 +73,22 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: shareHeaders() });
 }
 
-function notFound(): Response {
-  const error = new GatewayError("link_not_found", 404, "Share link is unavailable");
+/**
+ * A link that does not resolve. The reason is returned to the caller as a code
+ * so the public page can say *what* happened: a paused key is re-enableable, a
+ * revoked key is not, and an expired link must be regenerated — a single
+ * "unavailable" message sent the operator looking in the wrong place.
+ */
+function notFound(refusal: ShareLinkRefusal = "not_found"): Response {
+  const message =
+    refusal === "expired"
+      ? "This share link has expired"
+      : refusal === "revoked"
+        ? "This share link's key has been revoked"
+        : refusal === "disabled"
+          ? "This share link's key is paused"
+          : "Share link is unavailable";
+  const error = new GatewayError(`link_${refusal}`, 404, message);
   return json(publicGatewayErrorBody(error), error.status);
 }
 
@@ -244,8 +260,9 @@ export function createShareRouter(options: ShareRouterOptions): Elysia {
       const token = params.token;
       if (token.length < MIN_TOKEN_LENGTH) return notFound();
       const tokenHash = hashShareToken(token);
-      const resolved = await shareStore.resolveShareLink(tokenHash);
-      if (resolved === null) return notFound();
+      const outcome = await shareStore.resolveShareLinkOutcome(tokenHash);
+      if (!outcome.ok) return notFound(outcome.refusal);
+      const resolved = outcome.resolution;
       const row = resolved.key;
       const clientIp = options.resolveClientIp(request);
       const clientIpKey = clientIp === null ? undefined : canonicalClientIpKey(clientIp);
@@ -339,9 +356,11 @@ export function createShareRouter(options: ShareRouterOptions): Elysia {
         return json({ error: { code: "client_ip_invalid", message: "Client IP could not be normalized" } }, 400);
 
       const tokenHash = hashShareToken(token);
-      const resolved = await shareStore.resolveShareLink(tokenHash);
+      const outcome = await shareStore.resolveShareLinkOutcome(tokenHash);
       // A handoff link reveals an existing key; it never mints one.
-      if (resolved === null || resolved.kind !== "enroll") return notFound();
+      if (!outcome.ok) return notFound(outcome.refusal);
+      const resolved = outcome.resolution;
+      if (resolved.kind !== "enroll") return notFound();
       // The recipient supplies the label hint; policy still comes exclusively from the template.
       let nameHint: string;
       try {

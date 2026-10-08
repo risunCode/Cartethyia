@@ -116,7 +116,6 @@ const kimiModel = (
     vision: true,
     reasoning,
     toolCall: true,
-    webSearch: false,
   });
 
 export const KIMI_CODE_MODELS: readonly ModelDefinition[] = [

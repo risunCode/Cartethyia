@@ -61,7 +61,8 @@ const claudeMessagesModel = (
     out: outputLimit,
     vision: true,
     reasoning,
-    toolCall: true,});
+    toolCall: true,
+  });
 
 export const CLAUDE_MODELS: readonly ModelDefinition[] = [
   claudeMessagesModel("claude-fable-5", 1_000_000, 128_000, true),

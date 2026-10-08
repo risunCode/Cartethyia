@@ -3,16 +3,30 @@ import type { CanonicalRequest, ContentPart, ServiceKind } from "../canonical-mo
 import type { ApiKeyAdmissionService } from "../../security/admission/service";
 import type { RouteCandidate as RouteCandidate, InMemoryRouteSnapshotService, RoutePlan } from "../routing/route-model";
 import { resolveAliasTarget, type RoutingEngine } from "../routing/router";
-import { deriveRequiredCapabilities, projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";
+import {
+  deriveRequiredCapabilities,
+  isWebSearchTool,
+  projectForRoute,
+  routeCapabilitiesFor,
+} from "../translation/capabilities";
 import type { RequiredCapability } from "../translation/capabilities";
 import { isModelAllowed, type ResolvedApiKey } from "../../security/api-key-auth";
 import { allowsCliToolMappings } from "../../security/cli-client-fingerprint";
 import { dropIncompleteToolRounds, repairRequestToolCalls } from "../translation/tool-repair";
 import { sanitizeRequestToolIds } from "../translation/tool-id";
+import { dropCorruptAttachments } from "../translation/attachment-integrity";
 import { parseThinkingSuffix, withThinkingSuffixIntent } from "../translation/thinking";
 import { nativeServicePathFor } from "../dispatch/native-services";
 import { log } from "../../observability/logger";
 import { BUDDY_PROVIDER_IDS } from "../../providers/provider-metadata";
+
+/** Returns true when a canonical request declares or invokes a web-search tool. */
+function requestUsesWebSearch(request: CanonicalRequest): boolean {
+  if (request.tools?.some(isWebSearchTool) === true) return true;
+  return request.messages.some((message) =>
+    message.content.some((part) => part.kind === "toolCall" && isWebSearchTool({ name: part.name })),
+  );
+}
 
 const DEFAULT_ESTIMATED_OUTPUT_TOKENS = 1024;
 
@@ -375,6 +389,8 @@ export interface PreparedProxyRequest {
   readonly degradedCapabilities?: readonly RequiredCapability[];
   /** Snapshot-consistent plan used to reserve each individual attempt. */
   readonly plan: RoutePlan;
+  /** True when the caller asked for a web-search tool, enabling routed fallback. */
+  readonly webSearch?: boolean;
   readonly estimatedInputTokens: number;
   readonly estimatedOutputTokens: number;
   readonly deadlineMs: number;
@@ -475,23 +491,32 @@ export class ProxyRequestPreparer {
         model: request.model,
       });
     }
+    // An inline image that cannot survive the upstream is dropped here rather
+    // than dispatched: a provider rejects the whole request for one corrupt
+    // attachment, and the buddy family reports it with no field named, so the
+    // caller gets a 400 it cannot act on. Running this before capability
+    // derivation also means a request whose only image was defective no longer
+    // requires the `image` capability — it plans like the text request it has
+    // become, instead of being routed to a vision route for nothing.
+    const requestWithAttachments = dropCorruptAttachments(request).request;
     // Capability-aware routing: derive requirements BEFORE planning so the
     // router filters candidates against snapshot profiles. When nothing
     // supports the full request, degrade (same greedy order) and re-plan
     // each variant against the same snapshot; the first non-empty plan wins.
     let plan: RoutePlan | undefined;
-    let variantRequest = request;
+    let variantRequest = requestWithAttachments;
     let degraded: readonly RequiredCapability[] = [];
     // Explicit caller opt-out wins over capability routing: dropping encrypted
     // reasoning is a lossy request the caller asked for, so it applies before
     // planning rather than as a fallback when no route supports the artifacts.
-    if (request.generation_controls["extension:omit_encrypted_reasoning"] === true) {
-      const stripped = degradeEncryptedReasoning(request);
+    if (requestWithAttachments.generation_controls["extension:omit_encrypted_reasoning"] === true) {
+      const stripped = degradeEncryptedReasoning(requestWithAttachments);
       if (stripped) {
         variantRequest = stripped;
         degraded = ["reasoning.encrypted_content"];
       }
     }
+    const searchRouting = requestUsesWebSearch(variantRequest);
     for (const variant of degradedRequestVariants(variantRequest)) {
       try {
         plan = await this.deps.routingEngine.plan(
@@ -501,6 +526,7 @@ export class ProxyRequestPreparer {
           variant.required,
           allowCliMappings,
           authorization.cliMappingOwnerId ?? authorization.id,
+          searchRouting,
         );
       } catch (error) {
         if (error instanceof GatewayError && error.code === "capability_unsupported") continue;
@@ -538,7 +564,12 @@ export class ProxyRequestPreparer {
     // endpoint (upstream 400). The reverse direction is guarded by the native
     // route's own kind filter.
     const llmCandidates = plan.candidates.filter(
-      (candidate) => (candidate.service_kind ?? "llm") === "llm",
+      (candidate) =>
+        (candidate.service_kind ?? "llm") === "llm" ||
+        // A configured search fallback rides the same chat request to run the
+        // search tool on the caller's behalf; only the dispatcher uses it.
+        (candidate.service_kind === "websearch" &&
+          candidate.search_route === "fallback"),
     );
     if (llmCandidates.length === 0) {
       // Name the actual kind so the message stays correct as more native
@@ -628,6 +659,7 @@ export class ProxyRequestPreparer {
       eligibleRouteCandidates: eligible,
       degradedCapabilities: degraded,
       plan,
+      ...(searchRouting ? { webSearch: true } : {}),
       estimatedInputTokens,
       estimatedOutputTokens,
       deadlineMs: input.deadlineMs,

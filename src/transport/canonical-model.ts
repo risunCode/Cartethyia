@@ -68,7 +68,7 @@ export type CacheHint = "stable_prefix" | { kind: "breakpoint"; list: readonly n
 export interface ToolDefinition {
   /** Stable tool name used by tool calls. */
   name: string;
-  /** Human-readable description supplied to the model. */
+  /** Human-readable description supplied by the model. */
   description?: string;
   /** JSON Schema (or an opaque schema representation) for tool arguments. */
   jsonSchema: unknown;
@@ -91,6 +91,8 @@ export interface ToolDefinition {
   input_examples?: readonly Record<string, unknown>[];
   /** Provider-native tool family, such as web search or code execution. */
   tool_type?: "function" | "custom" | "web_search" | "file_search" | "code_execution" | "computer_use" | "mcp" | "provider";
+  /** Original native tool type, retained for versioned Anthropic tools. */
+  native_type?: string;
   /** Whether this tool may be called by a hosted/programmatic caller. */
   allowed_callers?: readonly ("direct" | "programmatic")[];
 }

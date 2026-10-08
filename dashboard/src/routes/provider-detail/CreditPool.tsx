@@ -18,8 +18,9 @@ export interface CreditPoolTotals {
  * Sums one provider's absolute credit windows into a single pool.
  *
  * Only windows with a positive absolute `limit` and an absolute `used` or
- * `remaining` value contribute. A percentage is utilization, not a credit
- * balance, so percentage-only windows are left out of this card.
+ * `remaining` value contribute. Percent windows are left out here — they feed
+ * `lowestRemainingPercent` instead, and the floor compares in whichever unit
+ * each account reported.
  */
 export function aggregateCreditPool(entries: readonly QuotaEntry[]): CreditPoolTotals | null {
   let used = 0;
@@ -50,13 +51,45 @@ export function aggregateCreditPool(entries: readonly QuotaEntry[]): CreditPoolT
   return { used, limit, accounts: contributors.size };
 }
 
+export interface PercentQuotaSummary {
+  /** Lowest remaining percent across every account's percent windows. */
+  readonly minRemaining: number;
+  /** Accounts that actually reported a percent window. */
+  readonly accounts: number;
+}
+
 /**
- * The provider's total credits: every account's credit windows summed into one
- * pool and shown as a simple available-versus-total summary.
+ * Percent twin of `aggregateCreditPool`: the most exhausted quota percent is
+ * what decides routing, so the card shows the minimum remaining — the figure
+ * the floor compares against.
+ */
+export function lowestRemainingPercent(entries: readonly QuotaEntry[]): PercentQuotaSummary | null {
+  let min: number | null = null;
+  const contributors = new Set<string>();
+  for (const entry of entries) {
+    for (const window of entry.quota?.windows ?? []) {
+      const value =
+        typeof window.remainingPercent === "number" && Number.isFinite(window.remainingPercent)
+          ? Math.min(100, Math.max(0, window.remainingPercent))
+          : null;
+      if (value === null) continue;
+      min = min === null ? value : Math.min(min, value);
+      contributors.add(entry.id);
+    }
+  }
+  if (min === null) return null;
+  return { minRemaining: min, accounts: contributors.size };
+}
+
+/**
+ * The provider's total balance: every account's credit windows summed into one
+ * pool, or the lowest remaining quota percent when the provider reports
+ * percent windows instead of absolute credits. Shown as a simple
+ * available-versus-total summary — one card, no credit/quota split.
  *
  * Sits above the account list so the operator reads "how much is left" before
  * "which account", which is the order the question is asked. Renders nothing
- * for a provider whose accounts report no credit window.
+ * for a provider whose accounts report neither credits nor percents.
  */
 export function CreditPoolCard({
   providerId,
@@ -69,10 +102,12 @@ export function CreditPoolCard({
   const routing = useRoutingStrategy(providerId, false);
   const entries = (overview.data?.accounts ?? []).filter((entry) => entry.provider === providerId);
   const pool = aggregateCreditPool(entries);
+  const percent = pool === null ? lowestRemainingPercent(entries) : null;
 
   const usedPercent = pool ? Math.min(100, Math.max(0, (pool.used / pool.limit) * 100)) : 0;
   const remaining = pool ? Math.max(0, pool.limit - pool.used) : 0;
   const accountsLabel = `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`;
+  const hasBalance = pool !== null || percent !== null;
 
   return (
     <div
@@ -93,7 +128,7 @@ export function CreditPoolCard({
           color: "var(--text-secondary)",
         }}
       >
-        TOTAL CREDITS
+        TOTAL Credits or Quota
       </p>
       {pool ? (
         <>
@@ -117,7 +152,7 @@ export function CreditPoolCard({
               >
                 {formatCredits(remaining)}
               </span>{" "}
-              credits available of{" "}
+              available of{" "}
               <span style={{ fontVariantNumeric: "tabular-nums" }}>
                 {formatCredits(pool.limit)}
               </span>{" "}
@@ -135,6 +170,43 @@ export function CreditPoolCard({
             {pool.accounts === 1 ? "account" : "accounts"}
           </p>
         </>
+      ) : percent ? (
+        <>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: "12px",
+              marginTop: "10px",
+            }}
+          >
+            <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: "var(--status-success)",
+                }}
+              >
+                {Math.round(percent.minRemaining)}%
+              </span>{" "}
+              remaining at the lowest account
+            </span>
+          </div>
+          <p
+            style={{
+              margin: "8px 0 0",
+              fontSize: "10.5px",
+              color: "var(--text-tertiary)",
+            }}
+          >
+            Lowest remaining quota across {percent.accounts}{" "}
+            {percent.accounts === 1 ? "account" : "accounts"} — the figure the
+            minimum balance compares against
+          </p>
+        </>
       ) : null}
 
       {routing.isLoading || routing.isError ? null : (
@@ -144,9 +216,9 @@ export function CreditPoolCard({
             alignItems: "flex-start",
             justifyContent: "space-between",
             gap: "12px",
-            marginTop: pool ? "12px" : "10px",
-            paddingTop: pool ? "12px" : 0,
-            borderTop: pool ? "1px solid var(--inner-border)" : undefined,
+            marginTop: hasBalance ? "12px" : "10px",
+            paddingTop: hasBalance ? "12px" : 0,
+            borderTop: hasBalance ? "1px solid var(--inner-border)" : undefined,
           }}
         >
           <div style={{ minWidth: 0 }}>
@@ -154,9 +226,11 @@ export function CreditPoolCard({
               Minimum balance
             </label>
             <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-              Keep at least this many credits unused on every account. Accounts at or below this
-              balance are skipped by routing. Applied globally to all {accountsLabel} in this
-              provider.
+              Keep at least this much unused on every account — credits for
+              credit providers, percent for quota providers. Accounts at or
+              below it are skipped until the next quota sweep refills them.
+              Opt-in per provider; off unless enabled. Applied globally to all{" "}
+              {accountsLabel} in this provider.
             </div>
           </div>
           <Inline gap="10px" style={{ flexShrink: 0, alignItems: "center" }}>
@@ -164,11 +238,11 @@ export function CreditPoolCard({
               id="credit-limit-enabled"
               checked={routing.creditLimitEnabled}
               onChange={routing.setCreditLimitEnabled}
-              aria-label="Enable the global credit limit"
+              aria-label="Enable the minimum balance"
             />
             <input
               type="number"
-              aria-label="Credit limit per account"
+              aria-label="Minimum balance per account"
               min={0}
               max={1000000000}
               disabled={!routing.creditLimitEnabled}

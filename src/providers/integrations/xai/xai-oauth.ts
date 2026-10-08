@@ -80,30 +80,49 @@ interface UserInfoPayload {
   name?: unknown;
 }
 
-function formHeaders(): Record<string, string> {
-  return { "content-type": "application/x-www-form-urlencoded", accept: "application/json" };
+/**
+ * Identity the OIDC userinfo endpoint reports.
+ *
+ * `sub` is the account's stable upstream id. It is persisted in `auth_state`
+ * rather than discarded: the access token does not carry it, so anything that
+ * needs to name the account upstream has no other source for it.
+ */
+interface XaiIdentity {
+  readonly label?: string | undefined;
+  readonly sub?: string | undefined;
 }
 
-/** Reads the account label from the OIDC userinfo endpoint, best-effort. */
-async function fetchUserInfoLabel(
+function xaiAuthState(identity: XaiIdentity): Record<string, unknown> | undefined {
+  return identity.sub === undefined ? undefined : { sub: identity.sub };
+}
+
+/** Reads the account label and upstream subject from the OIDC userinfo endpoint. */
+async function fetchXaiIdentity(
   accessToken: string,
   fetcher: FetchLike,
-): Promise<string | undefined> {
+): Promise<XaiIdentity> {
   try {
     const response = await fetcher(XAI_USERINFO_URL, {
       headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!response.ok) return undefined;
+    if (!response.ok) return {};
     const payload = (await response.json()) as UserInfoPayload;
-    return (
-      nonEmptyTrimmedString(payload.email) ??
-      nonEmptyTrimmedString(payload.name) ??
-      nonEmptyTrimmedString(payload.sub)
-    );
+    const sub = nonEmptyTrimmedString(payload.sub);
+    return {
+      label:
+        nonEmptyTrimmedString(payload.email) ??
+        nonEmptyTrimmedString(payload.name) ??
+        sub,
+      ...(sub === undefined ? {} : { sub }),
+    };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+function formHeaders(): Record<string, string> {
+  return { "content-type": "application/x-www-form-urlencoded", accept: "application/json" };
 }
 
 /** Device-code OAuth client for xAI Grok subscriptions (SuperGrok / X Premium+). */
@@ -184,8 +203,16 @@ export class XaiOAuthClient extends OAuthDeviceFlow {
       };
     }
     const result = this.parseTokenResponse(payload);
-    const accountLabel = await fetchUserInfoLabel(result.access, this.fetchFn);
-    return { status: "complete", result: this.toExchangeResult({ ...result, accountLabel }) };
+    const identity = await fetchXaiIdentity(result.access, this.fetchFn);
+    const authState = xaiAuthState(identity);
+    return {
+      status: "complete",
+      result: this.toExchangeResult({
+        ...result,
+        ...(identity.label === undefined ? {} : { accountLabel: identity.label }),
+        ...(authState === undefined ? {} : { auth_state: authState }),
+      }),
+    };
   }
 
   override async refresh(refreshToken: string, signal?: AbortSignal): Promise<OAuthTokenRefreshResult> {
@@ -203,7 +230,16 @@ export class XaiOAuthClient extends OAuthDeviceFlow {
       label: "xAI token refresh",
     })) as TokenPayload;
     const result = this.parseTokenResponse(payload, refreshToken);
-    return this.toRefreshResult(result);
+    // Same reasoning as login: `sub` is not in the token, so a refresh is the
+    // only chance to correct a stored id that changed. Best-effort — a failed
+    // lookup returns nothing and the stored state stands.
+    const identity = await fetchXaiIdentity(result.access, this.fetchFn);
+    const authState = xaiAuthState(identity);
+    return this.toRefreshResult({
+      ...result,
+      ...(identity.label === undefined ? {} : { accountLabel: identity.label }),
+      ...(authState === undefined ? {} : { auth_state: authState }),
+    });
   }
 }
 

@@ -166,6 +166,39 @@ export function BackupPanel(): ReactNode {
         title="Backup & Restore"
         subtitle="Export your configuration and history, or restore them from a file"
         icon={<DatabaseBackup size={16} />}
+        action={
+          <Inline gap="8px">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={download}
+              disabled={exportBackup.isPending || password.length === 0}
+              icon={<Download size={13} />}
+            >
+              {exportBackup.isPending ? "Exporting…" : "Download backup"}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => fileInput.current?.click()}
+              disabled={restoreBackup.isPending || password.length === 0}
+              icon={<Upload size={13} />}
+            >
+              {restoreBackup.isPending ? "Restoring…" : "Restore from file"}
+            </Button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: "none" }}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) upload(file);
+                event.target.value = "";
+              }}
+            />
+          </Inline>
+        }
       />
       <CardBody>
         <Stack gap="14px">
@@ -202,36 +235,6 @@ export function BackupPanel(): ReactNode {
             Telemetry is optional; prompt/response payload files, health-event history, and console
             identity/session data are intentionally excluded from the config backup. Treat the file exactly as you would the database.
           </p>
-
-          <Inline justify="flex-start">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={download}
-              disabled={exportBackup.isPending || password.length === 0}
-            >
-              <Download size={14} /> {exportBackup.isPending ? "Exporting…" : "Download backup"}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => fileInput.current?.click()}
-              disabled={restoreBackup.isPending || password.length === 0}
-            >
-              <Upload size={14} /> {restoreBackup.isPending ? "Restoring…" : "Restore from file"}
-            </Button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/json,.json"
-              style={{ display: "none" }}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) upload(file);
-                event.target.value = "";
-              }}
-            />
-          </Inline>
 
           <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
             A backup carries request metadata only — status, tokens, cost, latency — never prompt or

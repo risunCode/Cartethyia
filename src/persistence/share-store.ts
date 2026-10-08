@@ -96,6 +96,20 @@ export type ShareLinkResolution =
   | { readonly kind: "enroll"; readonly key: ShareApiKeyRow }
   | { readonly kind: "handoff"; readonly key: ShareHandoffRow };
 
+/**
+ * Why a share link stopped resolving.
+ *
+ * A paused key (`disabled`) is not a revoked one and not an expired link, but
+ * the resolver answered `null` for all three, so the page could only say
+ * "link unavailable" — which tells an operator nothing about whether to
+ * regenerate the link, re-enable the key, or issue a new one.
+ */
+export type ShareLinkRefusal = "not_found" | "expired" | "revoked" | "disabled";
+
+export type ShareLinkOutcome =
+  | { readonly ok: true; readonly resolution: ShareLinkResolution }
+  | { readonly ok: false; readonly refusal: ShareLinkRefusal };
+
 export interface SharedApiKeyMaterial {
   readonly keyHash: string;
   readonly keyPrefix: string;
@@ -218,6 +232,8 @@ export interface ShareLinkStore {
    * resolver cannot drift from itself.
    */
   resolveShareLink(tokenHash: string): Promise<ShareLinkResolution | null>;
+  /** Same lookup as `resolveShareLink`, but names why a link stopped resolving. */
+  resolveShareLinkOutcome(tokenHash: string): Promise<ShareLinkOutcome>;
   /** The key's active link with its retained token, for console re-display. */
   findTokenForApiKey(apiKeyId: string): Promise<ShareLinkToken | null>;
   hasActiveSharedKeyForIp(clientIpKey: string): Promise<boolean>;
@@ -306,34 +322,49 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
   }
 
   async resolveShareLink(tokenHash: string): Promise<ShareLinkResolution | null> {
+    const outcome = await this.resolveShareLinkOutcome(tokenHash);
+    return outcome.ok ? outcome.resolution : null;
+  }
+
+  /**
+   * Same lookup as {@link resolveShareLink}, but reports *why* a link stopped
+   * resolving instead of collapsing every cause into `null`. The refusal is
+   * decided from the row that actually exists: dropping the health predicates
+   * from the `WHERE` and classifying afterwards is the only way to tell an
+   * expired link from a revoked key from a paused one, since a row failing any
+   * of them is simply absent from the filtered result.
+   */
+  async resolveShareLinkOutcome(tokenHash: string): Promise<ShareLinkOutcome> {
     const rows = await this.db
       .select({ key: apiKeys, link: shareLinks })
       .from(shareLinks)
       .innerJoin(apiKeys, eq(shareLinks.apiKeyId, apiKeys.id))
-      .where(
-        and(
-          eq(shareLinks.tokenHash, tokenHash),
-          eq(shareLinks.active, true),
-          sql`(${shareLinks.expiresAt} IS NULL OR ${shareLinks.expiresAt} > now())`,
-          isNull(apiKeys.revokedAt),
-          isNull(apiKeys.parentKeyId),
-        ),
-      )
+      .where(and(eq(shareLinks.tokenHash, tokenHash), isNull(apiKeys.parentKeyId)))
       .limit(1);
     const row = rows[0];
-    if (!row) return null;
+    if (row === undefined) return { ok: false, refusal: "not_found" };
+    // Ordering: a deactivated link was revoked by its owner, not expired —
+    // "expired" would send them to regenerate a link they deliberately killed.
+    // Beyond that, report the state the operator can actually change: a key
+    // can be both paused and expired, and either way the link needs
+    // regenerating, so the key's own state is the more actionable answer.
+    if (row.link.active !== true) return { ok: false, refusal: "revoked" };
+    if (row.key.revokedAt !== null) return { ok: false, refusal: "revoked" };
+    if (row.key.enabled !== true) return { ok: false, refusal: "disabled" };
+    if (row.link.expiresAt !== null && row.link.expiresAt.getTime() <= Date.now())
+      return { ok: false, refusal: "expired" };
     // The link's kind and the key's mode must agree: an enrollment link hands
     // out child keys from a share template, which has no credential of its own
     // to reveal, while a handoff link reveals a personal key. A row where the
     // two disagree is a mismatched pair, not a link to serve.
     if (row.link.kind === "enroll") {
       return row.key.keyMode === "share"
-        ? { kind: "enroll", key: mapShareRow(row.key, row.link) }
-        : null;
+        ? { ok: true, resolution: { kind: "enroll", key: mapShareRow(row.key, row.link) } }
+        : { ok: false, refusal: "not_found" };
     }
     return row.key.keyMode === "personal"
-      ? { kind: "handoff", key: mapHandoffRow(row.key, row.link) }
-      : null;
+      ? { ok: true, resolution: { kind: "handoff", key: mapHandoffRow(row.key, row.link) } }
+      : { ok: false, refusal: "not_found" };
   }
 
   async findTokenForApiKey(apiKeyId: string): Promise<ShareLinkToken | null> {

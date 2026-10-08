@@ -130,7 +130,7 @@ export function getOsHints(service: "postgres" | "redis"): string[] {
           "Windows / Redis:",
           "  Start Redis through WSL, a native Redis-compatible service, or an external host.",
           "  Verify Redis is listening on the REDIS_URL host/port (usually 6379).",
-          "  Or set REDIS_MODE=single_instance_local and omit REDIS_URL.",
+          "  Or omit REDIS_URL to use the in-memory backend.",
         ];
   }
   if (platform === "macos") {
@@ -143,7 +143,7 @@ export function getOsHints(service: "postgres" | "redis"): string[] {
       : [
           "macOS / Redis:",
           "  brew services start redis, or use an external Redis instance.",
-          "  Or set REDIS_MODE=single_instance_local and omit REDIS_URL.",
+          "  Or omit REDIS_URL to use the in-memory backend.",
         ];
   }
   if (platform === "linux") {
@@ -156,7 +156,7 @@ export function getOsHints(service: "postgres" | "redis"): string[] {
       : [
           "Linux / Redis:",
           "  sudo systemctl start redis-server (or the installed Redis service).",
-          "  Or set REDIS_MODE=single_instance_local and omit REDIS_URL.",
+          "  Or omit REDIS_URL to use the in-memory backend.",
         ];
   }
   return [

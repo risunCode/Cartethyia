@@ -1371,6 +1371,24 @@
   container-type: inline-size;
   container-name: rule-row;
 }
+/* Mobile proxy cards: the table's columns (address, load, actions) cannot fit
+ * a phone viewport, so the same pools render as stacked cards instead. The
+ * table stays the desktop surface; both read the same derived view, so they
+ * cannot disagree. */
+.proxy-cards {
+  display: none;
+}
+@media (max-width: 720px) {
+  .proxy-table-scroll {
+    display: none;
+  }
+  .proxy-cards {
+    display: grid;
+    /* Phones stack one card per row; wider tablets fit two side by side. */
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+    gap: 12px;
+  }
+}
 
 .stat-card-detail {
   /* Details can name a pool; a long label must not stretch the card or wrap
@@ -1439,7 +1457,7 @@
 
 .provider-version-badge {
   position: absolute;
-  top: -11px;
+  top: -9px;
   left: 10px;
   right: auto;
   z-index: 4;
@@ -1447,6 +1465,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding: 2px 6px;
+  font-size: 9px;
+  line-height: 1.15;
   box-shadow: var(--shadow-card);
 }
 
@@ -1871,11 +1892,12 @@
 
 
 /* Settings keeps related controls compact: security/privacy share the first
-   row, while the wider backup surface spans the full grid below. */
+   row at equal height, while the wider backup surface spans the full grid
+   below. */
 .settings-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
+  align-items: stretch;
   gap: 16px;
   width: 100%;
   min-width: 0;
@@ -2098,15 +2120,15 @@
   font-variant-numeric: tabular-nums;
 }
 
-.console-log-error {
-  flex: 0 0 auto;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: rgba(255, 64, 64, 0.16);
+.console-log-errmsg {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #ff8080;
-  font-size: 10.5px;
-  font-weight: 600;
 }
+
 
 .console-log-id {
   flex: 0 0 auto;

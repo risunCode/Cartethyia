@@ -18,6 +18,11 @@ export interface RouteCandidate {
    * canonical request. Absent means `llm` — every pre-existing row.
    */
   readonly service_kind?: ServiceKind;
+  /**
+   * Internal web-search routing role. Search metadata is consumed only by the
+   * ordinary chat dispatcher; it never appears in a client response.
+   */
+  readonly search_route?: "native" | "fallback";
   readonly endpoint: string;
   readonly capability_profile: CapabilityProfile;
   /** Route-selected User-Agent fallback; provider-supplied identities remain authoritative. */
@@ -26,12 +31,15 @@ export interface RouteCandidate {
   readonly provider_account_id?: string;
   /** Cooldown class: `hard` = excluded until the deadline; `soft` = deprioritized. */
   readonly cooldown_kind?: "hard" | "soft";
-  /** Global credit protection toggle for this candidate's provider/tenant. */
+  /** Minimum-balance toggle for this candidate's provider/tenant. */
   readonly credit_limit_enabled?: boolean;
-  /** Global minimum remaining credits; candidate excluded when balance ≤ it. */
+  /** Minimum remaining balance; candidate excluded when balance ≤ it — credits
+   * for credit providers, percent for quota-percent providers. */
   readonly credit_limit?: number;
   /** Last remaining credit the quota sweep fetched; absent = never fetched. */
   readonly last_remaining_credit?: number | null;
+  /** Lowest remaining quota percent the sweep fetched; absent = never fetched. */
+  readonly last_remaining_percent?: number | null;
   /** Operator-facing label of `provider_account_id` (never the secret), for
    * the Console Log detail line — logs must show a name, not a bare id. */
   readonly provider_account_label?: string;
@@ -81,9 +89,9 @@ export interface ProviderRoutingSetting {
   /** Per-account inflight ceiling from the routing panel; `null` = unlimited
    * concurrency per account. */
   readonly maxInflight: number | null;
-  /** Global minimum credit protection for every account of this provider/tenant. */
+  /** Minimum-balance protection for every account of this provider/tenant. */
   readonly creditLimitEnabled?: boolean;
-  /** Minimum remaining credits to keep on every account of this provider/tenant. */
+  /** Minimum remaining balance to keep on every account; credits or percent. */
   readonly creditLimit?: number;
   readonly enabled: boolean;
   /** Built-in API-key User-Agent; OAuth and custom providers retain their identities. */
@@ -263,19 +271,22 @@ export function capacityExhaustedError(): GatewayError {
  * unusable (disabled / locked). This is transient and
  * retry-able, so it must NOT surface as `model_not_found` — a 404 tells the
  * client to fix its request when the real fix is to wait or add capacity.
+ *
+ * The public message names only what the client asked and why it cannot be
+ * served. Combo/alias resolution detail (which member lacked candidates)
+ * stays server-side — the operator reads it in the server logs, never the
+ * client envelope.
  */
 export function accountsUnavailableError(
   requested: string,
   reasons: readonly string[],
-  routed: string = requested,
 ): GatewayError {
   const distinct = [...new Set(reasons)].sort();
-  const routeNote = routed === requested ? "" : ` routed to '${routed}'`;
   return new GatewayError(
     "accounts_unavailable",
     503,
-    `Model '${requested}'${routeNote} has no available account (${reasons.length} candidate(s) unusable: ${distinct.join(", ")})`,
-    { model: requested, routed_model: routed, reasons: distinct, candidate_count: reasons.length },
+    `Model '${requested}' has no available account (${reasons.length} candidate(s) unusable: ${distinct.join(", ")})`,
+    { model: requested, reasons: distinct, candidate_count: reasons.length },
   );
 }
 

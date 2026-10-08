@@ -1,7 +1,8 @@
 // Routing admission, reservations, and route planning.
-import { redisEvalNumber, type RedisClient } from "../../persistence/redis";
-import { resolveInflightTtlSeconds } from "../../config";
+import { log } from "../../observability/logger";
 import { metrics } from "../../observability/metrics";
+import { resolveInflightTtlSeconds } from "../../config";
+import { redisEvalNumber, type RedisClient } from "../../persistence/redis";
 import {
   accountsRateLimitedError,
   accountsUnavailableError,
@@ -20,7 +21,15 @@ import {
   type RouteSnapshot,
   type RoutingRevision,
 } from "./route-model";
-import { candidateSupportsRequest, type RequiredCapability } from "../translation/capabilities";
+import {
+  candidateSupportsRequest,
+  type RequiredCapability,
+} from "../translation/capabilities";
+
+const SEARCH_PROVIDER_ORDER = ["exa", "gemini", "codex"] as const;
+const SEARCH_PROVIDER_RANK = new Map<string, number>(
+  SEARCH_PROVIDER_ORDER.map((provider, index) => [provider, index]),
+);
 
 
 /**
@@ -92,7 +101,11 @@ export class InMemoryAdmissionController implements AdmissionController {
   async release(reservation: Reservation): Promise<void> {
     const key = admissionKey(reservation.candidate);
     const cur = this.inflight.get(key) ?? 1;
-    this.inflight.set(key, Math.max(0, cur - 1));
+    // Delete at zero rather than storing it: keys are per account/model and
+    // models churn, so retained zeroes would grow the map for the process
+    // lifetime. Absent reads as zero everywhere this map is consulted.
+    if (cur <= 1) this.inflight.delete(key);
+    else this.inflight.set(key, cur - 1);
   }
 }
 
@@ -336,25 +349,43 @@ export class EligibilityEvaluator {
       readonly credit_limit_enabled?: boolean;
       readonly credit_limit?: number;
       readonly last_remaining_credit?: number | null;
+      readonly last_remaining_percent?: number | null;
     };
     if (state.account_locked || state.locked)
       return { eligible: false, reason: "locked", candidate };
     if (state.health_status === "disabled")
       return { eligible: false, reason: "disabled", candidate };
-    // Global credit limit: an account whose last fetched remaining credit is at
-    // or below the provider/tenant-wide minimum is excluded until the next
-    // quota sweep reports a healthier balance. Skipped entirely when the global
-    // toggle is off or no balance has ever been fetched.
+    // Minimum balance: an account whose last fetched remaining balance is at
+    // or below the provider/tenant-wide floor is excluded until the next
+    // quota sweep reports a healthier figure, and failover moves to the next
+    // account. Compared in the unit the account reported — absolute credits
+    // when present, otherwise remaining percent — so one floor value serves
+    // both CodeBuddy-style credit pools and Codex-style percent quotas.
+    // Skipped entirely when the toggle is off or no balance has ever been
+    // fetched in either unit.
     if (
       state.credit_limit_enabled !== false &&
       state.credit_limit !== undefined &&
-      state.credit_limit !== null &&
-      state.last_remaining_credit !== undefined &&
-      state.last_remaining_credit !== null &&
-      Number.isFinite(state.last_remaining_credit) &&
-      state.last_remaining_credit <= state.credit_limit
-    )
-      return { eligible: false, reason: "credit_floor_reached", candidate };
+      state.credit_limit !== null
+    ) {
+      const credit = state.last_remaining_credit;
+      if (
+        credit !== undefined &&
+        credit !== null &&
+        Number.isFinite(credit) &&
+        credit <= state.credit_limit
+      )
+        return { eligible: false, reason: "credit_floor_reached", candidate };
+      const percent = state.last_remaining_percent;
+      if (
+        (credit === undefined || credit === null) &&
+        percent !== undefined &&
+        percent !== null &&
+        Number.isFinite(percent) &&
+        percent <= state.credit_limit
+      )
+        return { eligible: false, reason: "credit_floor_reached", candidate };
+    }
     if (state.health_status === "model_cooldown")
       return { eligible: false, reason: "model_cooldown", candidate };
     if (state.health_status === "credit_floor_reached")
@@ -498,8 +529,9 @@ export class RoutingEngine {
 
   /** Live admission counters by `provider:model[:account]` bucket. */
   async accountInflightSnapshot(): Promise<ReadonlyMap<string, number>> {
-    const snapshot = await this.admission.snapshotAccountInflight?.();
-    return snapshot ? new Map(snapshot) : new Map();
+    // Both controllers hand back a fresh map, so no defensive copy here —
+    // this feeds an admin read, not a mutation site.
+    return (await this.admission.snapshotAccountInflight?.()) ?? new Map();
   }
 
   private resolveProviderRouting(
@@ -568,6 +600,37 @@ export class RoutingEngine {
     }
     return result;
   }
+  private searchFallbackCandidates(
+    snapshot: RouteSnapshot,
+    tenantId: string | null,
+  ): RouteCandidate[] {
+    const ranked = snapshot.candidates
+      .filter(
+        (candidate) =>
+          candidate.service_kind === "websearch" &&
+          (candidate.tenant_id == null || candidate.tenant_id === tenantId),
+      )
+      .sort((left, right) => {
+        const leftRank =
+          SEARCH_PROVIDER_RANK.get(left.provider_id.toLowerCase()) ?? SEARCH_PROVIDER_ORDER.length;
+        const rightRank =
+          SEARCH_PROVIDER_RANK.get(right.provider_id.toLowerCase()) ?? SEARCH_PROVIDER_ORDER.length;
+        return leftRank - rightRank;
+      });
+    const decisions = ranked
+      .map((candidate) => this.eligibility.evaluate(candidate))
+      .filter((decision) => decision.eligible);
+    const ordered = this.applyProviderRouting(
+      [
+        ...decisions.filter((decision) => decision.reason !== "cooldown").map((decision) => decision.candidate),
+        ...decisions.filter((decision) => decision.reason === "cooldown").map((decision) => decision.candidate),
+      ],
+      snapshot,
+      tenantId,
+    );
+    return ordered.map((candidate) => ({ ...candidate, search_route: "fallback" as const }));
+  }
+
 
   async plan(
     requestedModel: string,
@@ -576,9 +639,10 @@ export class RoutingEngine {
     requiredCapabilities?: readonly RequiredCapability[],
     allowCliMappings = false,
     keyId?: string,
+    webSearch = false,
   ): Promise<RoutePlan> {
     const tid = tenantId ?? null;
-    const { resolved, matching, fusion } = this.resolveMatchingCandidates(
+    const { resolved, matching, unmatchedMembers, fusion } = this.resolveMatchingCandidates(
       requestedModel,
       snapshot,
       tid,
@@ -595,10 +659,19 @@ export class RoutingEngine {
       if (hardCooling) {
         throw accountsRateLimitedError(requestedModel, resolved.model);
       }
+      // Combo members without any routable candidate never reach the client
+      // envelope — but the operator needs them to fix the combo, so they go
+      // to the server logs with the full resolution picture.
+      if (unmatchedMembers.length > 0) {
+        log.warn("[routing] combo members without routable candidates", {
+          requested: requestedModel,
+          routed: resolved.model,
+          unmatched: [...new Set(unmatchedMembers)].sort(),
+        });
+      }
       throw accountsUnavailableError(
         requestedModel,
         decisions.map((d) => d.reason),
-        resolved.model,
       );
     }
     // Every eligible candidate is account-wide cooling: no healthy account is
@@ -660,6 +733,18 @@ export class RoutingEngine {
         ...eligible.filter((candidate) => cooling.has(candidate)),
       ];
     }
+    if (webSearch) {
+      const searchCandidates = eligible.map((candidate) =>
+        (candidate.service_kind ?? "llm") === "llm" &&
+        candidate.capability_profile.webSearch === true
+          ? { ...candidate, search_route: "native" as const }
+          : candidate,
+      );
+      eligible = [
+        ...searchCandidates,
+        ...this.searchFallbackCandidates(snapshot, tid),
+      ];
+    }
     const chosen = eligible[0]!;
     return {
       revision: snapshot.revision,
@@ -691,6 +776,10 @@ export class RoutingEngine {
     resolved: ReturnType<typeof resolveAlias>;
     combo: ComboDefinition | undefined;
     matching: RouteCandidate[];
+    /** Combo members that matched zero candidates — misconfigured or
+     * connection-less members the operator should fix, surfaced on errors
+     * instead of failing opaquely on whichever member happened to route. */
+    unmatchedMembers: readonly string[];
     fusion?: { readonly panel: readonly string[]; readonly judge: string };
   } {
     const safeResolve = (name: string) => {
@@ -703,12 +792,21 @@ export class RoutingEngine {
     const resolved = safeResolve(requestedModel);
     const comboMap = tid ? snapshot.combos[tid] : undefined;
     const combo = comboMap?.[resolved.model];
+    // Combo members may themselves be aliases or combos (an alias may target
+    // a combo, and a combo may nest another combo). Resolve recursively with
+    // the same depth bound as the alias walk so a member that names a combo
+    // expands to its models instead of matching no candidate and reading as
+    // "model not found" for a route the operator actually defined.
+    const expandMember = (name: string, seen: ReadonlySet<string>): readonly string[] => {
+      if (seen.has(name) || seen.size >= 16) return [];
+      const next = new Set(seen).add(name);
+      const alias = safeResolve(name);
+      const nested = comboMap?.[alias.model];
+      if (!nested) return [alias.model];
+      return nested.members.flatMap((member) => expandMember(member, next));
+    };
     const rawModelIds = combo
-      ? combo.members.flatMap((name) => {
-          const alias = safeResolve(name);
-          const nested = comboMap?.[alias.model];
-          return nested ? nested.members : [alias.model];
-        })
+      ? combo.members.flatMap((name) => expandMember(name, new Set([resolved.model])))
       : [resolved.model];
     const modelIds = [...new Set(rawModelIds)];
     let matching = snapshot.candidates.filter(
@@ -716,10 +814,14 @@ export class RoutingEngine {
         modelIds.some((id) => candidateMatches(candidate, id)) &&
         (candidate.tenant_id == null || candidate.tenant_id === tid),
     );
+    let unmatchedMembers: readonly string[] = [];
     if (combo) {
-      const groups = modelIds
-        .map((id) => matching.filter((c) => candidateMatches(c, id)))
-        .filter((g) => g.length > 0);
+      const perId = modelIds.map((id) => ({
+        id,
+        group: matching.filter((c) => candidateMatches(c, id)),
+      }));
+      unmatchedMembers = perId.filter((entry) => entry.group.length === 0).map((entry) => entry.id);
+      const groups = perId.map((entry) => entry.group).filter((g) => g.length > 0);
       if (combo.strategy === "round_robin" && groups.length > 1) {
         const heads = groups.map((g) => g[0] as RouteCandidate);
         const rr = this.getRoundRobin(`${tid}::${resolved.model}`);
@@ -744,7 +846,7 @@ export class RoutingEngine {
       combo?.strategy === "fusion" && modelIds.length > 1
         ? { panel: [...modelIds], judge: modelIds[0]! }
         : undefined;
-    return { resolved, combo, matching, ...(fusion === undefined ? {} : { fusion }) };
+    return { resolved, combo, matching, unmatchedMembers, ...(fusion === undefined ? {} : { fusion }) };
   }
 
   async reserve(plan: RoutePlan): Promise<Reservation> {

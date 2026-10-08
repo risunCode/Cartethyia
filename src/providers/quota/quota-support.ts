@@ -1,6 +1,6 @@
 import type { FetchLike, ProviderQuotaResult } from "./quota-contracts";
 import { cleanError, unsupportedQuota } from "./quota-contracts";
-import { type ProviderRegistry, resolveProviderId } from "../provider-registry";
+import { type ProviderRegistry, parseProviderId } from "../provider-registry";
 import { providerBaseUrl } from "../provider-metadata";
 import { createProbeFetch } from "../operations/probe-fetch";
 /**
@@ -71,7 +71,7 @@ export async function fetchProviderQuota(
   context?: QuotaCollectionContext,
 ): Promise<ProviderQuotaResult> {
   try {
-    const canonicalId = resolveProviderId(providerId);
+    const canonicalId = parseProviderId(providerId);
     const handler = await registry.resolveQuotaCollector(canonicalId);
     if (handler === undefined) return unsupportedQuota(providerId);
     return await handler(credential, fetcher, context);

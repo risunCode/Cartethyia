@@ -151,17 +151,38 @@ describe("EligibilityEvaluator global credit limit", () => {
         candidate({ credit_limit_enabled: false, credit_limit: 100, last_remaining_credit: 0 }),
       ),
     ).toMatchObject({ eligible: true, reason: "healthy" });
+    expect(
+      evaluator.evaluate(
+        candidate({ credit_limit_enabled: false, credit_limit: 100, last_remaining_percent: 0 }),
+      ),
+    ).toMatchObject({ eligible: true, reason: "healthy" });
   });
 
-  test("no limit, or never-fetched balance, stays eligible", () => {
-    expect(evaluator.evaluate(candidate({ last_remaining_credit: 0 }))).toMatchObject({
-      eligible: true,
-      reason: "healthy",
-    });
-    expect(evaluator.evaluate(candidate({ credit_limit: 100 }))).toMatchObject({
-      eligible: true,
-      reason: "healthy",
-    });
+  test("a percent-quota account at or below the floor is excluded", () => {
+    expect(
+      evaluator.evaluate(candidate({ credit_limit: 60, last_remaining_percent: 60 })),
+    ).toMatchObject({ eligible: false, reason: "credit_floor_reached" });
+    expect(
+      evaluator.evaluate(candidate({ credit_limit: 60, last_remaining_percent: 12 })),
+    ).toMatchObject({ eligible: false, reason: "credit_floor_reached" });
+    expect(
+      evaluator.evaluate(candidate({ credit_limit: 60, last_remaining_percent: 61 })),
+    ).toMatchObject({ eligible: true, reason: "healthy" });
+  });
+
+  test("an absolute credit wins over percent on the same candidate", () => {
+    // An account reporting both compares in credits; the percent stamp is
+    // only the fallback for percent-only providers.
+    expect(
+      evaluator.evaluate(
+        candidate({ credit_limit: 100, last_remaining_credit: 500, last_remaining_percent: 5 }),
+      ),
+    ).toMatchObject({ eligible: true, reason: "healthy" });
+    expect(
+      evaluator.evaluate(
+        candidate({ credit_limit: 100, last_remaining_credit: 50, last_remaining_percent: 95 }),
+      ),
+    ).toMatchObject({ eligible: false, reason: "credit_floor_reached" });
   });
 
   test("a depleted account loses to a healthy sibling in plan()", async () => {
@@ -187,6 +208,56 @@ describe("EligibilityEvaluator global credit limit", () => {
       code: "accounts_unavailable",
       status: 503,
     });
+  });
+
+  test("a combo routes its live member despite a dead member", async () => {
+    const engine = new RoutingEngine();
+    const live = candidate({ provider_id: "cline", model_id: "spark" });
+    const snap: RouteSnapshot = {
+      revision: 1,
+      candidates: [live],
+      aliases: {},
+      combos: {
+        t1: {
+          pool: {
+            members: ["cline/spark", "meta/ghost-model"],
+            strategy: "fallback",
+          },
+        },
+      },
+      created_at: Date.now(),
+    };
+    const plan = await engine.plan("pool", snap, "t1");
+    expect(plan.candidates.map((c) => c.provider_id)).toEqual(["cline"]);
+  });
+
+  test("a combo whose live member is unusable hides member detail from the client", async () => {
+    const engine = new RoutingEngine();
+    const down = candidate({
+      provider_id: "cline",
+      model_id: "spark",
+      provider_account_id: "down",
+      health_status: "disabled",
+    });
+    const snap: RouteSnapshot = {
+      revision: 1,
+      candidates: [down],
+      aliases: {},
+      combos: {
+        t1: {
+          pool: {
+            members: ["cline/spark", "meta/ghost-model"],
+            strategy: "fallback",
+          },
+        },
+      },
+      created_at: Date.now(),
+    };
+    // The public message names only the request and the usable candidates —
+    // dead member ids stay server-side (server logs), never the envelope.
+    await expect(engine.plan("pool", snap, "t1")).rejects.toThrow(
+      "Model 'pool' has no available account (1 candidate(s) unusable: disabled)",
+    );
   });
 });
 

@@ -3,6 +3,7 @@ import { authCredential, getJson, record, text } from "../../quota/quota-contrac
 import { parseLimitWindows } from "../../quota/quota-limit-windows";
 import { probeApiKeyConnectivity } from "../../quota/quota-support";
 import { getClineClientVersion } from "../../operations/client-versions";
+import { clinePlatform, clinePlatformVersion } from "../../operations/cli-platform";
 
 /** Quota headers always carry the currently resolved CLI version. */
 function clineQuotaHeaders(): Record<string, string> {
@@ -11,8 +12,8 @@ function clineQuotaHeaders(): Record<string, string> {
     accept: "application/json",
     "content-type": "application/json",
     "user-agent": `Cline/${version}`,
-    "x-platform": "server",
-    "x-platform-version": "1.0.0",
+    "x-platform": clinePlatform(),
+    "x-platform-version": clinePlatformVersion(),
     "x-client-type": "cline-cli",
     "x-client-version": version,
     "x-core-version": version,

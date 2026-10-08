@@ -33,10 +33,10 @@ export interface RoutingStrategyState {
   readonly bypassProxy: boolean;
   readonly userAgent: string;
   readonly setUserAgent: (next: string) => void;
-  /** Global credit limit toggle for every account of this provider/tenant. */
+  /** Minimum-balance toggle for every account of this provider/tenant. */
   readonly creditLimitEnabled: boolean;
   readonly setCreditLimitEnabled: (next: boolean) => void;
-  /** Global minimum remaining credits to keep on every account; default 200. */
+  /** Minimum remaining balance to keep on every account; credits or percent, default 50. */
   readonly creditLimit: number;
   readonly setCreditLimit: (next: number) => void;
   readonly isLoading: boolean;
@@ -56,8 +56,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
   const [maxInflight, setMaxInflightState] = useState<number | null>(null);
   const [bypassProxy, setBypassProxyState] = useState(false);
   const [userAgent, setUserAgentState] = useState("codex_cli_rs/0.156.1");
-  const [creditLimitEnabled, setCreditLimitEnabledState] = useState(true);
-  const [creditLimit, setCreditLimitState] = useState(200);
+  const [creditLimitEnabled, setCreditLimitEnabledState] = useState(false);
+  const [creditLimit, setCreditLimitState] = useState(50);
 
   useEffect(() => {
     if (!query.data) return;

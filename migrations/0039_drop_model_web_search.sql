@@ -1,0 +1,14 @@
+-- Retire the per-model web-search capability flag.
+--
+-- `models.web_search` claimed to describe whether a *model* can run a provider-side
+-- search tool, but the real answer lives with the provider: the adapter either frames
+-- a hosted search tool / grounding directive or it does not, and every model it serves
+-- inherits that. Discovery wrote `false` for any model it had no metadata for, so a
+-- fully capable route was filtered out of native search by a metadata gap while an
+-- incapable one could claim it.
+--
+-- Search capability is now derived from the provider (`providerSupportsWebSearch`)
+-- onto the snapshot capability profile, so this column has no reader left. Dropping it
+-- is idempotent and leaves no orphan data: no foreign key, index, or view references
+-- it, and the routing snapshot is rebuilt from the provider on every load.
+ALTER TABLE "models" DROP COLUMN IF EXISTS "web_search";

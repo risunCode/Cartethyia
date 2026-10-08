@@ -15,8 +15,8 @@ import { GatewayError, publicGatewayErrorBody } from "./transport/gateway-error"
 import { shutdownError, shutdownNotice } from "./transport/shutdown-notice";
 import type { CanonicalAdapter } from "./transport/middleware/request-context";
 import type { ApiKeyAuthorizationSnapshot } from "./security/api-key-auth";
-import { getPool } from "./persistence/postgres";
-import { getRedisOrUndefined } from "./persistence/redis";
+import { getDbHandle, isPgHandle } from "./persistence/postgres";
+import { resolveRedisClient } from "./persistence/redis";
 import type { CartethyiaDatabase } from "./persistence/postgres";
 import type { ProviderAdapter } from "./providers/provider-registry";
 import type { OAuthTokenRefresher, OAuthRefreshService } from "./providers/authentication/oauth-refresh-service";
@@ -111,12 +111,11 @@ export interface ProductionAppDeps {
   /** Graduated strikes for repeated invalid-model requests. */
   readonly modelStrikes?: ModelStrikeService;
   /**
-   * The console control plane. Optional because the console needs Redis
-   * (OAuth-flow state and the quota cache are Redis-backed; sessions live in
-   * `console_sessions` in Postgres and CSRF is stateless), while
-   * `REDIS_MODE=single_instance_local` runs without a Redis client at all. A
-   * Redis-less boot serves `/v1/*`, `/health` and `/metrics` and does not
-   * mount `/console/api/*`, which is exactly what that mode documents.
+   * The console control plane. Optional so reduced compositions (route-only
+   * shell, console stubs) stay valid; production always mounts it. Without
+   * REDIS_URL the console runs on the in-memory backend like the data plane
+   * (OAuth-flow state and the quota cache fall back to process memory;
+   * sessions live in `console_sessions` in Postgres and CSRF is stateless).
    */
   readonly consoleApi?: ConsoleApiCompositionDeps;
   /**
@@ -145,14 +144,16 @@ export interface ProductionAppDeps {
 export type GatewayAppDeps = GatewayShellDeps | ProductionAppDeps;
 
 function checkDatabaseConnection(): Promise<void> {
-  return getPool()
+  return getDbHandle()
     .query("SELECT 1")
     .then(() => undefined);
 }
 
 function checkRedisConnection(): Promise<void> {
-  const redis = getRedisOrUndefined();
-  if (!redis) return Promise.reject(new Error("REDIS_URL is required"));
+  // Memory backend is healthy by construction — there is no connection to
+  // probe — so readiness only pings a real client.
+  const redis = resolveRedisClient();
+  if (!redis) return Promise.resolve();
   return redis.ping().then(() => undefined);
 }
 
@@ -311,16 +312,18 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       );
     })
     .get("/metrics", () => {
-      const pool = getPool();
-      metrics.cartethyia_pg_pool_total.set(pool.totalCount);
-      metrics.cartethyia_pg_pool_idle.set(pool.idleCount);
-      metrics.cartethyia_pg_pool_waiting.set(pool.waitingCount);
-      // `getRedisOrUndefined` is used (not `getRedis`) so a single_instance_local
-      // deployment without REDIS_URL reports redis down instead of throwing and
-      // crashing the Prometheus scrape.
-      metrics.cartethyia_redis_up.set(
-        getRedisOrUndefined()?.status === "ready" ? 1 : 0,
-      );
+      const handle = getDbHandle();
+      // Pool gauges describe the external server's connection budget; the
+      // embedded backend has no pool to report.
+      if (isPgHandle(handle)) {
+        metrics.cartethyia_pg_pool_total.set(handle.pool.totalCount);
+        metrics.cartethyia_pg_pool_idle.set(handle.pool.idleCount);
+        metrics.cartethyia_pg_pool_waiting.set(handle.pool.waitingCount);
+      }
+      // No client means the memory backend, which is always up; a real client
+      // reports its own readiness so the scrape never throws.
+      const redisClient = resolveRedisClient();
+      metrics.cartethyia_redis_up.set(redisClient === undefined || redisClient.status === "ready" ? 1 : 0);
       return new Response(metrics.render(), {
         headers: { "content-type": "text/plain; version=0.0.4" },
       });

@@ -9,9 +9,11 @@ import { toolResultParts } from "../../transport/canonical-model";
 import { decodeSseEvents } from "../../transport/streaming";
 import { usageFromProvider, readReasoningText } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ModelDefinition, type ProviderAdapter, type ProviderDispatchContext } from "../provider-registry";
+import { parseQoderOAuthState } from "./qoder-oauth";
 import { defineModel } from "../model-definition";
 import { getQoderVersion } from "../operations/client-versions";
 import { abortGatewayError, createUpstreamDeadlineLifecycle } from "../operations/upstream-deadline";
+import { qoderMachineOs } from "../operations/cli-platform";
 
 interface QoderModeProfile {
   readonly chatUrl: string;
@@ -101,6 +103,55 @@ function qoderPathSignature(url: string): string {
 const QODER_MACHINE_ID_TTL_MS = 60 * 60 * 1000;
 const QODER_MAX_MACHINE_IDS = 1_024;
 const qoderMachineIds = new Map<string, { id: string; expiresAt: number }>();
+/**
+ * A PAT (`pt-...`) must be exchanged for a short-lived job token before it
+ * can sign COSY requests. Device tokens (`dt-...`) from OAuth login and job
+ * tokens (`jt-...`) are used directly.
+ */
+export function isQoderPat(secret: string): boolean {
+  return secret.startsWith("pt-");
+}
+
+/**
+ * Stable per-account machine id for OAuth dispatches. Derived from the
+ * account id (not minted per request) so pooled accounts keep one device
+ * fingerprint across restarts instead of looking like a new device every
+ * time, while staying distinct per account.
+ */
+export function qoderMachineIdForAccount(accountId: string): string {
+  const hex = createHash("sha256").update(`qoder-machine-v1:${accountId}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Builds dispatch auth from an OAuth device token. The token is used
+ * directly as the COSY identity's oauth token; the user id and machine id
+ * come from the `auth_state` the login persisted. Fails closed with a
+ * reconnect prompt when the identity is absent (e.g. an account created
+ * before `auth_state` existed) instead of signing with a guessed id.
+ */
+export function qoderOAuthAuth(
+  secret: string,
+  authState: unknown,
+  accountId: string | undefined,
+): QoderAuth {
+  const state = parseQoderOAuthState(authState);
+  if (state === undefined || !state.userId) {
+    throw new GatewayError(
+      "authentication_failed",
+      401,
+      "Qoder OAuth account is missing its user identity; sign in again",
+    );
+  }
+  return {
+    userId: state.userId,
+    userName: "",
+    userType: "personal_standard",
+    securityOauthToken: secret,
+    refreshToken: "",
+    machineId: state.machineId || (accountId ? qoderMachineIdForAccount(accountId) : randomUUID()),
+  };
+}
 
 function qoderMachineIdFromPat(pat: string): string {
   const key = createHash("sha256").update(pat).digest("hex");
@@ -182,7 +233,7 @@ function qoderBuildCosyHeaders(
     authorization: `Bearer COSY.${payload}.${signature}`,
     "cosy-data-policy": "agree",
     "cosy-machinetype": "5",
-    "cosy-machineos": "x86_64_windows",
+    "cosy-machineos": qoderMachineOs(),
     "cosy-clienttype": "5",
     "cosy-date": date,
     "cosy-user": auth.userId,
@@ -621,7 +672,7 @@ class QoderAdapter implements ProviderAdapter {
     if (candidate.wire_family !== "chat") {
       throw new GatewayError("capability_unsupported", 400, `qoder supports chat only, got ${candidate.wire_family}`);
     }
-    const pat = readCredentialSecret(context.credential, "Qoder PAT is required");
+    const secret = readCredentialSecret(context.credential, "Qoder credential is required");
 
     const modelId = candidate.model_id || request.model;
     const modelConfig = (QODER_MODEL_CONFIGS as Record<string, QoderModelConfig>)[modelId] ?? {
@@ -642,7 +693,12 @@ class QoderAdapter implements ProviderAdapter {
 
     try {
       const version = getQoderVersion();
-      const auth = await exchangeQoderPat(pat, lifecycle.signal, fetcher, version);
+      // Dual mode like Cline: a pasted PAT is exchanged for a job token per
+      // request, while an OAuth device token is used directly with the
+      // identity the login persisted.
+      const auth = isQoderPat(secret)
+        ? await exchangeQoderPat(secret, lifecycle.signal, fetcher, version)
+        : qoderOAuthAuth(secret, context.credential.auth_state, context.credential.account_id);
       const qoderBody = buildQoderRequest(modelId, request, modelConfig, auth);
       const url =
         candidate.endpoint_path && candidate.endpoint_path.startsWith("http")

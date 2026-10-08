@@ -46,7 +46,15 @@ function parseToolObject(item: Record<string, unknown>, dialect: ToolDialect): T
     const wrapperName = readString(chatWrapper, "name");
     if (wrapperName !== undefined) name = wrapperName;
   }
-  if (name === undefined) return undefined;
+  // A hosted tool on an [OI]-compatible wire is declared as a bare
+  // `{"type": "web_search"}` with no `name` and no `function` envelope. It is
+  // still a real tool, and dropping it here silently turned a search request
+  // into a search-less one, so the type supplies the name.
+  if (name === undefined) {
+    const declaredType = readString(item, "type");
+    if (declaredType === undefined) return undefined;
+    name = declaredType;
+  }
 
   let description = readString(item, "description");
   if (chatWrapper !== undefined) {
@@ -112,11 +120,13 @@ function parseToolObject(item: Record<string, unknown>, dialect: ToolDialect): T
     result.tool_type = classifyNativeToolType(type);
   else if (type === "function" || type === "tool") result.tool_type = "function";
   else if (type !== undefined) result.tool_type = "function";
+  if (type !== undefined && type.startsWith("web_search_")) result.native_type = type;
   return result;
 }
 
 function classifyNativeToolType(type: string): Exclude<ToolDefinition["tool_type"], undefined> {
   if (
+    type === "web_search" ||
     type === "web_search_preview" ||
     type === "web_search_preview_2025_03_11" ||
     type === "web_search_options"
