@@ -304,9 +304,9 @@ describe("parseCredentialBatch — single entries", () => {
 describe("parseCredentialBatch — Cartethyia's own export row", () => {
   test("an export row is recognised and its accessToken used as the secret", () => {
     // The `EXPORT_ROW_FIELDS` rule: a row carrying `credentialKind`, `providerId`,
-    // and `accessToken` is a `ProviderAccountExport`. Without it the row would be
-    // read as an opaque blob and the credential lost on re-import — the comment
-    // says so explicitly, and this is the test that holds it.
+    // and `accessToken` is a `ProviderAccountExport`. A refresh token buried
+    // inside the accessToken *string* is not the row's own refresh grant, so the
+    // access token itself is the secret.
     const row = {
       credentialKind: "oauth",
       providerId: "claude",
@@ -315,9 +315,24 @@ describe("parseCredentialBatch — Cartethyia's own export row", () => {
     };
     const entries = parseCredentialBatch(JSON.stringify(row));
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.kind).toBe("oauth");
+    expect(entries[0]?.kind).toBe("api_key");
     expect(entries[0]?.value).toBe('{"access_token":"at","refresh_token":"rt"}');
     expect(entries[0]?.identity).toBe("Work");
+  });
+
+  test("an OAuth export row keeps its refresh token instead of the bare access token", () => {
+    // The access token is a JWT, so sending it alone classifies the account as
+    // a static credential and the refresh token is lost. The whole row must go.
+    const row = {
+      credentialKind: "oauth",
+      providerId: "workbuddy",
+      accessToken: "eyJhbGciOiJIUzI1NiJ9.payload.sig",
+      refreshToken: "rt-EXAMPLE",
+      label: "Work",
+    };
+    const entry = parseCredentialBatch(JSON.stringify(row))[0];
+    expect(entry?.kind).toBe("oauth");
+    expect(entry?.value).toContain('"refreshToken":"rt-EXAMPLE"');
   });
 
   test("an OAuth-labeled export without a refresh token is static", () => {
@@ -331,7 +346,6 @@ describe("parseCredentialBatch — Cartethyia's own export row", () => {
 
   test("an api_key export remains static even when its value is OAuth-shaped", () => {
     // An `api_key` export whose accessToken happens to contain a refresh field
-    // must not be upgraded by shape detection.
     const row = {
       credentialKind: "api_key",
       providerId: "openai",

@@ -283,12 +283,12 @@ function entryFromObject(obj: Record<string, unknown>): ParsedCredentialEntry {
         ? obj["label"].trim()
         : undefined;
     const accessToken = obj["accessToken"];
-    const refreshable =
-      exportKind === "oauth" &&
-      (oauthShapeFromObject(obj) ||
-        (typeof accessToken === "string" && detectCredentialKind(accessToken) === "oauth"));
+    // The row's own refresh token is what makes it refreshable. Sending only
+    // the access token drops it, and a JWT access token is then stored as a
+    // static credential that can never be refreshed.
+    const refreshable = exportKind === "oauth" && oauthShapeFromObject(obj);
     return {
-      value: accessToken,
+      value: refreshable ? JSON.stringify(obj) : accessToken,
       // An exported row's persisted credential kind is authoritative. An
       // `api_key` export stays an API key even when its string happens to look
       // like a refresh-shaped JSON wrapper.
