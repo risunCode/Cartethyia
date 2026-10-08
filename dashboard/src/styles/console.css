@@ -558,7 +558,7 @@
   grid-column: 1 / -1;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 640px) {
   .modal-form-layout {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
@@ -966,7 +966,7 @@
   align-self: flex-start;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 640px) {
   .api-key-popup-body {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1142,7 +1142,7 @@
   background: var(--surface-hover);
 }
 
-@media (max-width: 720px) {
+@media (max-width: 640px) {
   .api-key-form-columns {
     columns: 1;
   }
@@ -1569,7 +1569,6 @@ main.route-enter .card-body-content {
   flex-direction: column;
 }
 .console-log-toolbar {
-  flex: 0 0 auto !important;
   flex-direction: row;
   align-items: center;
   min-height: 0;
@@ -2444,7 +2443,7 @@ main.route-enter .state-viewport {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 35%, transparent);
 }
 
-@media (max-width: 600px) {
+@media (max-width: 640px) {
   .two-column-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2528,7 +2527,7 @@ main.route-enter .state-viewport {
   background: var(--accent-soft);
 }
 
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .backup-section-options {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2821,7 +2820,10 @@ main.route-enter .console-log-toolbar {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  flex-shrink: 0;
+  /* The toolbar is chrome, not content: it must not grow even though the
+     route-level card-body rule lets every body flex. */
+  flex: 0 0 auto;
+  min-height: 0;
   padding: 8px 14px;
   border-bottom: 1px solid var(--inner-border);
 }
@@ -2893,27 +2895,11 @@ main.route-enter .console-log-toolbar {
     min-width: 0;
   }
   .console-log-search input {
-    width: 100% !important;
+    width: 100%;
     min-width: 0;
   }
 }
 
-.routing-sticky-set {
-  justify-self: start;
-  min-width: 0;
-  width: 100%;
-  max-width: 148px;
-}
-
-.routing-sticky-set input[type="number"] {
-  width: 72px;
-}
-
-@media (max-width: 680px) {
-  .routing-sticky-set {
-    max-width: none;
-  }
-}
 /* ===== accounts ===== */
 /* Provider account toolbar, compact rows, selection, and container behavior. */
 /* Account list — compact responsive rows (replaces the account data table).
@@ -3235,16 +3221,21 @@ main.route-enter .console-log-toolbar {
   transform: scale(0.92);
 }
 
+/* Studio conversation column: a centered reading measure that fills the card
+   vertically. On narrow screens the measure relaxes so text is not inset. */
+.mlab-wide {
+  max-width: min(820px, 100%);
+  width: 100%;
+  margin: 0 auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
 .mlab-tool-toggle[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
-}
-
-@media (max-width: 560px) {
-  .mlab-wide {
-    max-width: 100% !important;
-  }
 }
 /* ===== share ===== */
 /* Owner-side share dialog: the stable link row, the recipient table, and the

@@ -1047,17 +1047,7 @@ export default function ModelLab(): ReactNode {
         }}
       >
         <CardBody style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-          <div
-            className="mlab-wide"
-            style={{
-              maxWidth: "820px",
-              width: "100%",
-              margin: "0 auto",
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
+          <div className="mlab-wide">
               {displayed.length === 0 && !live ? (
                 <div
                   style={{
