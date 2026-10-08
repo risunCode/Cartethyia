@@ -1546,6 +1546,9 @@ html[data-theme="dark"] .app-bg {
 
 .stat-card {
   padding: 10px 12px;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--inner-border);
+  background: var(--surface-2);
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -1671,6 +1674,9 @@ html[data-theme="dark"] .app-bg {
   min-height: 218px;
   display: flex;
   flex-direction: column;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--inner-border);
+  background: var(--surface-2);
   padding: 10px 12px;
   box-sizing: border-box;
   min-width: 0;
