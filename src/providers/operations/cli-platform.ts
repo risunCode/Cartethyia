@@ -71,7 +71,7 @@ const GROK_OS = "macos";
 const GROK_ARCH = "aarch64";
 
 /**
- * Builds a Codex CLI user agent: `codex_cli_rs/0.160.0 (Mac OS 27.0.1; arm64)
+ * Builds a Codex CLI user agent: `codex_cli_rs/version (Mac OS 27.0.1; arm64)
  * Apple_Terminal/455`.
  *
  * Mirrors `get_codex_user_agent` in Codex's own `login` crate — same field

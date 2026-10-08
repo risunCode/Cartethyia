@@ -75,6 +75,17 @@ async function kiroVersion(response: Response): Promise<string | null> {
   return isSemverish(version) ? version : null;
 }
 
+/**
+ * Cursor publishes no version feed for the CLI. The installer script is the
+ * feed: it pins the build it downloads (`downloads.cursor.com/lab/<version>/`),
+ * and that script is regenerated on every release, so reading it is what keeps
+ * the advertised client current.
+ */
+async function cursorCliVersion(response: Response): Promise<string | null> {
+  const body = await response.text();
+  const version = /downloads\.cursor\.com\/lab\/([^/"'\s]+)\//.exec(body)?.[1];
+  return version && version.length > 0 ? `cli-${version}` : null;
+}
 async function antigravityVersion(response: Response): Promise<string | null> {
   const body = await response.text();
   for (const line of body.split(/\r?\n/)) {
@@ -158,7 +169,7 @@ const KIRO_NODE_VERSION = "24.18.0";
 export const VERSION_SOURCES = {
   antigravity: {
     key: "antigravity",
-    fallback: "2.19.1",
+    fallback: "2.21.1",
     sources: [
       {
         url: "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml",
@@ -178,12 +189,15 @@ export const VERSION_SOURCES = {
   },
   opencode: {
     key: "opencode",
-    fallback: "1.18.34",
-    sources: [{ url: "https://registry.npmjs.org/opencode-ai/latest" }],
+    // The v1 package (`opencode-ai`) stopped at 1.18. The v2 line publishes
+    // under `@opencode/cli`, and this feed is what its own installer reads.
+    fallback: "2.0.25",
+    minVersion: "2.0.0",
+    sources: [{ url: "https://opencode.ai/update/api/latest/cli/npm" }],
   },
   commandcode: {
     key: "commandcode",
-    fallback: "1.74.1",
+    fallback: "1.79.1",
     sources: [{ url: "https://registry.npmjs.org/command-code/latest" }],
   },
   grok: {
@@ -196,8 +210,8 @@ export const VERSION_SOURCES = {
   },
   clineClient: {
     key: "cline-client",
-    fallback: "4.1.22",
-    minVersion: "4.1.22",
+    fallback: "4.1.23",
+    minVersion: "4.1.23",
     sources: [
       {
         url: "https://raw.githubusercontent.com/cline/cline/main/apps/vscode/package.json",
@@ -207,17 +221,17 @@ export const VERSION_SOURCES = {
   },
   clineSdk: {
     key: "cline-sdk",
-    fallback: "0.0.90",
+    fallback: "0.0.92",
     sources: [{ url: "https://registry.npmjs.org/@cline/sdk/latest", extract: clineSdkVersion }],
   },
   codex: {
     key: "codex",
-    fallback: "0.160.0",
+    fallback: "0.161.0",
     sources: [{ url: "https://registry.npmjs.org/@openai/codex/latest" }],
   },
   workbuddyClient: {
     key: "workbuddy-client",
-    fallback: "5.6.2.39458645",
+    fallback: "5.7.6.40488862",
     sources: [
       {
         url: "https://www.workbuddy.ai/v2/update?platform=workbuddy-win32-x64-user",
@@ -231,7 +245,7 @@ export const VERSION_SOURCES = {
   },
   workbuddyCli: {
     key: "workbuddy",
-    fallback: "2.161.2",
+    fallback: "2.162.0",
     sources: [
       { url: "https://registry.npmjs.org/@tencent-ai/codebuddy-code/latest" },
       { url: "https://registry.npmmirror.com/@tencent-ai/codebuddy-code/latest" },
@@ -247,18 +261,18 @@ export const VERSION_SOURCES = {
     // Tracks the Cursor CLI line the wire advertises. The pinned floor is the
     // version the adapter sends, so discovery can move it forward but an
     // upstream feed lagging behind can never silently downgrade the badge.
-    fallback: "cli-2026.08.11",
-    minVersion: "cli-2026.08.11",
-    sources: [],
+    fallback: "cli-2026.10.01-e373342",
+    minVersion: "cli-2026.10.01-e373342",
+    sources: [{ url: "https://cursor.com/install", extract: cursorCliVersion }],
   },
   kiro: {
     key: "kiro",
-    fallback: "1.2.4",
+    fallback: "1.2.37",
     sources: [{ url: "https://kiro.dev/downloads/", extract: kiroVersion }],
   },
   codebuddy: {
     key: "codebuddy",
-    fallback: "2.161.2",
+    fallback: "2.162.0",
     sources: [
       { url: "https://registry.npmjs.org/@tencent-ai/codebuddy-code/latest" },
       { url: "https://registry.npmmirror.com/@tencent-ai/codebuddy-code/latest" },
@@ -281,7 +295,7 @@ export const VERSION_SOURCES = {
     // Current `@anthropic-ai/claude-code` release, so the billing
     // `cc_version=` suffix and the `claude-cli/` User-Agent stay on what
     // upstream ships.
-    fallback: "2.1.289",
+    fallback: "2.1.293",
     sources: [{ url: "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" }],
   },
   claudeSdk: {
@@ -308,7 +322,7 @@ export const VERSION_SOURCES = {
   },
   kilo: {
     key: "kilo-code",
-    fallback: "7.8.3",
+    fallback: "7.8.8",
     sources: [{ url: "https://open-vsx.org/api/kilocode/kilo-code" }],
   },
   mimo: {
@@ -318,7 +332,7 @@ export const VERSION_SOURCES = {
   },
   muse: {
     key: "muse-code",
-    fallback: "1.4.2-R4684.1",
+    fallback: "1.4.3-R5018.1",
     sources: [{ url: "https://api.meta.ai/muse-code/channels/muse-stable" }],
   },
   zcode: {
@@ -334,28 +348,28 @@ export const VERSION_SOURCES = {
 } as const;
 
 const resolvers = {
-  antigravity: createClientVersionResolver(VERSION_SOURCES.antigravity),
-  qoder: createClientVersionResolver(VERSION_SOURCES.qoder),
-  opencode: createClientVersionResolver(VERSION_SOURCES.opencode),
-  commandcode: createClientVersionResolver(VERSION_SOURCES.commandcode),
-  grok: createClientVersionResolver(VERSION_SOURCES.grok),
-  clineClient: createClientVersionResolver(VERSION_SOURCES.clineClient),
-  clineSdk: createClientVersionResolver(VERSION_SOURCES.clineSdk),
-  codex: createClientVersionResolver(VERSION_SOURCES.codex),
-  workbuddyClient: createClientVersionResolver(VERSION_SOURCES.workbuddyClient),
-  workbuddyCli: createClientVersionResolver(VERSION_SOURCES.workbuddyCli),
-  kimiCli: createClientVersionResolver(VERSION_SOURCES.kimiCli),
-  codebuddy: createClientVersionResolver(VERSION_SOURCES.codebuddy),
-  codebuddyCn: createClientVersionResolver(VERSION_SOURCES.codebuddyCn),
-  claudeCli: createClientVersionResolver(VERSION_SOURCES.claudeCli),
-  claudeSdk: createClientVersionResolver(VERSION_SOURCES.claudeSdk),
-  kiro: createClientVersionResolver(VERSION_SOURCES.kiro),
-  cursor: createClientVersionResolver(VERSION_SOURCES.cursor),
-  github: createClientVersionResolver(VERSION_SOURCES.github),
-  kilo: createClientVersionResolver(VERSION_SOURCES.kilo),
-  mimo: createClientVersionResolver(VERSION_SOURCES.mimo),
-  muse: createClientVersionResolver(VERSION_SOURCES.muse),
-  zcode: createClientVersionResolver(VERSION_SOURCES.zcode),
+  antigravity: createClientVersionResolver({ ...VERSION_SOURCES.antigravity, client: "antigravity" }),
+  qoder: createClientVersionResolver({ ...VERSION_SOURCES.qoder, client: "qoder" }),
+  opencode: createClientVersionResolver({ ...VERSION_SOURCES.opencode, client: "opencode" }),
+  commandcode: createClientVersionResolver({ ...VERSION_SOURCES.commandcode, client: "command-code" }),
+  grok: createClientVersionResolver({ ...VERSION_SOURCES.grok, client: "grok" }),
+  clineClient: createClientVersionResolver({ ...VERSION_SOURCES.clineClient, client: "cline" }),
+  clineSdk: createClientVersionResolver({ ...VERSION_SOURCES.clineSdk, client: "cline-sdk" }),
+  codex: createClientVersionResolver({ ...VERSION_SOURCES.codex, client: "codex" }),
+  workbuddyClient: createClientVersionResolver({ ...VERSION_SOURCES.workbuddyClient, client: "workbuddy" }),
+  workbuddyCli: createClientVersionResolver({ ...VERSION_SOURCES.workbuddyCli, client: "codebuddy" }),
+  kimiCli: createClientVersionResolver({ ...VERSION_SOURCES.kimiCli, client: "kimi" }),
+  codebuddy: createClientVersionResolver({ ...VERSION_SOURCES.codebuddy, client: "codebuddy" }),
+  codebuddyCn: createClientVersionResolver({ ...VERSION_SOURCES.codebuddyCn, client: "codebuddy" }),
+  claudeCli: createClientVersionResolver({ ...VERSION_SOURCES.claudeCli, client: "claude" }),
+  claudeSdk: createClientVersionResolver({ ...VERSION_SOURCES.claudeSdk, client: "claude-sdk" }),
+  kiro: createClientVersionResolver({ ...VERSION_SOURCES.kiro, client: "kiro" }),
+  cursor: createClientVersionResolver({ ...VERSION_SOURCES.cursor, client: "cursor" }),
+  github: createClientVersionResolver({ ...VERSION_SOURCES.github, client: "github-copilot" }),
+  kilo: createClientVersionResolver({ ...VERSION_SOURCES.kilo, client: "kilo" }),
+  mimo: createClientVersionResolver({ ...VERSION_SOURCES.mimo, client: "mimo" }),
+  muse: createClientVersionResolver({ ...VERSION_SOURCES.muse, client: "muse" }),
+  zcode: createClientVersionResolver({ ...VERSION_SOURCES.zcode, client: "zcode" }),
 } satisfies Record<keyof typeof VERSION_SOURCES, ClientVersionResolver>;
 const PROVIDER_VERSION_RESOLVERS: Readonly<Record<string, ClientVersionResolver>> = {
   antigravity: resolvers.antigravity,
@@ -419,6 +433,7 @@ export const getQoderVersion = accessor("qoder").get;
 export const getAntigravityVersion = accessor("antigravity").get;
 
 export const getOpenCodeVersion = accessor("opencode").get;
+export const getCursorVersion = accessor("cursor").get;
 
 export const getCommandCodeVersion = accessor("commandcode").get;
 
