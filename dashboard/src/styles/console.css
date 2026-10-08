@@ -1516,17 +1516,14 @@ main.route-enter .state-viewport {
   }
 }
 
-/* Desktop Taskbar / Footer Clock */
+/* Clocks sit with the action buttons, each one its own box so the strip reads
+   as the same family as the command palette beside it. */
 .topbar-status {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
-  padding: 3px;
-  border: 1px solid var(--inner-border);
-  border-radius: var(--radius-pill);
-  background: var(--hover);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   white-space: nowrap;
@@ -1534,14 +1531,12 @@ main.route-enter .state-viewport {
 .topbar-status-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-}
-.topbar-status-item + .topbar-status-item {
-  border-left: 1px solid var(--inner-border);
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-control);
+  background: var(--hover);
 }
 .topbar-status svg {
   width: 13px;
@@ -1549,29 +1544,27 @@ main.route-enter .state-viewport {
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
-/* The clocks take the middle of the bar. The title grows, so this is what
-   actually centers them instead of leaving them stuck to the actions. */
-@media (min-width: 1025px) {
-  .topbar-status {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-  }
-}
-/* On mobile the bar is one row: the clocks fill it, each item an equal share,
-   instead of a short strip floating at the left. */
+/* On mobile the bar wraps and the clocks fill their own row, each an equal
+   share, instead of a short strip floating at the left. */
 @media (max-width: 1024px) {
   .app-topbar {
     flex-wrap: wrap;
   }
+  .topbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
   .topbar-status {
-    order: 3;
+    order: 1;
     flex-basis: 100%;
     justify-content: space-evenly;
   }
   .topbar-status-item {
     flex: 1;
     justify-content: center;
+    min-width: 0;
   }
 }
 
@@ -2134,6 +2127,65 @@ main.route-enter .state-viewport {
   cursor: pointer;
 }
 
+/* Chunky rounded bar, square thumb. The native range read as a bare stick and
+   a hairline track read as nothing, so this one is a solid bar the thumb
+   travels inside. One step past the numbered end means unlimited and turns
+   the fill green. */
+.routing-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 28px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--inner-border);
+  background: var(--surface-2);
+  cursor: pointer;
+  --slider-fill: var(--accent);
+}
+.routing-slider[data-unlimited="true"] {
+  --slider-fill: var(--status-success);
+}
+.routing-slider:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+.routing-slider::-webkit-slider-runnable-track {
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: linear-gradient(
+    to right,
+    var(--slider-fill) var(--slider-pct, 0%),
+    transparent var(--slider-pct, 0%)
+  );
+}
+.routing-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 18px;
+  margin-top: 5px;
+  border-radius: 4px;
+  background: var(--accent-foreground);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 35%, transparent);
+}
+.routing-slider::-moz-range-track {
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: transparent;
+}
+.routing-slider::-moz-range-progress {
+  height: 28px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--slider-fill);
+}
+.routing-slider::-moz-range-thumb {
+  width: 8px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent-foreground);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 35%, transparent);
+}
+
 @media (max-width: 600px) {
   .two-column-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -2526,6 +2578,8 @@ main.route-enter .console-log-toolbar {
 .console-log-search {
   position: relative;
   width: min(280px, 28vw);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .console-log-search > svg {
@@ -2539,7 +2593,9 @@ main.route-enter .console-log-toolbar {
 
 .console-log-search input {
   width: 100%;
+  min-width: 0;
   padding-left: 30px;
+  field-sizing: fixed;
 }
 
 .console-log-clear-icon {
@@ -2570,11 +2626,17 @@ main.route-enter .console-log-toolbar {
   .console-log-tools {
     width: 100%;
     margin-left: 0;
+    min-width: 0;
   }
 
   .console-log-search {
-    flex: 1;
+    flex: 1 1 auto;
     width: auto;
+    min-width: 0;
+  }
+  .console-log-search input {
+    width: 100% !important;
+    min-width: 0;
   }
 }
 
