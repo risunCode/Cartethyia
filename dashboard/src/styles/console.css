@@ -782,6 +782,31 @@
   flex-shrink: 0;
 }
 
+/* ===== data-table cell conventions ===== */
+/* Usage log and similar dense tables had re-declared the same mono/right
+   numeric cell styles inline per <td>; these classes own them. */
+.data-table td.num {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.data-table td.mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table .subline {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
+}
+
 /* Mobile: the credential row stacks — header, facts, then actions full-width —
    and the fact pills sit in an even grid instead of wrapping into a wall. */
 @media (max-width: 640px) {

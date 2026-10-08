@@ -741,8 +741,7 @@ function BreakdownSnapshot({
                       style={{ minWidth: 0, flex: 1, fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600 }}
                     >
                       {displayName}
-                    </span>
-                    <span
+                    </span>                    <span
                       style={{
                         flexShrink: 0,
                         fontSize: "10px",
@@ -1702,16 +1701,7 @@ export default function Usage(): ReactNode {
                           {hideProviderName ? "Mysterious" : rowProviderId ? (providerNames.get(rowProviderId) ?? rowProviderId) : "—"}
                         </span>
                       </div>
-                      <div
-                        className="truncate"
-                        title={row.model ?? "—"}
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11px",
-                          color: "var(--text-tertiary)",
-                          marginTop: "1px",
-                        }}
-                      >
+                      <div className="truncate subline" title={row.model ?? "—"}>
                         {hideProviderName && row.model && row.model.includes("/")
                           ? row.model.slice(row.model.indexOf("/") + 1)
                           : row.model ?? "—"}
@@ -1725,16 +1715,7 @@ export default function Usage(): ReactNode {
                       >
                         {usageApiKeyLabel(row)}
                       </div>
-                      <div
-                        className="truncate"
-                        title={usageClientLabel(row)}
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11px",
-                          color: "var(--text-tertiary)",
-                          marginTop: "1px",
-                        }}
-                      >
+                      <div className="truncate subline" title={usageClientLabel(row)}>
                         {usageClientLabel(row)}
                       </div>
                     </td>
@@ -1757,21 +1738,11 @@ export default function Usage(): ReactNode {
                           httpStatus={row.httpStatus}
                         />
                       </div>
-                      <div
-                        className="truncate"
-                        title={surfaceFamilyLabel(row.surface)}
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11px",
-                          color: "var(--text-tertiary)",
-                          marginTop: "1px",
-                          maxWidth: "220px",
-                        }}
-                      >
+                      <div className="truncate subline" title={surfaceFamilyLabel(row.surface)} style={{ maxWidth: "220px" }}>
                         {surfaceFamilyLabel(row.surface)}
                       </div>
                     </td>
-                    <td style={{ fontFamily: "var(--font-mono)", fontSize: "11px", whiteSpace: "nowrap", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    <td className="mono">
                       <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--text-secondary)" }}>
                           <ArrowUp size={10} aria-label="Input tokens" /> IN {formatNumber(row.inputTokens)}
@@ -1800,10 +1771,10 @@ export default function Usage(): ReactNode {
                         ) : null}
                       </div>
                     </td>
-                    <td style={{ fontFamily: "var(--font-mono)", fontSize: "11.5px", textAlign: "right", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                    <td className="num" style={{ whiteSpace: "nowrap" }}>
                       {formatSpeed(row.tokensPerSec)}
                     </td>
-                    <td style={{ fontFamily: "var(--font-mono)", fontSize: "11.5px", textAlign: "right", color: "var(--text-secondary)" }}>
+                    <td className="num">
                       <div>{formatDuration(row.ttfbMs)}</div>
                       {row.resolveMs !== undefined ? (
                         <div
@@ -1814,7 +1785,7 @@ export default function Usage(): ReactNode {
                         </div>
                       ) : null}
                     </td>
-                    <td style={{ fontFamily: "var(--font-mono)", fontSize: "11.5px", textAlign: "right", color: "var(--text-secondary)" }}>
+                    <td className="num">
                       {formatDuration(row.durationMs)}
                     </td>
                     </tr>
