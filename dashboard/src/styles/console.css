@@ -1448,33 +1448,59 @@ html[data-theme="dark"] .app-bg {
 .topbar-status {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
-  margin-left: auto;
+  padding: 3px;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-pill);
+  background: var(--hover);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   white-space: nowrap;
 }
-/* Below the width where the title, the clocks, and the actions all fit, the
-   clocks drop to their own row instead of crushing the title. */
-@media (max-width: 1180px) {
-  .app-topbar {
-    flex-wrap: wrap;
-  }
-  .topbar-status {
-    order: 3;
-    flex-basis: 100%;
-    margin-left: 0;
-    padding-top: 4px;
-    border-top: 1px solid var(--inner-border);
-  }
+.topbar-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+.topbar-status-item + .topbar-status-item {
+  border-left: 1px solid var(--inner-border);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 .topbar-status svg {
   width: 13px;
   height: 13px;
   color: var(--text-tertiary);
   flex-shrink: 0;
+}
+/* The clocks take the middle of the bar. The title grows, so this is what
+   actually centers them instead of leaving them stuck to the actions. */
+@media (min-width: 1025px) {
+  .topbar-status {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+/* On mobile the bar is one row: the clocks fill it, each item an equal share,
+   instead of a short strip floating at the left. */
+@media (max-width: 1024px) {
+  .app-topbar {
+    flex-wrap: wrap;
+  }
+  .topbar-status {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: space-evenly;
+  }
+  .topbar-status-item {
+    flex: 1;
+    justify-content: center;
+  }
 }
 
 .status-indicator-dot {

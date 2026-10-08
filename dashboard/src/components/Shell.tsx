@@ -647,7 +647,6 @@ export function DashboardShell({
   const pull = usePullToRefresh(() => queryClient.invalidateQueries());
 
   const isHealthy = healthQuery.data?.status === "healthy";
-  const healthError = healthQuery.isError;
   const uptimeSeconds = healthQuery.data?.uptime_seconds;
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -848,16 +847,18 @@ export function DashboardShell({
             </div>
 
             <div className="topbar-status">
-              <span
-                className={`status-indicator-dot ${healthError ? "offline" : isHealthy ? "online" : "pulse"}`}
-                title={healthError ? "System offline" : isHealthy ? "All systems operational" : "Connecting to gateway…"}
-              />
-              <Globe size={13} aria-hidden="true" />
-              <span title="UTC time">{utcTime} UTC</span>
-              <Clock size={13} aria-hidden="true" />
-              <span title="Server system time">{systemTime}</span>
-              <Timer size={13} aria-hidden="true" />
-              <span title="Gateway uptime">up {formatUptime(uptimeSeconds)}</span>
+              <span className="topbar-status-item" title="UTC time">
+                <Globe size={13} aria-hidden="true" />
+                {utcTime} UTC
+              </span>
+              <span className="topbar-status-item" title="Server system time">
+                <Clock size={13} aria-hidden="true" />
+                {systemTime}
+              </span>
+              <span className="topbar-status-item" title="Gateway uptime">
+                <Timer size={13} aria-hidden="true" />
+                up {formatUptime(uptimeSeconds)}
+              </span>
             </div>
 
             <div className="topbar-actions">
