@@ -463,10 +463,7 @@ export class ProviderProbingService {
         : computeProbeVerdict({
             events,
             dispatchError,
-            providerId,
-            modelId,
             wireFamily,
-            endpointPath,
           });
 
     const requestId = crypto.randomUUID();

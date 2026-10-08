@@ -190,11 +190,35 @@ function renderChunk(chunk: unknown, params: SQLQueryBindings[]): string {
   if (typeof chunk === "object" && chunk !== null && Array.isArray((chunk as { value?: unknown }).value)) {
     return ((chunk as { value: string[] }).value).join("");
   }
+  // A table, column, or quoted name is SQL text, not a bound value. Rendering
+  // one as a placeholder produces `DELETE FROM ?`, which SQLite rejects with
+  // `near "?": syntax error` — the failure the payload sweep logs every pass.
+  const kind = drizzleKind(chunk);
+  if (kind === "Table") {
+    return `"${getTableName(chunk as Parameters<typeof getTableName>[0])}"`;
+  }
+  if (kind === "Name") return `"${(chunk as { value: string }).value}"`;
+  if (kind === "Column") return `"${(chunk as { name: string }).name}"`;
   const value = chunk instanceof Date ? chunk.toISOString() : chunk;
   params.push(value as SQLQueryBindings);
   return "?";
 }
 
+
+function drizzleKind(chunk: unknown): string | undefined {
+  if (typeof chunk !== "object" || chunk === null) return undefined;
+  // A pg column's own kind is `PgUUID` or `PgTimestamp`, not `Column`. Walk
+  // the constructors: the base `Column` marks every one of them.
+  let ctor = chunk.constructor as { [entityKind]?: unknown } | null;
+  while (ctor !== null && ctor !== Function.prototype) {
+    const kind = ctor[entityKind];
+    if (kind === "Column" || kind === "Table" || kind === "Name") return kind;
+    ctor = Object.getPrototypeOf(ctor) as { [entityKind]?: unknown } | null;
+  }
+  return undefined;
+}
+
+const entityKind = Symbol.for("drizzle:entityKind");
 function singleTable(sql: string): string | undefined {
     const tables = [...sql.matchAll(/\b(?:from|join)\s+"?([a-z0-9_]+)"?/gi)].map((match) => match[1]);
   const distinct = new Set(tables);

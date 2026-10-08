@@ -609,12 +609,9 @@ export interface ProbeVerdict {
 export function computeProbeVerdict(args: {
   readonly events: readonly CanonicalEvent[];
   readonly dispatchError: unknown;
-  readonly providerId: string;
-  readonly modelId: string;
   readonly wireFamily: WireFamily;
-  readonly endpointPath: string;
 }): ProbeVerdict {
-  const { events, dispatchError, providerId, modelId, wireFamily, endpointPath } = args;
+  const { events, dispatchError, wireFamily } = args;
   const terminal = events.find((event) => event.type === "terminal");
   const producedReasoning = events.some(
     (event) => event.type === "content_delta" && event.content.kind === "reasoning",
