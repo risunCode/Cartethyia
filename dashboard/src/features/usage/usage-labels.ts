@@ -12,8 +12,9 @@ export interface UsageKeyIdentity {
 
 export function isProbeRequest(row: UsageKeyIdentity | null | undefined): boolean {
   if (!row) return false;
-  if (row.userAgent === PROBE_USER_AGENT) return true;
-  return !row.apiKeyId;
+  // Only a real probe. A missing key is not one: an early rejection and a
+  // keyless request both lack it, and labelling them probes hid that.
+  return row.userAgent === PROBE_USER_AGENT;
 }
 
 export function usageApiKeyLabel(row: UsageKeyIdentity | null | undefined): string {

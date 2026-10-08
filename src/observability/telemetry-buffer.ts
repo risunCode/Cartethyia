@@ -95,6 +95,9 @@ function telemetryEventRow(event: TelemetryEventInput) {
   return {
     tenantId: event.tenantId,
     requestId: event.requestId,
+    // Stamped here, not by the reader. A row without it has no real time, and a
+    // reader that invented one made every such row look like it happened just now.
+    createdAt: new Date(),
     sourceSurface: event.sourceSurface,
     requestedModel: event.requestedModel,
     requestedEffort: event.requestedEffort ?? null,

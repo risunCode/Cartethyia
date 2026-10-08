@@ -56,8 +56,10 @@ function asNumber(value: unknown): number | null {
 function normalize(raw: Record<string, unknown>): TelemetryEventRecord | undefined {
   const tenantId = asString(raw["tenantId"]);
   const requestId = asString(raw["requestId"]);
-  const createdAt = asString(raw["createdAt"]) ?? new Date().toISOString();
-  if (!tenantId || !requestId) return undefined;
+  const createdAt = asString(raw["createdAt"]);
+  // No time means the row cannot be ordered or aged out. Inventing one made
+  // every undated row reappear as "just now" on each read.
+  if (!tenantId || !requestId || !createdAt) return undefined;
   return {
     id: asString(raw["id"]) ?? requestId,
     createdAt,
