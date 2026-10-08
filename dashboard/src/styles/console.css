@@ -1283,37 +1283,42 @@ main.route-enter {
   display: flex;
   flex-direction: column;
 }
+/* The page root is a flex column so a page that opts in (Model Lab's own
+   `flex: 1`, Console Log's scroll region) can fill the floor. It must not
+   also force every card to split that height: a card's height comes from its
+   content, and a grid page root (settings) must keep the display its own
+   class declares. Forcing `display: flex` here is what collapsed
+   `.settings-column` from a 2-column grid into a stack, and `flex: 1 1 0`
+   on every card is what shrank the Compression card below its content so the
+   second row painted over the card beneath it. */
 main.route-enter > * {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
+}
+main.route-enter > .card-solid,
+main.route-enter > .card-glass,
+main.route-enter > .card-muted {
   display: flex;
   flex-direction: column;
 }
-
-/* Direct card children split the page height (e.g. combos 50/50). Without this
-   a short page would stop mid-viewport instead of reaching the footer. Scoped
-   to the standard stacked layout so settings-column and overview keep their
-   auto-height cards. */
-main.route-enter > *:not(.settings-column) > .card-solid,
-main.route-enter > *:not(.settings-column) > .card-glass,
-main.route-enter > *:not(.settings-column) > .card-muted {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-main.route-enter .card-solid:last-child,
-main.route-enter .card-glass:last-child,
-main.route-enter .card-muted:last-child {
+/* The last card of a stacked page absorbs leftover height, so a short page
+   (one card, or a stack whose earlier cards are content-sized) still reaches
+   the footer. Earlier cards stay content-sized: `flex-basis: 0` would shrink
+   them below their content whenever the stack is taller than the floor. */
+main.route-enter > :not(.settings-column) > .card-solid:last-child,
+main.route-enter > :not(.settings-column) > .card-glass:last-child,
+main.route-enter > :not(.settings-column) > .card-muted:last-child {
   flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
 }
+/* Settings is a grid, not a stack, so none of its cards should grow to fill a
+   flex line — that growth is what stretched Backup over the row Security and
+   Privacy are meant to share. */
 .settings-column > .card-solid,
 .settings-column > .card-glass,
-.settings-column > .card-muted,
-.dashboard-page > .card-solid,
-.dashboard-page > .card-glass,
-.dashboard-page > .card-muted {
-  flex: 0 0 auto;
+.settings-column > .card-muted {
   height: auto;
   min-height: 0;
 }
@@ -1326,8 +1331,9 @@ main.route-enter .card-body-content {
 }
 .console-log-toolbar {
   flex: 0 0 auto !important;
+  flex-direction: row;
+  align-items: center;
   min-height: 0;
-  flex-wrap: wrap;
 }
 /* Tables keep card width; scoped to the container so grids do not get a forced
    min-width that makes cells overflow and cards overlap. */
@@ -2234,12 +2240,18 @@ main.route-enter .state-viewport {
 /* Console Log rows, toolbar, filters, and provider routing pins. */
 /* Console Log — structured request rows plus plain server output. */
 .console-log-page {
-  container-type: inline-size;
+  container-type: size;
   container-name: console-log;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .console-log-scroll {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
   padding: 0;
   background: #050606;
@@ -2493,8 +2505,9 @@ main.route-enter .state-viewport {
   background: var(--red-soft);
   color: var(--red);
 }
-.console-log-toolbar {
+main.route-enter .console-log-toolbar {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
   gap: 16px;

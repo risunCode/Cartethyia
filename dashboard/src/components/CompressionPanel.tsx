@@ -54,12 +54,10 @@ export function CompressionPanel(): ReactNode {
             style={{
               display: "flex",
               alignItems: "flex-start",
-              justifyContent: "space-between",
-              gap: "10px 12px",
-              flexWrap: "wrap",
+              gap: "10px 16px",
             }}
           >
-            <div style={{ display: "flex", gap: "10px", minWidth: 0 }}>
+            <div style={{ display: "flex", gap: "10px", minWidth: 0, flex: "1 1 auto" }}>
               <Scissors size={16} style={{ flexShrink: 0, marginTop: "2px", color: "var(--text-secondary)" }} />
               <div style={{ minWidth: 0 }}>
                 <label htmlFor="compression-rtk">
@@ -74,7 +72,7 @@ export function CompressionPanel(): ReactNode {
                 </div>
               </div>
             </div>
-            <Inline gap="8px" style={{ flexShrink: 0, alignItems: "center" }}>
+            <Inline gap="8px" style={{ flexShrink: 0, alignItems: "center", marginLeft: "auto" }}>
               <Select
                 id="compression-rtk-level"
                 aria-label="RTK strength"
@@ -119,12 +117,10 @@ export function CompressionPanel(): ReactNode {
             style={{
               display: "flex",
               alignItems: "flex-start",
-              justifyContent: "space-between",
-              gap: "10px 12px",
-              flexWrap: "wrap",
+              gap: "10px 16px",
             }}
           >
-            <div style={{ display: "flex", gap: "10px", minWidth: 0 }}>
+            <div style={{ display: "flex", gap: "10px", minWidth: 0, flex: "1 1 auto" }}>
               <Sparkles size={16} style={{ flexShrink: 0, marginTop: "2px", color: "var(--text-secondary)" }} />
               <div style={{ minWidth: 0 }}>
                 <label htmlFor="compression-ponytail">
@@ -138,7 +134,7 @@ export function CompressionPanel(): ReactNode {
                 </div>
               </div>
             </div>
-            <Inline gap="8px" style={{ flexShrink: 0, alignItems: "center" }}>
+            <Inline gap="8px" style={{ flexShrink: 0, alignItems: "center", marginLeft: "auto" }}>
               <Select
                 id="compression-ponytail-level"
                 aria-label="PonyTail strength"
