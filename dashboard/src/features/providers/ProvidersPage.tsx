@@ -12,6 +12,7 @@ import { modelCoolingCount } from "../../components/AccountCooldown";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
+import { ListRow } from "../../components/ui/list-row";
 import { Dialog } from "../../components/ui/dialog";
 import { DialogActions } from "../../components/ui/dialog-actions";
 import { Input } from "../../components/ui/input";
@@ -291,16 +292,7 @@ function AddCompatibleModal({
             </div>
           ) : null}
         </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            border: "1px solid var(--inner-border)",
-          }}
-        >
+        <ListRow style={{ justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: "13px", fontWeight: 600 }}>Auto-fetch models</div>
             <div className="form-section-caption">
@@ -308,17 +300,8 @@ function AddCompatibleModal({
             </div>
           </div>
           <Switch checked={autoFetchModels} onChange={setAutoFetchModels} id="compat-autofetch" />
-        </div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            border: "1px solid var(--inner-border)",
-          }}
-        >
+        </ListRow>
+        <ListRow style={{ justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: "13px", fontWeight: 600 }}>
               {isAnthropic ? "Send request as Claude CLI" : "Send request as Codex CLI"}
@@ -330,7 +313,7 @@ function AddCompatibleModal({
             </div>
           </div>
           <Switch checked={sendCliIdentity} onChange={setSendCliIdentity} id="compat-cli-identity" />
-        </div>
+        </ListRow>
         <HeaderPairsEditor pairs={headerPairs} onChange={setHeaderPairs} />
         <Inline justify="flex-end" gap="8px" style={{ marginTop: "8px" }}>
           <Button variant="secondary" type="button" onClick={onClose}>

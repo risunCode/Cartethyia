@@ -2941,23 +2941,27 @@ main.route-enter .console-log-toolbar {
 }
 
 /* Sits between the search and the sort controls, so the row reads
-   search · actions · sort on a desktop card. */
+   search · actions · sort on a desktop card. Wraps so a narrow card never
+   pushes the buttons past the card edge. */
 .account-bulk-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   min-width: 0;
 }
 
-/* Sizes to its content and sits at the row's end. A fixed grid column is
-   what opened the gap between the divider and the Sort label. */
+/* Sizes to its content and sits at the row's end. Wraps so Sort and Select
+   all drop to the next line instead of overflowing a narrow card. */
 .account-toolbar-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
   padding-left: 12px;
   border-left: 1px solid var(--inner-border);
+  min-width: 0;
 }
 
 /* The sort label, the dropdown, and Select all share the action buttons'

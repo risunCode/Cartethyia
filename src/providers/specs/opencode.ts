@@ -105,8 +105,35 @@ function ensureFreeAgentRequest(request: CanonicalRequest): CanonicalRequest {
   const missing: ToolDefinition[] = FREE_AGENT_TOOLS.filter((tool) => !names.has(tool.name)).map(
     (tool) => ({ name: tool.name, description: tool.description, jsonSchema: { type: "object", properties: {} } }),
   );
-  if (missing.length === 0 && request.stream) return request;
-  return { ...request, stream: true, tools: [...(request.tools ?? []), ...missing] };
+  const temperature = snapRestrictedTemperature(request);
+  if (missing.length === 0 && request.stream && temperature === undefined) return request;
+  return {
+    ...request,
+    stream: true,
+    tools: [...(request.tools ?? []), ...missing],
+    ...(temperature === undefined
+      ? {}
+      : { generation_controls: { ...request.generation_controls, temperature } }),
+  };
+}
+
+/**
+ * Models that answer `invalid temperature: only 0, 0.6 or 1 is allowed` to any
+ * other value. Confirmed on `fledge-alpha-free`; the match is on the model id
+ * so a sibling that ships under the same name is covered without listing every
+ * dated snapshot. A value already in the set passes through untouched.
+ */
+const RESTRICTED_TEMPERATURE_MODELS: readonly string[] = ["fledge-alpha-free"];
+const ALLOWED_TEMPERATURES: readonly number[] = [0, 0.6, 1];
+
+function snapRestrictedTemperature(request: CanonicalRequest): number | undefined {
+  const model = request.model.toLowerCase();
+  if (!RESTRICTED_TEMPERATURE_MODELS.some((name) => model.includes(name))) return undefined;
+  const temperature = request.generation_controls.temperature;
+  if (typeof temperature !== "number" || ALLOWED_TEMPERATURES.includes(temperature)) return undefined;
+  return ALLOWED_TEMPERATURES.reduce((nearest, candidate) =>
+    Math.abs(candidate - temperature) < Math.abs(nearest - temperature) ? candidate : nearest,
+  );
 }
 
 

@@ -160,7 +160,10 @@ export function useShareData<TData>(
 
     // SSE mode. EventSource reconnects on its own for transient drops; this
     // loop owns the "stream ended / never opened" case so the section keeps
-    // updating instead of freezing on its last frame.
+    // updating instead of freezing on its last frame. The first failure clears
+    // `loading` so the section can say the activity is unavailable instead of
+    // spinning forever; retries continue and a later snapshot still applies.
+    let failedOnce = false;
     const connect = () => {
       if (!active) return;
       const next = new EventSource(path);
@@ -176,6 +179,10 @@ export function useShareData<TData>(
       next.addEventListener("error", () => {
         next.close();
         if (!active) return;
+        if (!failedOnce) {
+          failedOnce = true;
+          setState((current) => (current.data === null ? { ...current, loading: false } : current));
+        }
         retryTimer = setTimeout(connect, STREAM_RETRY_MS);
       });
     };

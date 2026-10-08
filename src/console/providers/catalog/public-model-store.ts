@@ -333,9 +333,9 @@ export class PublicModelCatalogStore {
       .innerJoin(providers, eq(models.providerId, providers.id))
       .where(and(eq(models.enabled, true), eq(providers.enabled, true), providerScope));
 
-    // Only expose models whose provider is either No-auth (requiresAccount=false,
-    // e.g. opencodefree) or has at least one active account for this tenant.
-    // This mirrors 21 beta's "No auth dan yang disetel apikey/oauth aja".
+    // A model is exposed only when its provider has an active account for this
+    // tenant. This matches the console model picker, so an API key never
+    // advertises a provider the operator has not configured.
     const activeProviderIds = new Set<string>();
     if (tenantId !== null) {
       const activeAccounts = await this.db
@@ -377,8 +377,11 @@ export class PublicModelCatalogStore {
 
     const modelEntries: AllowedModelEntry[] = rows
       .filter((row) => {
-        if (row.providerRequiresAccount === false) return true;
-        if (tenantId === null) return false;
+        // A provider is listed only when the tenant has an active account for
+        // it — the same rule the console model picker applies. A no-auth
+        // provider with nothing configured is not "set", so it stays hidden
+        // until the operator adds an account.
+        if (tenantId === null) return row.providerRequiresAccount === false;
         return activeProviderIds.has(row.providerId);
       })
       .filter((row) =>

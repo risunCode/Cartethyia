@@ -790,7 +790,6 @@ export function AccountsList({
             onValueChange={(value) => setSort(value as AccountSortValue)}
             options={ACCOUNT_SORT_OPTIONS}
             aria-label="Sort accounts by"
-            style={{ width: "150px" }}
           />
         </label>
         {showGrokProbe ? (

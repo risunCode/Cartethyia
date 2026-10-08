@@ -361,6 +361,33 @@ export async function fetchClineRecommendedModels(
   return getCachedModelDiscovery(`cline-recommended:${pass ? "pass" : "free"}`, load);
 }
 
+/**
+ * Whether the credential belongs to a Cline Pass account.
+ *
+ * Reads the same `/users/me/plan` endpoint the quota collector uses. A pass
+ * account is the only one allowed to see the `clinePass`/`clineCloud` roster;
+ * any failure answers `false`, so a free account never has subscription rows
+ * written into its catalog.
+ */
+export async function clineAccountHasPass(
+  credential: string,
+  fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = globalThis.fetch,
+): Promise<boolean> {
+  try {
+    const token = credential.startsWith("workos:") ? credential : `workos:${credential}`;
+    const res = await fetcher("https://api.cline.bot/api/v1/users/me/plan", {
+      headers: { accept: "application/json", authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { plan?: { displayName?: unknown } };
+    const name = typeof body.plan?.displayName === "string" ? body.plan.displayName.toLowerCase() : "";
+    return name.includes("pass");
+  } catch {
+    return false;
+  }
+}
+
 /** Cline's model catalog, indexed for limit lookup. Empty when unavailable. */
 async function fetchClineUpstreamCatalog(
   fetcher: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,

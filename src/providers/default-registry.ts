@@ -312,16 +312,15 @@ export const PROVIDER_CAPABILITIES = {
     loadModels: async () => (await import("./integrations/cline/cline")).CLINE_MODELS,
     loadAuthentication: oauthCapability(() => import("./integrations/cline/cline-oauth"), "clineOAuthClient", { withRefresher: true }),
     loadQuotaCollector: quotaCapability(() => import("./integrations/cline/cline-quota"), "fetchClineQuota"),
-    loadModelDiscovery: async () => async ({ fetcher }) => {
-      const { fetchClineRecommendedModels } = await import("./integrations/cline/cline");
-      // `pass: false` reads only `recommended` + `free`. This gateway carries
-      // Cline as one provider, and discovery persists whatever the resolver
-      // returns for every account of it, so asking for the pass roster wrote
-      // subscription rows into the catalog of an operator who may hold no pass
-      // — rows whose dispatch can only 401. The free tier is what this
-      // discovery is for; a pass account reconciles the rest through the same
-      // "Fetch models" action once the roster has a home of its own.
-      return fetchClineRecommendedModels(undefined, false, fetcher ?? globalThis.fetch);
+    loadModelDiscovery: async () => async ({ credential, fetcher }) => {
+      const { fetchClineRecommendedModels, clineAccountHasPass } = await import("./integrations/cline/cline");
+      const transport = fetcher ?? globalThis.fetch;
+      // A pass account may use every bucket the roster publishes, including
+      // `clinePass` and `clineCloud`; a free account must not have those rows
+      // persisted, because dispatching one can only 401. The plan endpoint is
+      // the same one the quota collector already reads.
+      const pass = credential.length > 0 && (await clineAccountHasPass(credential, transport));
+      return fetchClineRecommendedModels(undefined, pass, transport);
     },
     modelDiscoveryRequiresCredential: false,
   },
