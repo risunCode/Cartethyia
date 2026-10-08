@@ -425,7 +425,7 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
     setCursorStack([]);
   };
   return (
-    <Card style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+    <Card className="console-log-page" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
       <CardHeader
         title="Admin Audit Trail"
         subtitle="Every privileged console mutation, retained on its own lifecycle"
@@ -446,13 +446,11 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
         }
       />
       <CardBody
+        className="console-log-toolbar"
         style={{
           padding: "10px 16px",
-          display: "flex",
           gap: "12px",
           alignItems: "flex-end",
-          flexShrink: 0,
-          borderBottom: "1px solid var(--inner-border)",
         }}
       >
         <Input
@@ -482,68 +480,29 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
           </Button>
         </div>
       </CardBody>
-      <CardBody
-        style={{
-          padding: 0,
-          flex: 1,
-          minHeight: 0,
-          display: "flex",
-          flexDirection: "column",
-          overflowY: "auto",
-        }}
-      >
-        {query.isPending && entries.length === 0 ? (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "32px",
-            }}
-          >
+      <CardBody style={{ padding: 0, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <div className="console-log-scroll" style={{ background: "transparent", color: "inherit" }}>
+          {query.isPending && entries.length === 0 ? (
             <LoadingState label="Loading audit trail…" />
-          </div>
-        ) : query.isError && entries.length === 0 ? (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "32px",
-            }}
-          >
+          ) : query.isError && entries.length === 0 ? (
             <ErrorState
               message={getErrorMessage(query.error, "Unable to load audit trail.")}
               onRetry={() => void query.refetch()}
             />
-          </div>
-        ) : entries.length === 0 ? (
-          <div
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "32px",
-            }}
-          >
+          ) : entries.length === 0 ? (
             <EmptyState
               title="No audit entries yet"
               message="Privileged mutations (provider changes, key rotations, backups, bans) will appear here."
               icon={<ShieldCheck size={20} />}
             />
-          </div>
-        ) : (
-          <div style={{ flex: 1, overflowY: "auto" }}>
+          ) : (
             <DataTable headers={["Timestamp", "Actor", "Action", "Target", "Detail"]}>
               {entries.map((entry) => (
                 <AuditRow key={entry.id} entry={entry} />
               ))}
             </DataTable>
-          </div>
-        )}
+          )}
+        </div>
       </CardBody>
     </Card>
   );
