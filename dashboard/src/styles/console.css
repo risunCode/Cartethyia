@@ -220,16 +220,14 @@
   animation: dialog-panel-out var(--dur-micro) var(--ease-spring) both;
 }
 
-/* Small screens: dialogs become near-full-viewport bottom sheets so form
-   grids and tables never clip horizontally. Short panels (confirm dialogs) still center instead of hugging edges. */
+/* Small screens: dialogs stay centered like on desktop; the panel just loses
+   a little side margin so form grids and tables never clip horizontally. */
 @media (max-width: 640px) {
   .dialog-overlay {
-    align-items: stretch;
     padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
   }
   .dialog-panel,
   .modal-window {
-    margin: auto 0 0;
     max-height: calc(100dvh - 24px);
   }
   .dialog-panel.expanded,

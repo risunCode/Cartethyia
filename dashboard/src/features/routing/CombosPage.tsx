@@ -1,4 +1,4 @@
-import { ArrowRight, Copy, CopyPlus, GripVertical, Layers, Pencil, Plus, Route, Search, Trash2, X } from "lucide-react";
+import { ArrowRight, Copy, CopyPlus, Layers, Pencil, Plus, Route, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
@@ -718,10 +718,6 @@ function CombosSection(): ReactNode {
                         boxSizing: "border-box",
                       }}
                     >
-                      <GripVertical
-                        size={12}
-                        style={{ color: "var(--text-tertiary)", flexShrink: 0, cursor: "grab" }}
-                      />
                       <code
                         style={{
                           fontFamily: "var(--font-mono)",
