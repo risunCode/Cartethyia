@@ -693,6 +693,95 @@
   letter-spacing: 0.03em;
 }
 
+/* ===== shared list row ===== */
+/* One row of a managed list (credential, alias, combo, account). Owns the
+   row card that pages previously re-declared inline: surface, border,
+   radius, padding. */
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--inner-border);
+  background: var(--surface-2);
+  min-width: 0;
+}
+
+.list-row-compact {
+  padding: 6px 10px;
+  border-radius: 8px;
+  gap: 8px;
+}
+
+.list-row-leading {
+  flex-shrink: 0;
+}
+
+.list-row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.list-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* ===== shared code chip ===== */
+/* A monospaced value chip (model id, alias, member). One class owns the
+   mono font/size that pages re-declared inline as
+   fontFamily: "var(--font-mono)". */
+.code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-chip-value {
+  font: inherit;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-chip-plain .code-chip-value {
+  color: var(--text-secondary);
+}
+
+.code-chip-muted {
+  color: var(--text-secondary);
+  background: var(--surface-3);
+  border: 1px solid var(--inner-border);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.code-chip-accent {
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.code-chip-action {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 /* Mobile: the credential row stacks — header, facts, then actions full-width —
    and the fact pills sit in an even grid instead of wrapping into a wall. */
 @media (max-width: 640px) {
