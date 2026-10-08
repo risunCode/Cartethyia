@@ -415,7 +415,11 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
                   hasData={false}
                 />
               ) : accounts.length === 0 ? (
-                <Badge>No connections</Badge>
+                customProvider.requiresAccount === false ? (
+                  <Badge tone="ok">Free Endpoint</Badge>
+                ) : (
+                  <Badge>No connections</Badge>
+                )
               ) : (
                 <AccountStatusBadges counts={counts} total={accounts.length} />
               )}
@@ -898,7 +902,11 @@ const ProviderCard = memo(function ProviderCard({
                   hasData={false}
                 />
               ) : accounts.length === 0 ? (
-                <Badge>No connections</Badge>
+                provider.requiresAccount === false ? (
+                  <Badge tone="ok">Free Endpoint</Badge>
+                ) : (
+                  <Badge>No connections</Badge>
+                )
               ) : (
                 <AccountStatusBadges counts={counts} total={accounts.length} />
               )}
