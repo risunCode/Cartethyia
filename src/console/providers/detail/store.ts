@@ -5,7 +5,7 @@ import { providerRoutingSettings } from "../../../persistence/schema";
 import { resolveTenantOverride } from "../../../persistence/tenant-scope";
 import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../../../providers/metadata";
 import type { ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../catalog/contracts";
-import { DEFAULT_PROVIDER_USER_AGENT } from "../../../persistence/schema";
+import { DEFAULT_PROVIDER_MAX_INFLIGHT, DEFAULT_PROVIDER_USER_AGENT } from "../../../persistence/schema";
 import type { ProviderDetailStore } from "./contracts";
 function mapRow(row: typeof providerRoutingSettings.$inferSelect): ProviderRoutingResponse {
   return {
@@ -63,7 +63,7 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       tenantId,
       strategy: "fallback",
       rotateCount: 1,
-      maxInflight: null,
+      maxInflight: DEFAULT_PROVIDER_MAX_INFLIGHT,
       enabled: false,
       bypassProxy: DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
       userAgent: DEFAULT_PROVIDER_USER_AGENT,

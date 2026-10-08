@@ -15,6 +15,7 @@ import {
   cliToolMappings,
   cliToolSettings,
 } from "../../persistence/schema";
+import { DEFAULT_PROVIDER_MAX_INFLIGHT } from "../../persistence/schema";
 import "../../providers/integrations/claude/claude-oauth";
 import "../../providers/integrations/codex/codex-oauth";
 import { resolveTenantOverride } from "../../persistence/tenant-scope";
@@ -407,11 +408,9 @@ class RouteCatalogRepository {
     }
 
     /** Provider-wide concurrency ceiling shared by every account of the provider.
-     * Tenant setting wins over global, mirroring bypassProxy. `undefined`
-     * means UNLIMITED — an empty field never falls back to the deployment
-     * ceiling. Per-account overrides are intentionally unsupported: the only
-     * per-account column ever to hold one was `provider_accounts.max_inflight`,
-     * dropped by `0001_converge_schema.sql`. */
+     * Tenant setting wins over global, mirroring bypassProxy. A stored `null`
+     * is the explicit unlimited choice; a provider with no routing row at all
+     * falls back to `DEFAULT_PROVIDER_MAX_INFLIGHT` rather than unlimited. */
     function resolveMaxInflight(
       providerId: string,
       rowTenantId: string | null,
@@ -421,7 +420,8 @@ class RouteCatalogRepository {
         : undefined;
       const globalSetting = providerRouting.__global__?.[providerId]?.maxInflight;
       const resolved = tenantSetting ?? globalSetting;
-      return resolved === null || resolved === undefined ? undefined : resolved;
+      if (resolved === null) return undefined;
+      return resolved ?? DEFAULT_PROVIDER_MAX_INFLIGHT;
     }
 
     /** Every active pool the account's tenant owns — dispatch picks the

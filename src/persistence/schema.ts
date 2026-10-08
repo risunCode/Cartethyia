@@ -472,6 +472,14 @@ export type ProviderRoutingStrategy = (typeof providerRoutingStrategy.enumValues
  */
 export const DEFAULT_PROVIDER_USER_AGENT = "codex_cli_rs/0.156.1" as const;
 
+/**
+ * Per-account inflight ceiling applied when a provider has no routing row yet.
+ * One literal: the console default and the route catalog's fallback both read
+ * it. `null` stays the explicit "unlimited" choice; only the absence of a row
+ * reads as this number.
+ */
+export const DEFAULT_PROVIDER_MAX_INFLIGHT = 5 as const;
+
 export const providerRoutingSettings = pgTable(
   "provider_routing_settings",
   {
