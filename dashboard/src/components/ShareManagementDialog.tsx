@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Link2, RefreshCw, RotateCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff, Link2, RefreshCw, RotateCw } from "lucide-react";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -11,6 +11,7 @@ import { quotaBarTone } from "../shared/quota-formatters";
 import type { ApiKeyResponse, SharedKeyActivityDetail, SharedKeySummary } from "../data/contracts";
 import {
   useRegenerateApiKey,
+  useRevealApiKey,
   useRevokeSharedKey,
   useShareApiKey,
   useShareLink,
@@ -29,6 +30,54 @@ function compactTokens(value: number | null | undefined): string {
   if (amount >= 1_000_000) return `${Number((amount / 1_000_000).toFixed(2))}M`;
   if (amount >= 1_000) return `${Number((amount / 1_000).toFixed(2))}K`;
   return amount.toLocaleString();
+}
+/**
+ * A personal key's stored secret, hidden until the owner asks for it. The
+ * reveal is a round trip because the list never carries the plaintext; once
+ * it is back, Copy takes it verbatim.
+ */
+function PersonalKeyReveal({ keyId }: { readonly keyId: string }): ReactNode {
+  const reveal = useRevealApiKey();
+  const [secret, setSecret] = useState<string | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  const onReveal = () => {
+    if (secret !== null) {
+      setVisible((current) => !current);
+      return;
+    }
+    reveal.mutate(
+      { keyId },
+      {
+        onSuccess: (result) => {
+          setSecret(result.secret);
+          setVisible(true);
+        },
+        onError: (error) => toast.error(getErrorMessage(error, "Could not reveal the key.")),
+      },
+    );
+  };
+
+  return (
+    <div className="share-link-row">
+      <code title={visible && secret ? secret : undefined}>
+        {visible && secret ? secret : "••••••••••••••••"}
+      </code>
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={visible ? <EyeOff size={13} /> : <Eye size={13} />}
+        loading={reveal.isPending}
+        disabled={reveal.isPending}
+        onClick={onReveal}
+      >
+        {visible ? "Hide" : "Reveal"}
+      </Button>
+      {visible && secret ? (
+        <ClipboardButton value={secret} size="sm" variant="secondary" label="Copy" copiedLabel="Copied" />
+      ) : null}
+    </div>
+  );
 }
 
 /** One limit rendered as a compact labelled figure; "Unlimited" when unset. */
@@ -398,6 +447,15 @@ export function ShareManagementContent({
           </div>
         )}
       </section>
+
+      {isPersonal ? (
+        <section aria-label="API key" className="share-section">
+          <div className="share-section-head">
+            <strong>API key</strong>
+          </div>
+          <PersonalKeyReveal keyId={parent.id} />
+        </section>
+      ) : null}
 
       {isPersonal ? (
         <section aria-label="Usage" className="share-section">

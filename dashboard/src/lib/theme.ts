@@ -45,7 +45,10 @@ export function isDarkEffective(theme: ConsoleThemeChoice): boolean {
  */
 export function applyConsoleTheme(theme: ConsoleThemeChoice): void {
   if (typeof document === "undefined") return;
-  document.documentElement.dataset.theme = theme;
+  // The stylesheets key on "light" and "dark" only. Writing the stored choice
+  // straight through left "system" on the root, which matches no rule, so a
+  // click did nothing whenever the OS already agreed with the current look.
+  document.documentElement.dataset.theme = isDarkEffective(theme) ? "dark" : "light";
 }
 
 /** Persists a theme choice and applies it to the document. Storage errors are ignored. */

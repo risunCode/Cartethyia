@@ -4,6 +4,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { nextSortIndex, reorderSortIndex } from "../../persistence/sort-order";
 import { getDbHandle } from "../boot";
 import type { CartethyiaDatabase } from "../db-handle";
+import { lockRows } from "../dialect";
 import { apiKeys, shareLinks, sharePopups, type ApiKeyMode, type ApiKeyModelAccessMode } from "../schema";
 import type { AccessScope } from "../../security/access-control";
 
@@ -344,16 +345,17 @@ export class DrizzleApiKeyStore implements ApiKeyStore {
     patch: ApiKeyPatch,
   ): Promise<ApiKeyRecord | undefined> {
     return this.db.transaction(async (tx) => {
-      const existingRows = await tx
-        .select({
-          id: apiKeys.id,
-          keyMode: apiKeys.keyMode,
-          parentKeyId: apiKeys.parentKeyId,
-        })
-        .from(apiKeys)
-        .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)))
-        .limit(1)
-        .for("update");
+      const existingRows = await lockRows(
+        tx
+          .select({
+            id: apiKeys.id,
+            keyMode: apiKeys.keyMode,
+            parentKeyId: apiKeys.parentKeyId,
+          })
+          .from(apiKeys)
+          .where(and(eq(apiKeys.tenantId, tenantId), eq(apiKeys.id, keyId)))
+          .limit(1),
+      );
       const existing = existingRows[0];
       if (!existing) return undefined;
       if (existing.parentKeyId !== null && patch.keyMode !== undefined && patch.keyMode !== existing.keyMode)

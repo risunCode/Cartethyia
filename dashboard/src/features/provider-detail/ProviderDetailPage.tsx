@@ -40,6 +40,7 @@ import { toast } from "../../lib/toast";
 import type { ProviderAccountResponse, ProviderResponse } from "../../data/contracts";
 import { providerCanConfigureUserAgent } from "../../shared/provider-user-agent";
 import { RoutingStrategyCard } from "./sections/RoutingStrategyCard";
+import { UsageFloorControl } from "./sections/UsageFloorControl";
 import { CredentialNotice } from "./sections/CredentialNotice";
 import { AccountsList, AddAccountModal } from "./sections/Accounts";
 import { DeviceCodeDialog, OAuthBrowserDialog } from "./sections/OAuthDialogs";
@@ -517,6 +518,7 @@ export default function ProviderDetail(): ReactNode {
             }
           />
           <CardBody style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <UsageFloorControl providerId={id} />
             {accountsQuery.isPending ? (
               <LoadingState label="Loading accounts..." />
             ) : accountsQuery.isError ? (

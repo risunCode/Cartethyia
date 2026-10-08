@@ -1,10 +1,8 @@
 import {
   Activity,
   Bell,
-  Clock,
   Cpu,
   FlaskConical,
-  Globe,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -18,7 +16,6 @@ import {
   ScrollText,
   Sun,
   Terminal,
-  Timer,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -37,7 +34,6 @@ import { DASHBOARD_RELEASE_LABEL, DASHBOARD_VERSION } from "../lib/version";
 import { GITHUB_RELEASES_URL } from "../lib/constants";
 import { isNewerRelease } from "../data/contracts";
 import type { SessionUser } from "../data/contracts";
-import { formatUptime } from "../lib/format";
 
 interface NavItemDef {
   readonly label: string;
@@ -631,6 +627,8 @@ export function DashboardShell({
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [compact, setCompact] = useState(false);
+  const shellFrameRef = useRef<HTMLDivElement>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const healthQuery = useSafeSystemHealth();
@@ -642,16 +640,8 @@ export function DashboardShell({
   const latestTag = releaseQuery.data?.tag_name?.replace(/^v/, "");
   const updateAvailable = isNewerRelease(localVersion, latestTag);
   const providersQuery = useProviders();
-  const drawerPresence = usePresence(drawerOpen);
+
   const isHealthy = healthQuery.data?.status === "healthy";
-  const uptimeSeconds = healthQuery.data?.uptime_seconds;
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  const utcTime = now.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false });
-  const systemTime = now.toLocaleTimeString("en-GB", { hour12: false });
   const prefetchIntent = (path: string): void => {
     void prefetchRouteIntent(queryClient, path);
   };
@@ -690,6 +680,21 @@ export function DashboardShell({
     }
   };
 
+  // Container queries do not fire reliably here, so the shell measures itself.
+  // Below 860px the sidebar becomes a drawer and the page takes the full width;
+  // a fixed viewport breakpoint was wrong because the window can be wide while
+  // this column is not.
+  useEffect(() => {
+    const frame = shellFrameRef.current;
+    if (!frame || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? frame.clientWidth;
+      setCompact(width < 860);
+    });
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     document.documentElement.dataset.glassEnabled = "true";
     return () => {
@@ -703,17 +708,8 @@ export function DashboardShell({
   return (
     <>
       <div className="app-bg" aria-hidden="true" />
-      <div className="app-shell-root">
-        {drawerPresence.mounted && (
-          <button
-            type="button"
-            aria-label="Close navigation"
-            className={`mobile-scrim${drawerPresence.closing ? " closing" : ""}`}
-            onClick={() => setDrawerOpen(false)}
-          />
-        )}
-
-        {/* Sidebar Rail */}
+      <div className="app-shell-frame" ref={shellFrameRef} data-compact={compact ? "true" : undefined}>
+      <div className="app-shell-root" data-compact={compact ? "true" : undefined} data-drawer={drawerOpen ? "open" : undefined} onClick={(event) => { if (drawerOpen && (event.target as HTMLElement).closest(".app-main-column")) setDrawerOpen(false); }}>
         <aside
           className={`glass app-sidebar ${drawerOpen ? "is-open" : ""}`}
           aria-label="Dashboard navigation"
@@ -813,20 +809,6 @@ export function DashboardShell({
             </div>
 
             <div className="topbar-actions">
-              <div className="topbar-status">
-                <span className="topbar-status-item" title="UTC time">
-                  <Globe size={13} aria-hidden="true" />
-                  {utcTime} UTC
-                </span>
-                <span className="topbar-status-item" title="Server system time">
-                  <Clock size={13} aria-hidden="true" />
-                  {systemTime}
-                </span>
-                <span className="topbar-status-item" title="Gateway uptime">
-                  <Timer size={13} aria-hidden="true" />
-                  up {formatUptime(uptimeSeconds)}
-                </span>
-              </div>
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
@@ -858,6 +840,7 @@ export function DashboardShell({
           </main>
 
         </div>
+      </div>
       </div>
       <CommandPalette open={paletteOpen} close={() => setPaletteOpen(false)} />
     </>

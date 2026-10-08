@@ -619,6 +619,7 @@
   padding-top: 12px;
   cursor: grab;
   color: var(--text-tertiary);
+  /* Only the grip starts a drag, so the row body stays selectable text. */
   user-select: none;
 }
 
@@ -644,6 +645,54 @@
 .sortable-body {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.api-key-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--inner-border);
+  background: var(--surface-2);
+}
+
+/* The credential badges are square chips, matching the account rows, rather
+   than the pill the shared badge draws. */
+.api-key-card .badge {
+  border-radius: 6px;
+}
+
+.api-key-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  min-width: 0;
+}
+
+.api-key-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--inner-border);
+  border-radius: 6px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.api-key-pill-label {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .api-key-form-columns {
@@ -825,7 +874,7 @@
   flex: 0 0 auto;
   padding: 1px 7px;
   border: 1px solid var(--inner-border);
-  border-radius: var(--radius-pill);
+  border-radius: 6px;
   background: var(--surface-2);
   color: var(--text-secondary);
   font-size: 11px;
@@ -952,6 +1001,13 @@
 /* ==========================================================================
    App Shell Layout — True OS Desktop Split Screen
    ========================================================================== */
+.app-shell-frame {
+  /* The container lives on the wrapper, not the grid: a container query cannot
+     match the element that declares it, so the collapse has to be measured one
+     level up. */
+  container-type: inline-size;
+  container-name: app-shell;
+}
 .app-shell-root {
   position: relative;
   z-index: 10;
@@ -962,19 +1018,62 @@
   margin: 0 auto;
   padding: 16px;
   display: grid;
+  /* The sidebar column collapses the moment the shell itself is too narrow to
+     hold it, not at a fixed viewport width. A window can be wide while this
+     column is not (a docked panel, a split view), and a viewport query kept
+     reserving 272px there, pushing the page off the right edge. */
   grid-template-columns: 272px minmax(0, 1fr);
   gap: 16px;
   box-sizing: border-box;
 }
 
-@media (max-width: 1024px) {
-  .app-main-column {
-    grid-column: 1;
-  }
+@media (max-width: 860px) {
   .app-shell-root {
     grid-template-columns: minmax(0, 1fr);
     padding: 12px;
     gap: 12px;
+  }
+  .app-main-column {
+    grid-column: 1;
+  }
+  .app-shell-root[data-drawer="open"] .app-main-column {
+    position: relative;
+    z-index: 1;
+  }
+  .app-shell-root[data-drawer="open"] .app-main-column::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    background: rgba(0, 0, 0, 0.62);
+    border-radius: var(--radius-card);
+    pointer-events: auto;
+  }
+  .app-sidebar {
+    top: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 80;
+    width: min(280px, calc(100vw - 24px));
+    min-width: 0;
+    max-width: 280px;
+    height: auto;
+    transform: translateX(calc(-100% - 24px));
+    transition: transform 280ms var(--ease-spring);
+    box-shadow: var(--shadow-popout);
+  }
+  .app-sidebar.is-open {
+    transform: translateX(0);
+    background: var(--surface-1);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .topbar-menu-btn {
+    display: grid;
+  }
+  .topbar-title-icon {
+    display: none;
   }
 }
 
@@ -984,7 +1083,6 @@
   top: 16px;
   left: max(16px, calc((100vw - 1560px) / 2 + 16px));
   width: 272px;
-  min-width: 272px;
   max-width: 272px;
   flex-shrink: 0;
   height: calc(100dvh - 32px);
@@ -1005,34 +1103,13 @@
   pointer-events: none;
   background: var(--page-bg);
 }
-@media (max-width: 1024px) {
-  .app-sidebar {
-    position: fixed;
-    top: 12px;
-    bottom: 12px;
-    left: 12px;
-    z-index: 70;
-    width: min(280px, calc(100vw - 24px));
-    min-width: 0;
-    max-width: 280px;
-    height: auto;
-    max-height: none;
-    transform: translateX(calc(-100% - 24px));
-    transition: transform 280ms var(--ease-spring);
-    box-shadow: var(--shadow-popout);
-  }
-  .app-sidebar.is-open {
-    transform: translateX(0);
-  }
-}
+
 
 .mobile-scrim {
   position: fixed;
   inset: 0;
-  z-index: 60;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.72);
   border: 0;
   cursor: default;
   animation: dialog-overlay-in 180ms var(--ease-spring) both;
@@ -1106,7 +1183,7 @@
   align-items: center;
   gap: 2px;
   padding: 0 5px;
-  border-radius: var(--radius-pill);
+  border-radius: 6px;
   font-size: 9.5px;
   font-weight: 700;
   color: var(--accent);
@@ -1199,7 +1276,7 @@
 
 .nav-link-badge {
   margin-left: auto;
-  border-radius: var(--radius-pill);
+  border-radius: 6px;
   background: var(--accent-soft);
   color: var(--accent);
   font-size: 10px;
@@ -1365,10 +1442,10 @@ main.route-enter .state-viewport {
   z-index: 20;
 }
 
-/* Desktop Header Topbar */
+/* Desktop Header Topbar. It scrolls away with the page: pinning it covered
+   the content beneath, which is what the operator asked to stop. */
 .app-topbar {
-  position: sticky;
-  top: 16px;
+  position: static;
   z-index: 40;
   display: flex;
   align-items: center;
@@ -1395,16 +1472,17 @@ main.route-enter .state-viewport {
   place-items: center;
   flex-shrink: 0;
 }
-
-@media (max-width: 1024px) {
+@media (max-width: 860px) {
   .topbar-menu-btn {
     display: grid;
   }
+  .topbar-title-icon {
+    display: none;
+  }
 }
-
 .topbar-meta {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 auto;
 }
 
 .topbar-title {
@@ -1422,11 +1500,7 @@ main.route-enter .state-viewport {
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
-@media (max-width: 1024px) {
-  .topbar-title-icon {
-    display: none;
-  }
-}
+
 
 .topbar-subtitle {
   font-size: 11.5px;
@@ -1516,57 +1590,7 @@ main.route-enter .state-viewport {
   }
 }
 
-/* Clocks sit with the action buttons, each one its own box so the strip reads
-   as the same family as the command palette beside it. */
-.topbar-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-.topbar-status-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--inner-border);
-  border-radius: var(--radius-control);
-  background: var(--hover);
-}
-.topbar-status svg {
-  width: 13px;
-  height: 13px;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-/* On mobile the bar wraps and the clocks fill their own row, each an equal
-   share, instead of a short strip floating at the left. */
-@media (max-width: 1024px) {
-  .app-topbar {
-    flex-wrap: wrap;
-  }
-  .topbar-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .topbar-status {
-    order: 1;
-    flex-basis: 100%;
-    justify-content: space-evenly;
-  }
-  .topbar-status-item {
-    flex: 1;
-    justify-content: center;
-    min-width: 0;
-  }
-}
+
 
 .status-indicator-dot {
   width: 7px;
@@ -1588,25 +1612,14 @@ main.route-enter .state-viewport {
 }
 /* ===== overview ===== */
 /* Overview metrics, resource widgets, providers, and panel surfaces. */
-/* Metric / Stat Cards Grid */
+/* Columns come from the available width, so a narrow shell drops to fewer
+   cards instead of crushing them at a fixed count. */
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 14px;
   width: 100%;
   min-width: 0;
-}
-
-@media (max-width: 1200px) {
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 600px) {
-  .metric-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .stat-card {
@@ -1636,13 +1649,12 @@ main.route-enter .state-viewport {
 .proxy-cards {
   display: none;
 }
-@media (max-width: 720px) {
+@container (max-width: 720px) {
   .proxy-table-scroll {
     display: none;
   }
   .proxy-cards {
     display: grid;
-    /* Phones stack one card per row; wider tablets fit two side by side. */
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
     gap: 12px;
   }
@@ -1661,52 +1673,129 @@ main.route-enter .state-viewport {
 /* Health Card & Overview Resource Widgets */
 .health-resource-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 12px;
   width: 100%;
   min-width: 0;
 }
 
-@media (max-width: 1300px) {
-  .health-resource-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 680px) {
-  .health-resource-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
+/* A card needs roughly 240px to show its name, status, and model count without
+   clipping. Below that the grid drops a column on its own. */
 .provider-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   gap: 12px;
   width: 100%;
   min-width: 0;
-}
-
-@media (max-width: 1280px) {
-  .provider-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1024px) {
-  .provider-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 640px) {
-  .provider-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 .provider-card {
   min-width: 0;
 }
+
+/* Usage floor — one row above the account list. The control stays one piece
+   and wraps under the copy once the card is too narrow to hold both. */
+.usage-floor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+}
+.usage-floor-copy {
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.usage-floor-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+.usage-floor-title .badge {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.usage-floor-copy p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+.usage-floor-total {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.usage-floor-total[data-tone="ok"] { color: var(--status-success); }
+.usage-floor-scope {
+  margin-right: 6px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.usage-floor-total[data-tone="warn"] { color: var(--status-warning); }
+.usage-floor-total[data-tone="err"] { color: var(--status-danger); }
+.usage-floor-total strong { font-weight: 700; }
+.usage-floor-percent {
+  font-weight: 500;
+  opacity: 0.75;
+}
+.usage-floor-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.usage-floor-value {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-control);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+.usage-floor-value input {
+  width: 64px;
+  height: 100%;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.usage-floor-value input:disabled {
+  color: var(--text-tertiary);
+}
+.usage-floor-value select {
+  height: 100%;
+  padding: 0 6px;
+  border: 0;
+  border-left: 1px solid var(--inner-border);
+  background: var(--hover);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.usage-floor-value select:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 
 .provider-version-badge {
   position: absolute;
@@ -1948,7 +2037,7 @@ main.route-enter .state-viewport {
   min-height: 21px;
   padding: 1px 6px;
   border: 1px solid var(--inner-border);
-  border-radius: var(--radius-pill);
+  border-radius: 6px;
   background: var(--surface-1);
   color: var(--text-secondary);
   cursor: pointer;
@@ -2049,6 +2138,13 @@ main.route-enter .state-viewport {
   transition:
     border-color var(--dur-micro) ease,
     background-color var(--dur-micro) ease;
+}
+
+/* The toolbar's sort control sits beside 30px buttons. The trigger's own
+   rule is 36px and wins on equal specificity, so the size has to be named. */
+.account-sort .radix-select-trigger {
+  height: 30px;
+  font-size: 11.5px;
 }
 
 .radix-select-trigger:hover {
@@ -2219,7 +2315,7 @@ main.route-enter .state-viewport {
   grid-column: 1 / -1;
 }
 
-@media (max-width: 820px) {
+@container (max-width: 820px) {
   .settings-column {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2283,7 +2379,7 @@ main.route-enter .state-viewport {
   grid-column: 1 / -1;
 }
 
-@media (max-width: 900px) {
+@container (max-width: 900px) {
   .two-column-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2668,63 +2764,60 @@ main.route-enter .console-log-toolbar {
   gap: 8px;
 }
 
+.account-search {
+  position: relative;
+  flex: 0 1 200px;
+  min-width: 140px;
+}
+
+/* Sits between the search and the sort controls, so the row reads
+   search · actions · sort on a desktop card. */
+.account-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Sizes to its content and sits at the row's end. A fixed grid column is
+   what opened the gap between the divider and the Sort label. */
 .account-toolbar-actions {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  margin-left: auto;
-  padding-left: 14px;
-  border-left: 1px solid var(--inner-border);
-  flex-wrap: wrap;
-}
-
-.account-sort {
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
-  font-size: 11px;
-  color: var(--text-tertiary);
+  margin-left: auto;
+  padding-left: 12px;
+  border-left: 1px solid var(--inner-border);
 }
 
-.account-sort-dir {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: 1px solid var(--inner-border);
-  border-radius: var(--radius-control);
+/* The sort label, the dropdown, and Select all share the action buttons'
+   type: 11.5px at weight 600. Left alone they inherit the page default and
+   read as a different control family. */
+.account-sort,
+.account-select-all {
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--text-secondary);
-  font-size: 10px;
-  line-height: 1;
-  padding: 0 8px;
-  /* Matches the `sm` Select beside it; a shorter button left the row ragged. */
-  height: 32px;
-  cursor: pointer;
 }
 
-.account-sort-dir:hover {
+.account-sort .radix-select-trigger {
+  font-weight: 600;
   background: var(--hover);
   color: var(--text-primary);
 }
 
-.account-select-all {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
+/* Below a desktop card the actions drop under the search, so the search
+   takes the line it has to itself. */
+@container (max-width: 860px) {
+  .account-search {
+    flex-basis: 100%;
+  }
 
-.account-bulkbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--inner-border);
-  background: var(--surface-2);
+  .account-toolbar-actions {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: none;
+  }
 }
 
 .account-list {
@@ -2805,20 +2898,45 @@ main.route-enter .console-log-toolbar {
   color: var(--text-primary);
 }
 
-.account-row-meta {
+/* Status sits on its own line; the square detail chips follow underneath. */
+.account-row-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
   min-width: 0;
 }
 
-.account-row-detail {
-  font-size: 11px;
-  color: var(--text-tertiary);
+/* One compact line of square chips under the status badge. */
+.account-row-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 7px;
+  border: 1px solid var(--inner-border);
+  border-radius: 6px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
   white-space: nowrap;
+}
+
+.account-chip-label {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .account-row-actions {
@@ -3135,7 +3253,7 @@ main.route-enter .console-log-toolbar {
   text-transform: none;
   letter-spacing: normal;
   border: 1px solid;
-  border-radius: var(--radius-pill);
+  border-radius: 6px;
   padding: 1px 8px;
   white-space: nowrap;
 }

@@ -670,6 +670,11 @@ export interface ProviderRoutingResponse {
   readonly rotateCount: number;
   /** Per-account inflight ceiling; `null` = unlimited concurrency. */
   readonly maxInflight: number | null;
+  /** Minimum remaining allowance an account must hold to stay routable.
+   * `null` means no floor. */
+  readonly usageFloor: number | null;
+  /** `credit` sums remaining credit; `percent` takes the lowest remaining percent. */
+  readonly usageFloorUnit: "credit" | "percent";
   readonly enabled: boolean;
   /** When true, this provider's requests always dial direct. When false,
    * dispatch automatically picks the least-loaded, non-cooldown pool among
@@ -701,6 +706,9 @@ export interface UpdateProviderRoutingRequest {
   readonly rotateCount?: number;
   /** Per-account inflight ceiling; `null` = unlimited concurrency. */
   readonly maxInflight?: number | null;
+  /** Minimum remaining allowance; `null` clears the floor. */
+  readonly usageFloor?: number | null;
+  readonly usageFloorUnit?: "credit" | "percent";
   readonly enabled?: boolean;
   /** When true, this provider's requests always dial direct. */
   readonly bypassProxy?: boolean;

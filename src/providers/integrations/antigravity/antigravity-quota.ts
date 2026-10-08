@@ -65,31 +65,33 @@ const SUMMARY_FAMILIES: readonly { readonly pattern: RegExp; readonly label: str
 ];
 
 /**
- * The two window kinds the summary reports. A free-tier account's only quota
- * lives here, and it carries both: a rolling 5-hour session window and a weekly
- * window. The dashboard shows both rows for each family — the 5-hour one has the
- * same shape as the weekly one, just a shorter window.
+ * The window kinds the summary reports. A free-tier account's only quota lives
+ * here, and a paid account carries more than one: a rolling 5-hour session, a
+ * daily allowance, and a weekly allowance. They are independent budgets, so
+ * collapsing daily into the 5-hour row hid the daily number entirely.
  */
-type SummaryWindowKind = "session" | "weekly";
+type SummaryWindowKind = "session" | "daily" | "weekly";
 
 const SUMMARY_WINDOW_LABELS: Readonly<Record<SummaryWindowKind, string>> = Object.freeze({
   session: "5 Hour",
+  daily: "Daily",
   weekly: "Weekly",
 });
 
-/** Classifies a summary bucket as the session (5-hour) or weekly window. */
+/**
+ * Classifies a summary bucket.
+ *
+ * The upstream names the window in `window` (`5h`, `daily`, `weekly`) and
+ * repeats it in the display name. Daily must be tested before the 5-hour
+ * session: an older spelling put `daily` on the session bucket, but a bucket
+ * whose own text says "daily" is the daily allowance, and treating it as the
+ * session is what dropped the daily row.
+ */
 function summaryWindowKind(bucket: Record<string, unknown>): SummaryWindowKind | undefined {
-  const windowType = (text(bucket.window) ?? "").toLowerCase();
-  const bucketText = `${text(bucket.bucketId) ?? ""} ${text(bucket.displayName) ?? ""}`.toLowerCase();
-  if (windowType === "weekly" || bucketText.includes("weekly")) return "weekly";
-  if (
-    windowType === "5h" ||
-    windowType === "daily" ||
-    bucketText.includes("five hour") ||
-    bucketText.includes("5h") ||
-    bucketText.includes("daily")
-  )
-    return "session";
+  const source = `${text(bucket.window) ?? ""} ${text(bucket.bucketId) ?? ""} ${text(bucket.displayName) ?? ""}`.toLowerCase();
+  if (source.includes("week") || source.includes("7d") || /7[\s_-]*day/.test(source)) return "weekly";
+  if (source.includes("5h") || source.includes("five hour") || /5[\s_-]*hour/.test(source)) return "session";
+  if (source.includes("daily") || source.includes("24h") || /\bday/.test(source)) return "daily";
   return undefined;
 }
 
@@ -137,13 +139,45 @@ function fractionWindow(
 }
 
 /**
+ * Every quota window one model entry carries.
+ *
+ * The catalog endpoint reports more than `quotaInfo`. A paid account adds
+ * `dailyQuotaInfo` and `weeklyQuotaInfo`, and some payloads key the windows by
+ * name under `quotaInfoByWindow`. Reading only `quotaInfo` is why the daily and
+ * weekly rows never appeared beside the per-model fraction.
+ */
+function modelQuotaEntries(model: Record<string, unknown>): readonly { readonly info: Record<string, unknown>; readonly kind: SummaryWindowKind | undefined }[] {
+  const entries: { info: Record<string, unknown>; kind: SummaryWindowKind | undefined }[] = [];
+  const add = (value: unknown, kind: SummaryWindowKind | undefined): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) add(item, kind);
+      return;
+    }
+    const info = record(value);
+    if (info !== null) entries.push({ info, kind });
+  };
+  add(model.quotaInfo, undefined);
+  add(model.quotaInfos, undefined);
+  add(model.dailyQuotaInfo, "daily");
+  add(model.dailyQuotaInfos, "daily");
+  add(model.weeklyQuotaInfo, "weekly");
+  add(model.weeklyQuotaInfos, "weekly");
+  const byWindow = record(model.quotaInfoByWindow) ?? record(model.quotaInfosByWindow);
+  if (byWindow !== null) {
+    for (const [windowId, value] of Object.entries(byWindow)) add(value, summaryWindowKind({ window: windowId }));
+  }
+  return entries;
+}
+
+/**
  * Per-model quotas from `v1internal:fetchAvailableModels`.
  *
  * Collapses tier variants to one row per catalog family: the upstream lists
  * `gemini-3.8-flash-low`, `…-medium`, and `…-high` as three deployments, and
  * three rows for one model is noise. Each key is collapsed to its catalog id,
  * kept only when the catalog serves it, and the worst variant in a family
- * becomes that family's row.
+ * becomes that family's row. A family that reports more than one window keeps
+ * one row per window, so the daily allowance is not overwritten by the weekly.
  */
 function parseModelQuotas(payload: Record<string, unknown>): ProviderQuotaWindow[] {
   const models = record(payload.models) ?? record(payload.modelQuotas) ?? record(payload.quota);
@@ -152,61 +186,70 @@ function parseModelQuotas(payload: Record<string, unknown>): ProviderQuotaWindow
   for (const [modelId, raw] of Object.entries(models)) {
     const model = record(raw);
     if (!model || model.isInternal === true || !isQuotaModel(modelId)) continue;
-    const quota = record(model.quotaInfo);
-    if (!quota) continue;
-    const fraction = number(quota.remainingFraction);
-    if (fraction === null) continue;
     const family = modelFamily(collapseAntigravityVariant(modelId));
-    const label = FAMILY_LABELS[family.key] ?? family.label;
-    const window = fractionWindow(family.key, label, fraction, isoDate(quota.resetTime));
-    grouped.set(family.key, keepWorse(grouped.get(family.key), window));
+    const familyLabel = FAMILY_LABELS[family.key] ?? family.label;
+    for (const entry of modelQuotaEntries(model)) {
+      const fraction = number(entry.info.remainingFraction);
+      if (fraction === null) continue;
+      const kind = entry.kind ?? summaryWindowKind(entry.info);
+      const label = kind === undefined ? familyLabel : `${familyLabel} (${SUMMARY_WINDOW_LABELS[kind]})`;
+      const key = `${family.key}:${kind ?? "model"}`;
+      const window = fractionWindow(key, label, fraction, isoDate(entry.info.resetTime));
+      grouped.set(key, keepWorse(grouped.get(key), window));
+    }
   }
   return [...grouped.values()];
 }
 
 /**
- * Session (5-hour) and weekly quotas from `v1internal:retrieveUserQuotaSummary`.
+ * Session, daily, and weekly quotas from `v1internal:retrieveUserQuotaSummary`.
  *
- * This is the *only* quota a free-tier account has: the upstream omits
- * per-model quota for it, so a parser that reads only `models` reports no
- * windows at all on a free account. The groups are matched to a family by
- * display name, and each group carries both windows — a rolling 5-hour session
- * and a weekly allowance — so both are read. A session bucket the upstream
- * marked disabled (because the weekly was hit) is kept at 0% rather than
- * dropped: the operator needs to see that the 5-hour lane is blocked too. A
- * disabled weekly bucket is genuinely gone and is skipped.
+ * This is the only quota a free-tier account has: the upstream omits per-model
+ * quota for it, so a parser that reads only `models` reports no windows at all
+ * on a free account. The groups are matched to a family by display name, and
+ * each group carries its own windows. A bucket the upstream did not name is
+ * kept rather than dropped — two unnamed buckets in one group are the daily
+ * and weekly allowances, told apart by which resets later.
+ *
+ * A disabled session bucket is kept at 0% rather than dropped: the operator
+ * needs to see that the 5-hour lane is blocked. A disabled weekly bucket is
+ * genuinely gone and is skipped.
  */
 function parseSummaryQuotas(payload: Record<string, unknown>): ProviderQuotaWindow[] {
   const summary = record(payload.quotaSummary) ?? payload;
   const groups = Array.isArray(summary.groups) ? summary.groups : [];
   const found = new Map<string, ProviderQuotaWindow>();
+  const addBucket = (bucket: Record<string, unknown>, familyLabel: string, kind: SummaryWindowKind): void => {
+    if (bucket.disabled === true && kind === "weekly") return;
+    const fraction = bucket.disabled === true ? 0 : number(bucket.remainingFraction);
+    if (fraction === null) return;
+    const key = `${familyLabel}:${kind}`;
+    if (found.has(key)) return;
+    found.set(key, fractionWindow(`${kind}:${familyLabel}`, `${familyLabel} (${SUMMARY_WINDOW_LABELS[kind]})`, fraction, isoDate(bucket.resetTime)));
+  };
   for (const rawGroup of groups) {
     const group = record(rawGroup);
     if (!group) continue;
     const groupName = text(group.displayName) ?? "";
     const family = SUMMARY_FAMILIES.find((candidate) => candidate.pattern.test(groupName));
     if (family === undefined) continue;
-    const buckets = Array.isArray(group.buckets) ? group.buckets : [];
-    for (const rawBucket of buckets) {
-      const bucket = record(rawBucket);
-      if (!bucket) continue;
-      const kind = summaryWindowKind(bucket);
-      if (kind === undefined) continue;
-      // A disabled weekly bucket is truly gone; a disabled session bucket is
-      // kept at 0 so the row still shows the 5-hour lane is blocked.
-      if (bucket.disabled === true && kind === "weekly") continue;
-      const fraction =
-        bucket.disabled === true ? 0 : number(bucket.remainingFraction);
-      if (fraction === null) continue;
-      const key = `${family.label}:${kind}`;
-      if (found.has(key)) continue; // first bucket of each kind per family wins
-      const window = fractionWindow(
-        `${kind}:${family.label}`,
-        `${family.label} (${SUMMARY_WINDOW_LABELS[kind]})`,
-        fraction,
-        isoDate(bucket.resetTime),
-      );
-      found.set(key, window);
+    const buckets = (Array.isArray(group.buckets) ? group.buckets : []).flatMap((item) => {
+      const bucket = record(item);
+      return bucket === null ? [] : [bucket];
+    });
+    const unnamed = buckets.filter((bucket) => summaryWindowKind(bucket) === undefined && bucket.disabled !== true);
+    const unnamedKind = new Map<Record<string, unknown>, SummaryWindowKind>();
+    if (unnamed.length > 0) {
+      const latest = unnamed.reduce((best, bucket) => {
+        const at = isoDate(bucket.resetTime);
+        const bestAt = isoDate(best.resetTime);
+        return at !== null && (bestAt === null || at > bestAt) ? bucket : best;
+      });
+      for (const bucket of unnamed) unnamedKind.set(bucket, bucket === latest && unnamed.length > 1 ? "weekly" : "daily");
+    }
+    for (const bucket of buckets) {
+      const kind = summaryWindowKind(bucket) ?? unnamedKind.get(bucket);
+      if (kind !== undefined) addBucket(bucket, family.label, kind);
     }
   }
   return [...found.values()];

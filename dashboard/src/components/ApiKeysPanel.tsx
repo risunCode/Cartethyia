@@ -146,18 +146,7 @@ export function ApiKeysPanel(): ReactNode {
               })
             }
             renderItem={(key) => (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "flex-start",
-                  justifyContent: "space-between",
-                  gap: "12px",
-                  padding: "12px 14px",
-                  borderRadius: "12px",
-                  border: "1px solid var(--inner-border)",
-                  background: "var(--surface-2)",
-                }}
-              >
+              <div className="api-key-card">
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div
                     style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}
@@ -177,46 +166,42 @@ export function ApiKeysPanel(): ReactNode {
                       </Badge>
                     ) : null}
                   </div>
-                  <code
-                    style={{
-                      display: "block",
-                      marginTop: "2px",
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "11px",
-                      color: "var(--text-secondary)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {key.keyPrefix ? `${key.keyPrefix}…` : `${key.id.slice(0, 12)}…`}
-                  </code>
-                  <p style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "2px" }}>
-                    Created {new Date(key.createdAt).toLocaleDateString()}
-                  </p>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "8px",
-                      flexWrap: "wrap",
-                      marginTop: "6px",
-                      fontSize: "10.5px",
-                      color: "var(--text-tertiary)",
-                    }}
-                  >
-                    <span>
-                      {key.keyMode === "share" ? "Total usage " : "Usage "}
+                  <div className="api-key-facts">
+                    <span className="api-key-pill">
+                      <span className="api-key-pill-label">Created</span>
+                      {new Date(key.createdAt).toLocaleDateString()}
+                    </span>
+                    <span className="api-key-pill">
+                      <span className="api-key-pill-label">{key.keyMode === "share" ? "Total usage" : "Usage"}</span>
                       {compactTokens(key.tokensConsumed)}
                     </span>
-                    <span>RPM {limitLabel(key.requestsPerMinute)}</span>
-                    <span>Daily {limitLabel(key.dailyTokenLimit)}</span>
-                    <span>Monthly {limitLabel(key.monthlyTokenLimit)}</span>
-                    <span>One-time {limitLabel(key.lifetimeTokenBudget)}</span>
-                    <span>Concurrent {limitLabel(key.maxConcurrentRequests)}</span>
-                    <span>
+                    <span className="api-key-pill">
+                      <span className="api-key-pill-label">RPM</span>
+                      {limitLabel(key.requestsPerMinute)}
+                    </span>
+                  </div>
+                  <div className="api-key-facts">
+                    <span className="api-key-pill">
+                      <span className="api-key-pill-label">Daily</span>
+                      {limitLabel(key.dailyTokenLimit)}
+                    </span>
+                    <span className="api-key-pill">
+                      <span className="api-key-pill-label">Monthly</span>
+                      {limitLabel(key.monthlyTokenLimit)}
+                    </span>
+                    <span className="api-key-pill">
+                      <span className="api-key-pill-label">One-time</span>
+                      {limitLabel(key.lifetimeTokenBudget)}
+                    </span>
+                    <span className="api-key-pill">
+                      <span className="api-key-pill-label">Concurrent</span>
+                      {limitLabel(key.maxConcurrentRequests)}
+                    </span>
+                    <span className="api-key-pill">
+                      <span className="api-key-pill-label">{key.modelAccessMode === "blacklist" ? "Blocked" : "Models"}</span>
                       {key.modelAccessMode === "blacklist"
-                        ? `Blocked ${key.modelList?.length ?? 0}`
-                        : `Models ${key.modelList?.length ? key.modelList.length : "All"}`}
+                        ? (key.modelList?.length ?? 0)
+                        : key.modelList?.length ? key.modelList.length : "All"}
                     </span>
                   </div>
                 </div>

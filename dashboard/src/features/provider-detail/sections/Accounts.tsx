@@ -30,7 +30,7 @@ import {
   useUpdateProviderAccount,
 } from "../../../hooks/providers";
 import { useProviderAccountInflight } from "../../../hooks/routing";
-import { useRefreshAccountQuota, type AccountTestResult } from "../../../hooks/quota";
+import { useQuotaOverview, useRefreshAccountQuota, type AccountTestResult, type QuotaWindow } from "../../../hooks/quota";
 import { queryKeys } from "../../../data/query-keys";
 import {
   assignAccountNames,
@@ -53,13 +53,6 @@ function accountStatusRank(status: string): number {
   if (status === "active") return 0;
   if (status === "cooldown") return 2;
   return 3;
-}
-function credentialLabel(account: ProviderAccountResponse): string {
-  if (account.credentialMode === "jwt") return "Static JWT";
-  if (account.credentialKind === "oauth") {
-    return account.staticToken ? "Static OAuth token" : "Refreshable OAuth";
-  }
-  return "API key";
 }
 
 function credentialExpiryLabel(expiresAt: string | undefined): string | undefined {
@@ -134,21 +127,13 @@ export function AccountStatusBadge({
     // skips those (account, model) pairs while the account stays usable for
     // every other model. Showing a bare "Active" hid that entirely.
     //
-    // A static-token account is `active` and usable exactly as issued: it is
-    // never refreshed, so it carries an informational pill rather than the
-    // "Active" one — the operator needs to know it will stop at token expiry
-    // and that no refresh is being attempted.
-    const staticToken = account.staticToken === true;
+    // The badge stays "Active" even for a static token. Static is a property
+    // of the credential, shown in the chip beside this badge, not a status.
     return (
       <Inline gap="4px">
-        <Badge tone={staticToken ? "info" : "ok"} dot>
-          {staticToken ? (account.credentialMode === "jwt" ? "Static JWT" : "Static token") : "Active"}
+        <Badge tone="ok" dot>
+          Active
         </Badge>
-        {staticToken ? (
-          <Badge tone="info" title="Used as issued and never refreshed; re-login before it expires.">
-            no refresh
-          </Badge>
-        ) : null}
         {account.lastErrorCategory ? (
           <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
             {accountErrorLabel(account.lastErrorCategory)}
@@ -182,18 +167,70 @@ export function AccountStatusBadge({
  * static.
  */
 function accountDetail(account: ProviderAccountResponse): string {
-  if (account.credentialMode === "jwt") return "Static JWT";
+  // `credentialMode === "jwt"` only says the access token is a JWT, and an
+  // OAuth account's access token usually is one. Whether it is static is
+  // `staticToken`, the same flag the Health dialog reads, so the card and the
+  // dialog agree.
   if (account.credentialKind === "oauth") {
     return account.staticToken ? "Static OAuth" : "OAuth";
   }
+  if (account.credentialMode === "jwt" || account.staticToken) return "Static JWT";
   if (account.credentialKind === "api_key") return "API key";
   return "No credential";
+}
+
+/**
+ * One chip for the account's allowance: summed remaining credits when the
+ * provider reports them, otherwise the lowest remaining percent. Sits before
+ * the inflight chip so the operator sees what is left before how busy it is.
+ */
+function QuotaPill({ windows }: { readonly windows: readonly QuotaWindow[] | undefined }): ReactNode {
+  if (windows === undefined || windows.length === 0) return null;
+  let remaining = 0;
+  let total = 0;
+  let hasCredits = false;
+  let lowestPercent: number | null = null;
+  for (const window of windows) {
+    const limit = typeof window.limit === "number" && Number.isFinite(window.limit) ? window.limit : null;
+    const left =
+      typeof window.remaining === "number" && Number.isFinite(window.remaining)
+        ? window.remaining
+        : limit !== null && typeof window.used === "number" && Number.isFinite(window.used)
+          ? limit - window.used
+          : null;
+    if (left !== null && limit !== null) {
+      remaining += Math.max(0, left);
+      total += limit;
+      hasCredits = true;
+    }
+    if (typeof window.remainingPercent === "number" && Number.isFinite(window.remainingPercent)) {
+      lowestPercent = lowestPercent === null ? window.remainingPercent : Math.min(lowestPercent, window.remainingPercent);
+    }
+  }
+  const text = hasCredits
+    ? `${trimNumber(remaining)} of ${trimNumber(total)}`
+    : lowestPercent === null
+      ? null
+      : `${Math.round(lowestPercent)}% left`;
+  if (text === null) return null;
+  const low = hasCredits ? remaining <= 0 : (lowestPercent ?? 100) <= 10;
+  return (
+    <span className="account-chip" data-tone={low ? "warn" : undefined} title={hasCredits ? `${trimNumber(remaining)} credits available of ${trimNumber(total)}` : "Lowest remaining percent across this account's quota windows"}>
+      <span className="account-chip-label">Quota</span>
+      {text}
+    </span>
+  );
+}
+
+function trimNumber(value: number): string {
+  return value.toLocaleString(undefined, { maximumFractionDigits: 1 });
 }
 
 function AccountRow({
   providerId,
   account,
   inflight,
+  quota,
   selected,
   onToggleSelect,
   onDelete,
@@ -201,6 +238,7 @@ function AccountRow({
   readonly providerId: string;
   readonly account: ProviderAccountResponse;
   readonly inflight?: number;
+  readonly quota?: readonly QuotaWindow[];
   readonly selected: boolean;
   readonly onToggleSelect: (accountId: string, next: boolean) => void;
   readonly onDelete: (account: ProviderAccountResponse) => void;
@@ -337,36 +375,36 @@ function AccountRow({
               </>
             )}
           </div>
-          <div className="account-row-meta" title={accountDetail(account)}>
+          <div className="account-row-status">
             <AccountStatusBadge account={account} />
-            <span className="account-row-detail">{accountDetail(account)}</span>
+            <span className="account-chip" title={accountDetail(account)}>
+              {accountDetail(account)}
+            </span>
+            <span className="account-chip" title={`Today: ${account.usageToday.totalTokens.toLocaleString()} tokens, ${account.usageToday.requests.toLocaleString()} requests`}>
+              <span className="account-chip-label">Today</span>
+              {account.usageToday.totalTokens.toLocaleString()} tok · {account.usageToday.requests.toLocaleString()} req
+            </span>
           </div>
-          <div
-            className="account-row-detail"
-            style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px" }}
-          >
-            <Badge tone={account.credentialMode === "jwt" || account.credentialKind === "oauth" ? "accent" : "default"}>
-              {credentialLabel(account)}
-            </Badge>
+          <div className="account-row-chips">
             {credentialExpiryLabel(account.tokenExpiresAt) ? (
-              <span>{credentialExpiryLabel(account.tokenExpiresAt)}</span>
+              <span className="account-chip" title={credentialExpiryLabel(account.tokenExpiresAt)}>
+                {credentialExpiryLabel(account.tokenExpiresAt)}
+              </span>
             ) : null}
-          </div>
-          <div
-            className="account-row-detail"
-            aria-label={`Usage for ${label}`}
-            style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}
-          >
-            <span>
-              Today: {account.usageToday.totalTokens.toLocaleString()} tokens ·{" "}
-              {account.usageToday.requests.toLocaleString()} requests
+            <span
+              className="account-chip"
+              title="Lifetime totals are backfilled from telemetry still retained when tracking starts; new totals survive telemetry cleanup."
+            >
+              <span className="account-chip-label">All time</span>
+              {account.usageAllTime.totalTokens.toLocaleString()} tok · {account.usageAllTime.requests.toLocaleString()} req
             </span>
-            <span title="Lifetime totals are backfilled from telemetry still retained when tracking starts; new totals survive telemetry cleanup.">
-              All time: {account.usageAllTime.totalTokens.toLocaleString()} tokens ·{" "}
-              {account.usageAllTime.requests.toLocaleString()} requests
-            </span>
-            <span title="Concurrency comes from this provider’s Routing Strategy; accounts no longer carry manual ceilings.">
-              In flight: {inflight?.toLocaleString() ?? "—"}
+            <QuotaPill windows={quota} />
+            <span
+              className="account-chip"
+              title="Concurrency comes from this provider’s Routing Strategy; accounts no longer carry manual ceilings."
+            >
+              <span className="account-chip-label">In flight</span>
+              {inflight?.toLocaleString() ?? "—"}
             </span>
           </div>
         </div>
@@ -452,12 +490,17 @@ function AccountRow({
 }
 
 type AccountSortKey = "added" | "label" | "status" | "lastCheck";
+type AccountSortValue = `${AccountSortKey}-${"asc" | "desc"}`;
 
-const ACCOUNT_SORT_OPTIONS: ReadonlyArray<{ value: AccountSortKey; label: string }> = [
-  { value: "added", label: "Added" },
-  { value: "label", label: "Name" },
-  { value: "status", label: "Status" },
-  { value: "lastCheck", label: "Last check" },
+const ACCOUNT_SORT_OPTIONS: ReadonlyArray<{ value: AccountSortValue; label: string }> = [
+  { value: "added-asc", label: "Added · oldest" },
+  { value: "added-desc", label: "Added · newest" },
+  { value: "label-asc", label: "Name · A–Z" },
+  { value: "label-desc", label: "Name · Z–A" },
+  { value: "status-asc", label: "Status · active first" },
+  { value: "status-desc", label: "Status · disabled first" },
+  { value: "lastCheck-desc", label: "Last check · newest" },
+  { value: "lastCheck-asc", label: "Last check · oldest" },
 ];
 
 function compareAccounts(
@@ -508,10 +551,17 @@ export function AccountsList({
   const exportAccounts = useExportProviderAccounts();
   const inflightQuery = useProviderAccountInflight(providerId);
   const inflightByAccount = inflightQuery.data ?? new Map<string, number>();
+  const quotaQuery = useQuotaOverview();
+  const quotaByAccount = useMemo(() => {
+    const map = new Map<string, readonly QuotaWindow[]>();
+    for (const entry of quotaQuery.data?.accounts ?? []) {
+      if (entry.provider === providerId && entry.quota) map.set(entry.id, entry.quota.windows);
+    }
+    return map;
+  }, [quotaQuery.data, providerId]);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const [sortKey, setSortKey] = useState<AccountSortKey>("added");
-  const [sortAsc, setSortAsc] = useState(true);
+  const [sort, setSort] = useState<AccountSortValue>("added-asc");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
@@ -525,10 +575,12 @@ export function AccountsList({
   }, [accounts, normalizedQuery]);
 
   const sorted = useMemo(() => {
+    const key = sort.slice(0, sort.lastIndexOf("-")) as AccountSortKey;
+    const direction = sort.endsWith("-desc") ? -1 : 1;
     const copy = [...filtered];
-    copy.sort((a, b) => (sortAsc ? 1 : -1) * compareAccounts(a, b, sortKey));
+    copy.sort((a, b) => direction * compareAccounts(a, b, key));
     return copy;
-  }, [filtered, sortKey, sortAsc]);
+  }, [filtered, sort]);
 
   const selectedAccounts = useMemo(
     () => accounts.filter((account) => selected.has(account.id)),
@@ -536,6 +588,13 @@ export function AccountsList({
   );
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((account) => selected.has(account.id));
+  // The bar is always visible, and each action stays disabled until a row is
+  // picked. Enable and Disable only appear when the selection actually has an
+  // account in the other state. Recover stays visible either way: a cooldown
+  // can sit on a model while the account itself still reads as active.
+  const selectionHasDisabled = selectedAccounts.some((account) => account.status === "disabled");
+  const selectionHasEnabled = selectedAccounts.some((account) => account.status !== "disabled");
+  const nothingSelected = selectedAccounts.length === 0;
 
   const toggleSelect = (accountId: string, next: boolean) => {
     setSelected((prev) => {
@@ -669,7 +728,7 @@ export function AccountsList({
   return (
     <Stack gap="8px">
       <div className="account-toolbar">
-        <div style={{ position: "relative", flex: "1 1 200px", minWidth: "160px" }}>
+        <div className="account-search">
             <Search
               size={13}
               aria-hidden="true"
@@ -691,26 +750,48 @@ export function AccountsList({
               style={{ paddingLeft: "30px" }}
             />
           </div>
+        <div className="account-bulk-actions">
+          <Button size="sm" variant="secondary" icon={<FlaskConical size={12} />} disabled={bulkBusy || nothingSelected} onClick={bulkTest}>
+            Test
+          </Button>
+          <Button size="sm" variant="secondary" icon={<RotateCcw size={12} />} disabled={bulkBusy || nothingSelected} onClick={bulkRecover}>
+            Recover
+          </Button>
+          {nothingSelected || selectionHasDisabled ? (
+            <Button size="sm" variant="secondary" icon={<LockOpen size={12} />} disabled={bulkBusy || nothingSelected} onClick={() => bulkSetActive(true)}>
+              Enable
+            </Button>
+          ) : null}
+          {nothingSelected || selectionHasEnabled ? (
+            <Button size="sm" variant="secondary" icon={<PowerOff size={12} />} disabled={bulkBusy || nothingSelected} onClick={() => bulkSetActive(false)}>
+              Disable
+            </Button>
+          ) : null}
+          <Button size="sm" variant="secondary" icon={<Download size={12} />} disabled={bulkBusy || nothingSelected} onClick={bulkExport}>
+            Export JSON
+          </Button>
+          {nothingSelected ? null : (
+            <Button size="sm" variant="danger" icon={<Trash2 size={12} />} disabled={bulkBusy} onClick={() => setBulkDeleteOpen(true)}>
+              Delete
+            </Button>
+          )}
+          {nothingSelected ? null : (
+            <Button size="sm" variant="ghost" disabled={bulkBusy} onClick={() => setSelected(new Set())}>
+              Clear
+            </Button>
+          )}
+        </div>
         <div className="account-toolbar-actions">
         <label className="account-sort">
           <span>Sort</span>
           <Select
             size="sm"
-            value={sortKey}
-            onValueChange={(value) => setSortKey(value as AccountSortKey)}
+            value={sort}
+            onValueChange={(value) => setSort(value as AccountSortValue)}
             options={ACCOUNT_SORT_OPTIONS}
             aria-label="Sort accounts by"
-            style={{ minWidth: "120px" }}
+            style={{ width: "150px" }}
           />
-          <button
-            type="button"
-            className="account-sort-dir"
-            onClick={() => setSortAsc((asc) => !asc)}
-            aria-label={sortAsc ? "Sort ascending" : "Sort descending"}
-            title={sortAsc ? "Ascending" : "Descending"}
-          >
-            {sortAsc ? "▲" : "▼"}
-          </button>
         </label>
         {showGrokProbe ? (
           <Button
@@ -736,37 +817,6 @@ export function AccountsList({
         </div>
       </div>
 
-      {selectedAccounts.length > 0 ? (
-        <div className="account-bulkbar">
-          <span style={{ fontSize: "11.5px", fontWeight: 600 }}>
-            {selectedAccounts.length} selected
-          </span>
-          <Inline gap="6px" style={{ flexWrap: "wrap", marginLeft: "auto" }}>
-            <Button size="sm" variant="secondary" icon={<FlaskConical size={12} />} disabled={bulkBusy} onClick={bulkTest}>
-              Test
-            </Button>
-            <Button size="sm" variant="secondary" icon={<RotateCcw size={12} />} disabled={bulkBusy} onClick={bulkRecover}>
-              Recover
-            </Button>
-            <Button size="sm" variant="secondary" icon={<LockOpen size={12} />} disabled={bulkBusy} onClick={() => bulkSetActive(true)}>
-              Enable
-            </Button>
-            <Button size="sm" variant="secondary" icon={<PowerOff size={12} />} disabled={bulkBusy} onClick={() => bulkSetActive(false)}>
-              Disable
-            </Button>
-            <Button size="sm" variant="secondary" icon={<Download size={12} />} disabled={bulkBusy} onClick={bulkExport}>
-              Export JSON
-            </Button>
-            <Button size="sm" variant="danger" icon={<Trash2 size={12} />} disabled={bulkBusy} onClick={() => setBulkDeleteOpen(true)}>
-              Delete
-            </Button>
-            <Button size="sm" variant="ghost" disabled={bulkBusy} onClick={() => setSelected(new Set())}>
-              Clear
-            </Button>
-          </Inline>
-        </div>
-      ) : null}
-
       <div className="account-list" role="list" aria-label="Provider accounts">
         {sorted.map((account) => (
           <AccountRow
@@ -774,6 +824,7 @@ export function AccountsList({
             providerId={providerId}
             account={account}
             inflight={inflightByAccount.get(account.id) ?? account.inflight}
+            quota={quotaByAccount.get(account.id)}
             selected={selected.has(account.id)}
             onToggleSelect={toggleSelect}
             onDelete={onDelete}

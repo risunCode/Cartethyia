@@ -319,6 +319,8 @@ export function assertProviderRouting(value: unknown): ProviderRoutingResponse {
     value.rotateCount > 1000 ||
     typeof value.enabled !== "boolean" ||
     (value.maxInflight !== null && typeof value.maxInflight !== "number") ||
+    (value.usageFloor !== null && value.usageFloor !== undefined && typeof value.usageFloor !== "number") ||
+    (value.usageFloorUnit !== undefined && value.usageFloorUnit !== "credit" && value.usageFloorUnit !== "percent") ||
     typeof value.bypassProxy !== "boolean" ||
     typeof value.userAgent !== "string" ||
     value.userAgent.length === 0 ||

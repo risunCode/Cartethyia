@@ -146,7 +146,7 @@ export function HealthEventsModal({
               disabled={update.isPending}
               onClick={() => setStaticConfirm(!staticMode)}
             >
-              {staticMode ? "Static JWT · no refresh" : "Enable static mode"}
+              {staticMode ? "Static · no refresh" : "Enable static mode"}
             </Button>
           </div>
         ) : null}

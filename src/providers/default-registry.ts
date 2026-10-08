@@ -185,6 +185,7 @@ export const PROVIDER_CAPABILITIES = {
     loadModelDiscovery: async () => async (context) =>
       (await import("./integrations/cursor/cursor-discovery")).fetchCursorModels(context),
     modelDiscoveryRequiresCredential: true,
+    loadQuotaCollector: quotaCapability(() => import("./integrations/cursor/cursor-quota"), "fetchCursorQuota"),
   },
   kiro: {
     loadAdapter: async () => (await import("./integrations/kiro/kiro")).kiroAdapter,

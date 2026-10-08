@@ -76,6 +76,11 @@ export interface ProviderRoutingSetting {
   /** Per-account inflight ceiling from the routing panel; `null` = unlimited
    * concurrency per account. */
   readonly maxInflight: number | null;
+  /** Minimum remaining allowance an account must hold to stay routable.
+   * `null` means no floor. `credit` compares the summed remaining credit;
+   * `percent` compares the lowest remaining percent. */
+  readonly usageFloor: number | null;
+  readonly usageFloorUnit: "credit" | "percent";
   readonly enabled: boolean;
   /** Built-in API-key User-Agent; OAuth and custom providers retain their identities. */
   readonly userAgent?: string;
@@ -216,6 +221,7 @@ const ELIGIBILITY_REASON_LABELS: Readonly<Record<string, string>> = {
   disabled: "all accounts are disabled",
   locked: "all accounts are locked by another request",
   credit_floor_reached: "credit or quota is exhausted",
+  quota_exhausted: "every account is at or below its usage floor",
 };
 
 function explainEligibilityReasons(reasons: readonly string[]): string {

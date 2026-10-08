@@ -6,6 +6,7 @@ import { createHash, randomInt } from "node:crypto";
 
 import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../db-handle";
+import { lockRows } from "../dialect";
 import { apiKeys, shareLinks, sharePopups, type ShareLinkKind, type ApiKeyModelAccessMode } from "../schema";
 
 /** Hashes a share bearer token for storage and lookup. */
@@ -263,13 +264,14 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
     rotate: boolean;
   }): Promise<ShareLinkRecord> {
     return await this.db.transaction(async (tx) => {
-      const existing = await tx
-        .select()
-        .from(shareLinks)
-        .where(and(eq(shareLinks.apiKeyId, input.apiKeyId), eq(shareLinks.active, true)))
-        .orderBy(desc(shareLinks.createdAt))
-        .limit(1)
-        .for("update");
+      const existing = await lockRows(
+        tx
+          .select()
+          .from(shareLinks)
+          .where(and(eq(shareLinks.apiKeyId, input.apiKeyId), eq(shareLinks.active, true)))
+          .orderBy(desc(shareLinks.createdAt))
+          .limit(1),
+      );
       const current = existing[0];
       if (current && !input.rotate) {
         return {
@@ -430,34 +432,36 @@ export class DrizzleShareLinkStore implements ShareLinkStore {
           .limit(1);
         if (!linkRef) return { kind: "link_unavailable" };
 
-        const [parent] = await tx
-          .select()
-          .from(apiKeys)
-          .where(
-            and(
-              eq(apiKeys.id, linkRef.apiKeyId),
-              eq(apiKeys.keyMode, "share"),
-              isNull(apiKeys.parentKeyId),
-              isNull(apiKeys.revokedAt),
-            ),
-          )
-          .limit(1)
-          .for("update");
+        const [parent] = await lockRows(
+          tx
+            .select()
+            .from(apiKeys)
+            .where(
+              and(
+                eq(apiKeys.id, linkRef.apiKeyId),
+                eq(apiKeys.keyMode, "share"),
+                isNull(apiKeys.parentKeyId),
+                isNull(apiKeys.revokedAt),
+              ),
+            )
+            .limit(1),
+        );
         if (!parent) return { kind: "link_unavailable" };
 
-        const [activeLink] = await tx
-          .select({ id: shareLinks.id })
-          .from(shareLinks)
-          .where(
-            and(
-              eq(shareLinks.id, linkRef.id),
-              eq(shareLinks.tokenHash, tokenHash),
-              eq(shareLinks.active, true),
-              sql`(${shareLinks.expiresAt} IS NULL OR ${shareLinks.expiresAt} > now())`,
-            ),
-          )
-          .limit(1)
-          .for("update");
+        const [activeLink] = await lockRows(
+          tx
+            .select({ id: shareLinks.id })
+            .from(shareLinks)
+            .where(
+              and(
+                eq(shareLinks.id, linkRef.id),
+                eq(shareLinks.tokenHash, tokenHash),
+                eq(shareLinks.active, true),
+                sql`(${shareLinks.expiresAt} IS NULL OR ${shareLinks.expiresAt} > now())`,
+              ),
+            )
+            .limit(1),
+        );
         if (!activeLink) return { kind: "link_unavailable" };
 
         // The label is `hint + random`, capped at 12 chars — never the

@@ -494,6 +494,17 @@ export const providerRoutingSettings = pgTable(
      * (the field sits next to the failover/round-robin strategy in the UI).
      * `null` = UNLIMITED concurrency per account. */
     maxInflight: integer("max_inflight"),
+    /**
+     * Minimum remaining allowance an account must hold to stay routable, for
+     * this provider. `null` means no floor. Compared against the account's own
+     * unit: absolute remaining credit when the provider reports credits, the
+     * lowest remaining percent otherwise. An account below it is skipped and
+     * the request fails over to the next account instead of erroring.
+     */
+    usageFloor: integer("usage_floor"),
+    /** `credit` compares the summed remaining credit; `percent` compares the
+     * lowest remaining percent. Ignored while `usageFloor` is null. */
+    usageFloorUnit: text("usage_floor_unit").$type<"credit" | "percent">().notNull().default("percent"),
     enabled: boolean("enabled").notNull().default(false),
     // Route-selected User-Agent for built-in API-key providers; OAuth and BYOK identities stay native.
     userAgent: text("user_agent").notNull().default("codex_cli_rs/0.156.1"),

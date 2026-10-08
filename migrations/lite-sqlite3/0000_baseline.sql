@@ -183,6 +183,8 @@ CREATE TABLE "provider_routing_settings" (
   "strategy" text DEFAULT 'fallback' NOT NULL,
   "rotate_count" integer DEFAULT 1 NOT NULL,
   "max_inflight" integer,
+  "usage_floor" integer,
+  "usage_floor_unit" text DEFAULT 'percent' NOT NULL,
   "enabled" integer DEFAULT false NOT NULL CHECK ("enabled" IN (0, 1)),
   "user_agent" text DEFAULT 'codex_cli_rs/0.156.1' NOT NULL,
   "bypass_proxy" integer DEFAULT false NOT NULL CHECK ("bypass_proxy" IN (0, 1)),

@@ -24,6 +24,8 @@ import { InMemoryAdmissionController } from "./admission";
 import { ReservationManager } from "./reservations";
 import { getOrCreateRoundRobin, RoundRobinState } from "./round-robin";
 import { SEARCH_PROVIDER_ORDER } from "../dispatch/websearch";
+import { totalRemainingCredit, totalRemainingPercent, type ProviderQuotaWindow } from "../../providers/quota/quota-contracts";
+import { getCachedQuotaEntry, quotaLens } from "../../console/quota/cache";
 
 const SEARCH_PROVIDER_RANK = new Map<string, number>(
   SEARCH_PROVIDER_ORDER.map((provider, index) => [provider, index]),
@@ -40,6 +42,25 @@ function candidateMatches(candidate: RouteCandidate, model: string): boolean {
   const parsed = parseModel(model);
   if (parsed.providerId === null) return candidate.model_id === parsed.bare;
   return candidate.model_id === parsed.bare && candidate.provider_id === parsed.providerId;
+}
+
+/**
+ * True when the account's remaining allowance is at or below its provider's
+ * floor. Credit mode sums the absolute remaining credit; percent mode takes
+ * the lowest remaining percent, because those windows are independent budgets
+ * and the most exhausted one is the one the request will hit. No reading
+ * means unknown, which is not below the floor.
+ */
+function belowUsageFloor(state: {
+  readonly usage_floor?: number;
+  readonly usage_floor_unit?: "credit" | "percent";
+  readonly quota_windows?: readonly ProviderQuotaWindow[] | undefined;
+}): boolean {
+  const floor = state.usage_floor;
+  const windows = state.quota_windows;
+  if (floor === undefined || windows === undefined || windows.length === 0) return false;
+  const remaining = state.usage_floor_unit === "credit" ? totalRemainingCredit(windows) : totalRemainingPercent(windows);
+  return remaining !== null && remaining <= floor;
 }
 
 /**
@@ -187,6 +208,9 @@ export class EligibilityEvaluator {
       readonly cooldown_kind?: "hard" | "soft";
       readonly account_locked?: boolean;
       readonly locked?: boolean;
+      readonly usage_floor?: number;
+      readonly usage_floor_unit?: "credit" | "percent";
+      readonly quota_windows?: readonly ProviderQuotaWindow[] | undefined;
     };
     if (state.account_locked || state.locked)
       return { eligible: false, reason: "locked", candidate };
@@ -196,6 +220,12 @@ export class EligibilityEvaluator {
       return { eligible: false, reason: "model_cooldown", candidate };
     if (state.health_status === "cooldown" && state.cooldown_kind === "hard")
       return { eligible: false, reason: "cooldown_hard", candidate };
+    // The floor is checked here, not after selection: the old minimum-balance
+    // feature computed the number and never consulted it, so an account below
+    // its floor still won the route. An account with no reading is left
+    // eligible — a missing quota fetch is not proof the allowance is gone.
+    if (belowUsageFloor(state))
+      return { eligible: false, reason: "quota_exhausted", candidate };
     if (state.health_status === "cooldown")
       return { eligible: true, reason: "cooldown", candidate };
     return { eligible: true, reason: "healthy", candidate };
@@ -336,6 +366,33 @@ export class RoutingEngine {
     return ordered.map((candidate) => ({ ...candidate, search_route: "fallback" as const }));
   }
 
+  /**
+   * Stamps each account with its provider's usage floor and the quota reading
+   * the console last fetched, so eligibility can reject an account that has
+   * spent down to the floor. The reading is the live cache, not the route
+   * snapshot: a snapshot rebuilt every few minutes would route on a stale
+   * balance, which is how the old floor let a spent account through.
+   */
+  private async applyUsageFloor(
+    candidates: readonly RouteCandidate[],
+    snapshot: RouteSnapshot,
+    tenantId: string | null,
+  ): Promise<readonly RouteCandidate[]> {
+    const readings = new Map<string, readonly ProviderQuotaWindow[]>();
+    return Promise.all(candidates.map(async (candidate) => {
+      const accountId = candidate.provider_account_id;
+      if (accountId === undefined) return candidate;
+      const setting = this.resolveProviderRouting(snapshot, candidate.provider_id, candidate.tenant_id ?? tenantId);
+      if (setting?.usageFloor == null) return candidate;
+      let windows = readings.get(accountId);
+      if (windows === undefined) {
+        const cached = await getCachedQuotaEntry(quotaLens(candidate.tenant_id ?? tenantId), accountId, undefined);
+        windows = cached?.quota.windows ?? [];
+      }
+      return { ...candidate, usage_floor: setting.usageFloor, usage_floor_unit: setting.usageFloorUnit, quota_windows: windows };
+    }));
+  }
+
 
   async plan(
     requestedModel: string,
@@ -357,7 +414,8 @@ export class RoutingEngine {
     // `matching` non-empty but nothing eligible means every account serving
     // this model is currently unusable — NOT a missing model. Distinct from
     // the `matching.length === 0` throw in the resolver, which is a genuine 404.
-    const decisions = matching.map((candidate) => this.eligibility.evaluate(candidate));
+    const gated = await this.applyUsageFloor(matching, snapshot, tid);
+    const decisions = gated.map((candidate) => this.eligibility.evaluate(candidate));
     let eligible = decisions.filter((d) => d.eligible).map((d) => d.candidate);
     if (eligible.length === 0) {
       // A time-bounded exclusion answers 429, not 503. Both reasons here carry

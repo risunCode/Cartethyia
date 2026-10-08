@@ -14,6 +14,8 @@ function mapRow(row: typeof providerRoutingSettings.$inferSelect): ProviderRouti
     strategy: row.strategy as ProviderRoutingResponse["strategy"],
     rotateCount: row.rotateCount ?? 1,
     maxInflight: row.maxInflight,
+    usageFloor: row.usageFloor,
+    usageFloorUnit: row.usageFloorUnit === "credit" ? "credit" : "percent",
     enabled: row.enabled,
     bypassProxy: row.bypassProxy,
     userAgent: row.userAgent,
@@ -64,6 +66,8 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       strategy: "fallback",
       rotateCount: 1,
       maxInflight: DEFAULT_PROVIDER_MAX_INFLIGHT,
+      usageFloor: null,
+      usageFloorUnit: "percent",
       enabled: false,
       bypassProxy: DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
       userAgent: DEFAULT_PROVIDER_USER_AGENT,
@@ -83,6 +87,8 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       strategy: patch.strategy ?? "fallback",
       rotateCount: patch.rotateCount ?? 1,
       maxInflight: patch.maxInflight ?? null,
+      usageFloor: patch.usageFloor ?? null,
+      usageFloorUnit: patch.usageFloorUnit ?? "percent",
       enabled: patch.enabled ?? false,
       bypassProxy: patch.bypassProxy ?? DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
       userAgent: patch.userAgent ?? DEFAULT_PROVIDER_USER_AGENT,
@@ -91,6 +97,8 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
     if (patch.strategy !== undefined) setClause.strategy = patch.strategy;
     if (patch.rotateCount !== undefined) setClause.rotateCount = patch.rotateCount;
     if (patch.maxInflight !== undefined) setClause.maxInflight = patch.maxInflight;
+    if (patch.usageFloor !== undefined) setClause.usageFloor = patch.usageFloor;
+    if (patch.usageFloorUnit !== undefined) setClause.usageFloorUnit = patch.usageFloorUnit;
     if (patch.enabled !== undefined) setClause.enabled = patch.enabled;
     if (patch.bypassProxy !== undefined) setClause.bypassProxy = patch.bypassProxy;
     if (patch.userAgent !== undefined) setClause.userAgent = patch.userAgent;

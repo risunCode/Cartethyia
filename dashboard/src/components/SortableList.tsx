@@ -64,17 +64,8 @@ export function SortableList<T extends { id: string }>({
             key={item.id}
             role="listitem"
             className="sortable-row"
-            draggable={!disabled}
             data-dragging={dragging ? "true" : undefined}
             data-drop-target={isOver ? "true" : undefined}
-            onDragStart={(event: DragEvent<HTMLDivElement>) => {
-              if (disabled) return;
-              dragIdRef.current = item.id;
-              setDragId(item.id);
-              event.dataTransfer.effectAllowed = "move";
-              // Firefox needs data set for a drag to start at all.
-              event.dataTransfer.setData("text/plain", item.id);
-            }}
             onDragOver={(event: DragEvent<HTMLDivElement>) => {
               if (disabled || dragIdRef.current === null) return;
               // Required for `drop` to fire on this element.
@@ -88,9 +79,21 @@ export function SortableList<T extends { id: string }>({
               if (fromId !== null) move(fromId, item.id);
               endDrag();
             }}
-            onDragEnd={endDrag}
           >
-            <div className="sortable-rail" aria-hidden="true">
+            <div
+              className="sortable-rail"
+              draggable={!disabled}
+              aria-label={`Drag to reorder, position ${index + 1}`}
+              onDragStart={(event: DragEvent<HTMLDivElement>) => {
+                if (disabled) return;
+                dragIdRef.current = item.id;
+                setDragId(item.id);
+                event.dataTransfer.effectAllowed = "move";
+                // Firefox needs data set for a drag to start at all.
+                event.dataTransfer.setData("text/plain", item.id);
+              }}
+              onDragEnd={endDrag}
+            >
               <GripVertical size={14} className="sortable-grip" />
               <span className="sortable-index">{index + 1}</span>
             </div>

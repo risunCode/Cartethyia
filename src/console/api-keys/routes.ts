@@ -235,7 +235,8 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
         // never copied into the patch — so "save" silently kept the old name and
         // the key looked unrenamable. Blank falls back to the existing label
         // rather than wiping it, since `label` is NOT NULL.
-        ...(patchRequest.label === undefined
+        ...(patchRequest.label === undefined ||
+        (current.isDefault === true && patchRequest.label.trim() !== current.label)
           ? {}
           : { label: patchRequest.label.trim() === "" ? current.label : patchRequest.label.trim() }),
         ...(patchRequest.notesTitle === undefined
@@ -561,6 +562,31 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
       });
       return { secret: generated.secret, share };
     },
+    /**
+     * Returns a personal key's stored secret. The ciphertext exists exactly so
+     * the owner can read it back; a share template has none, so it is refused.
+     */
+    async revealKey(
+      access: AccessDecision | undefined,
+      keyId: string,
+    ): Promise<{ secret: string }> {
+      const authorized = requireTenantScope(access, "dashboard:read");
+      const current = await config.store.get(authorized.tenantId, keyId);
+      if (!current || current.revokedAt !== undefined)
+        throw new ConsoleDomainError("key_not_found", 404, "Key not found");
+      if (current.keyMode !== "personal" || current.keyEncrypted === undefined)
+        throw new ConsoleDomainError(
+          "key_not_personal",
+          409,
+          "Only a personal key keeps a recoverable secret",
+        );
+      await config.auditSink?.record({
+        access: authorized,
+        action: "api_key.revealed",
+        target: keyId,
+      });
+      return { secret: decryptCredentialToString(current.keyEncrypted) };
+    },
     async listShares(
       access: AccessDecision | undefined,
       keyId: string,
@@ -803,6 +829,13 @@ export function createApiKeyRoutes(config: ApiKeyConfig): Elysia {
           ...(input.regenerate === undefined ? {} : { regenerate: input.regenerate }),
           origin: new URL(request.url).origin,
         });
+      } catch (error) {
+        return errorResponse(error, set, "API-key operation failed");
+      }
+    })
+    .post("/:keyId/reveal", async ({ request, params, set }) => {
+      try {
+        return await factory.revealKey(config.accessResolver(request), params.keyId);
       } catch (error) {
         return errorResponse(error, set, "API-key operation failed");
       }

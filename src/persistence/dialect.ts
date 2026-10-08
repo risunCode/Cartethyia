@@ -112,3 +112,16 @@ export function affectedRows(result: unknown): number {
   if ("changes" in result && typeof result.changes === "number") return result.changes;
   return 0;
 }
+
+/**
+ * Locks the selected rows for the rest of the transaction on PostgreSQL.
+ *
+ * `SELECT ... FOR UPDATE` is how the stores stop two requests from rotating
+ * the same key at once. SQLite has no row locks and its builder has no
+ * `.for()`, but a transaction there is already the write lock, so the query
+ * runs as-is. The two builders disagree on `.for()`, so the call is typed at
+ * the boundary instead of pushed into every store.
+ */
+export function lockRows<T>(query: T & { for?(mode: string): PromiseLike<unknown> }): PromiseLike<T extends PromiseLike<infer R> ? R : never> {
+  return (sqliteDialect() ? query : query.for!("update")) as PromiseLike<T extends PromiseLike<infer R> ? R : never>;
+}

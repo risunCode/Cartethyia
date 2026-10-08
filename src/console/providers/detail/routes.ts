@@ -70,6 +70,13 @@ export function createProviderDetailOperations(deps: ProviderDetailConfig) {
             `maxInflight must be an integer between ${maxInflight.min} and ${maxInflight.max}, or null`,
           );
       }
+      if (patch.usageFloor !== undefined && patch.usageFloor !== null) {
+        if (!Number.isInteger(patch.usageFloor) || patch.usageFloor < 0 || patch.usageFloor > 1_000_000)
+          throw new ConsoleDomainError("invalid_usage_floor", 400, "usageFloor must be an integer from 0 to 1000000, or null");
+      }
+      if (patch.usageFloorUnit !== undefined && patch.usageFloorUnit !== "credit" && patch.usageFloorUnit !== "percent") {
+        throw new ConsoleDomainError("invalid_request", 400, "usageFloorUnit must be credit or percent");
+      }
       if (
         patch.userAgent !== undefined &&
         (!patch.userAgent.trim() || patch.userAgent.length > 4096 || /[\u0000-\u001f\u007f]/.test(patch.userAgent))
@@ -121,6 +128,8 @@ const updateRoutingBody = t.Object({
       t.Integer({ minimum: ROUTING_BOUNDS.maxInflight.min, maximum: ROUTING_BOUNDS.maxInflight.max }),
     ),
   ),
+  usageFloor: t.Optional(t.Nullable(t.Integer({ minimum: 0, maximum: 1_000_000 }))),
+  usageFloorUnit: t.Optional(t.Union([t.Literal("credit"), t.Literal("percent")])),
   bypassProxy: t.Optional(t.Boolean()),
   userAgent: t.Optional(t.String({ minLength: 1, maxLength: 4096 })),
 });

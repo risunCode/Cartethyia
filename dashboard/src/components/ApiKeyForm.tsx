@@ -484,7 +484,9 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
               Identity
             </h3>
             <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
-              Update the label for this credential.
+              {record?.isDefault
+                ? "The default key's name is fixed. Limits, access, and everything else can still change."
+                : "Update the label for this credential."}
             </p>
           </div>
           <div className="api-key-form-grid">
@@ -493,7 +495,8 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder="ci-key…"
-              disabled={busy}
+              disabled={busy || record?.isDefault === true}
+              title={record?.isDefault ? "The default gateway key keeps its name" : undefined}
               autoFocus
             />
           </div>

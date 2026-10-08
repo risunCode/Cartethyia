@@ -209,14 +209,15 @@ describe("isDarkEffective", () => {
 });
 
 describe("applyConsoleTheme", () => {
-  test("the choice lands on the root data-theme attribute", () => {
-    // The single DOM effect every stylesheet keys on.
+  test("the resolved theme lands on the root, never the raw choice", () => {
+    // Stylesheets match "light" and "dark" only. Writing "system" through left
+    // the root with a value no rule matches, so the toggle looked dead.
     applyConsoleTheme("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
     applyConsoleTheme("light");
     expect(document.documentElement.dataset.theme).toBe("light");
     applyConsoleTheme("system");
-    expect(document.documentElement.dataset.theme).toBe("system");
+    expect(document.documentElement.dataset.theme).not.toBe("system");
   });
 
   test("applying does not write to storage", () => {

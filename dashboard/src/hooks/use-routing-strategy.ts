@@ -30,6 +30,9 @@ export interface RoutingStrategyState {
   readonly rotateCount: number;
   readonly setRotateCount: (next: number) => void;
   readonly maxInflight: number | null;
+  readonly usageFloor: number | null;
+  readonly usageFloorUnit: "credit" | "percent";
+  readonly setUsageFloor: (floor: number | null, unit: "credit" | "percent") => void;
   readonly bypassProxy: boolean;
   readonly userAgent: string;
   readonly setUserAgent: (next: string) => void;
@@ -48,6 +51,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
   const [strategy, setStrategyState] = useState<RoutingStrategy>("fallback");
   const [rotateCount, setRotateCountState] = useState(1);
   const [maxInflight, setMaxInflightState] = useState<number | null>(null);
+  const [usageFloor, setUsageFloorState] = useState<number | null>(null);
+  const [usageFloorUnit, setUsageFloorUnitState] = useState<"credit" | "percent">("percent");
   const [bypassProxy, setBypassProxyState] = useState(false);
   const [userAgent, setUserAgentState] = useState("codex_cli_rs/0.156.1");
 
@@ -56,6 +61,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     setStrategyState(query.data.strategy);
     setRotateCountState(query.data.rotateCount);
     setMaxInflightState(query.data.maxInflight);
+    setUsageFloorState(query.data.usageFloor);
+    setUsageFloorUnitState(query.data.usageFloorUnit);
     setBypassProxyState(query.data.bypassProxy);
     setUserAgentState(query.data.userAgent);
   }, [query.data]);
@@ -64,6 +71,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     strategy: RoutingStrategy;
     rotateCount: number;
     maxInflight: number | null;
+    usageFloor: number | null;
+    usageFloorUnit: "credit" | "percent";
     bypassProxy: boolean;
     userAgent: string;
   }) => {
@@ -75,6 +84,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           strategy: next.strategy,
           rotateCount: next.rotateCount,
           maxInflight: next.maxInflight,
+          usageFloor: next.usageFloor,
+          usageFloorUnit: next.usageFloorUnit,
           bypassProxy: next.bypassProxy,
           ...(allowUserAgent ? { userAgent: next.userAgent } : {}),
         },
@@ -95,6 +106,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       strategy,
       rotateCount,
       maxInflight: next,
+      usageFloor,
+      usageFloorUnit,
       bypassProxy,
       userAgent,
     }),
@@ -104,6 +117,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       strategy,
       rotateCount: next,
       maxInflight,
+      usageFloor,
+      usageFloorUnit,
       bypassProxy,
       userAgent,
     }),
@@ -113,6 +128,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       strategy,
       rotateCount,
       maxInflight,
+      usageFloor,
+      usageFloorUnit,
       bypassProxy,
       userAgent: next,
     }),
@@ -121,6 +138,13 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
   return {
     strategy,
     maxInflight,
+    usageFloor,
+    usageFloorUnit,
+    setUsageFloor: (floor, unit) => {
+      setUsageFloorState(floor);
+      setUsageFloorUnitState(unit);
+      save({ strategy, rotateCount, maxInflight, usageFloor: floor, usageFloorUnit: unit, bypassProxy, userAgent });
+    },
     bypassProxy,
     userAgent,
     isLoading: query.isPending,
@@ -142,6 +166,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
         strategy,
         rotateCount,
         maxInflight,
+        usageFloor,
+        usageFloorUnit,
         bypassProxy: next,
         userAgent,
       });
@@ -154,6 +180,8 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
         strategy: resolved,
         rotateCount,
         maxInflight,
+        usageFloor,
+        usageFloorUnit,
         bypassProxy,
         userAgent,
       });

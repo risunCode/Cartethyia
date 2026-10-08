@@ -132,6 +132,17 @@ export function useRegenerateApiKey() {
   });
 }
 
+/** Reads a personal key's stored secret back. The ciphertext is what makes
+ * this possible; a share template has none and the route refuses it. */
+export function useRevealApiKey() {
+  return useMutation<{ secret: string }, ApiErrorShape, { keyId: string }>({
+    mutationFn: ({ keyId }) =>
+      consoleRequest<{ secret: string }>(`/api-keys/${encodeURIComponent(keyId)}/reveal`, {
+        method: "POST",
+      }),
+  });
+}
+
 
 /** Loads tenant API-key metadata; secrets are never returned by this query. */
 export function useApiKeys() {
