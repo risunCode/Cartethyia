@@ -49,6 +49,10 @@ const UNAVAILABLE_FREE_ZEN_IDS: readonly string[] = [
   // tools) answers 400 "Endpoint is unavailable". Keeping it would re-add a row
   // that can only fail a probe.
   "ling-3.0-flash-fin-free",
+  // Retired from every OpenCode family: the listing still advertises both, but
+  // neither is served anymore, so discovery must not re-add the row.
+  "mimo-v2.5-free",
+  "space-bunny-free",
 ];
 
 /**
@@ -206,7 +210,6 @@ export async function discoverOpenCodeFreeModels(options: {
 // explicit for both tiers that serve it.
 const sharedZenChat: readonly ModelDefinition[] = [
   defineModel({ id: "big-pickle", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, vision: true, reasoning: true }),
-  defineModel({ id: "mimo-v2.5-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, vision: true, reasoning: true }),
   defineModel({
     id: "mimo-v2.6-flash-free",
     providerId: "opencode",
@@ -255,7 +258,6 @@ export const OPENCODE_FREE_MODELS: readonly ModelDefinition[] = [
   // listed. Limits come from the models.dev snapshot under `opencode`; a row
   // the snapshot does not file keeps an explicit limit rather than the generic
   // default.
-  defineModel({ id: "space-bunny-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, ctx: 1_048_576, out: 524_288, vision: true, reasoning: true, free: true }),
   defineModel({ id: "nemotron-3-ultra-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, reasoning: true, free: true }),
   defineModel({ id: "nemotron-3.5-lightning-free", providerId: "opencode", wireFamily: "chat", endpoint: `${ZEN_PATH_PREFIX}/chat/completions`, reasoning: true, free: true }),
   // Absent from the snapshot: keep declared limits rather than the generic default.

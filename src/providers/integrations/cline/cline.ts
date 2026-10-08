@@ -409,14 +409,6 @@ export const CLINE_MODELS: readonly ModelDefinition[] = [
   // The `free` bucket's published ids are the tier; the upstream id prefixes
   // are retained verbatim because they are part of Cline's model contract.
   defineModel({
-    id: "stealth/space-bunny-alpha",
-    ctx: 1_000_000,
-    out: 524_288,
-    reasoning: true,
-    vision: true,
-    free: true,
-  }),
-  defineModel({
     id: "cline-free/mimo-v2.6-flash",
     ctx: 1_048_576,
     out: 131_072,
