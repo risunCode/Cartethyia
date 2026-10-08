@@ -616,68 +616,6 @@ function SidebarNavList({
   );
 }
 
-function FooterClock() {
-  const healthQuery = useSafeSystemHealth();
-  const [now, setNow] = useState(() => new Date());
-  const location = useLocation();
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const isHealthy = healthQuery.data?.status === "healthy";
-  const isError = healthQuery.isError;
-  const uptimeSeconds = healthQuery.data?.uptime_seconds;
-  // Immersive pages (Model Lab) hide the ops status pill — a chatbot
-  // surface should not narrate gateway health at the user.
-  const hideStatus = location.pathname === "/model-lab";
-
-  const fmt = (d: Date) => d.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false });
-  const fmtLocal = (d: Date) => d.toLocaleTimeString("en-GB", { hour12: false });
-
-  return (
-    <footer className="glass app-footer">
-      {/* Row 1 Left (atas1): Status — hidden on immersive pages */}
-      {!hideStatus ? (
-        <div className="footer-status-pill">
-          <span>
-            {isError
-              ? "System offline"
-              : isHealthy
-                ? "All systems operational"
-                : "Connecting to gateway…"}
-          </span>
-        </div>
-      ) : null}
-
-      {/* Row 1 Right (kanan3): UTC Time */}
-      <div
-        style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" }}
-        title="UTC time"
-      >
-        <Globe size={13} style={{ color: "var(--text-tertiary)" }} />
-        <span>{fmt(now)} UTC</span>
-      </div>
-
-      {/* Row 2 Left (atas2): System local time */}
-      <div style={{ display: "flex", alignItems: "center", gap: "6px" }} title="Server system time">
-        <Clock size={13} style={{ color: "var(--text-tertiary)" }} />
-        <span>{fmtLocal(now)} system</span>
-      </div>
-
-      {/* Row 2 Right (kanan4): Uptime */}
-      <div
-        style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "6px" }}
-        title="Gateway Uptime"
-      >
-        <Timer size={13} style={{ color: "var(--text-tertiary)" }} />
-        <span>uptime {formatUptime(uptimeSeconds)}</span>
-      </div>
-    </footer>
-  );
-}
-
 export function DashboardShell({
   user,
   children,
@@ -703,6 +641,15 @@ export function DashboardShell({
   const pull = usePullToRefresh(() => queryClient.invalidateQueries());
 
   const isHealthy = healthQuery.data?.status === "healthy";
+  const healthError = healthQuery.isError;
+  const uptimeSeconds = healthQuery.data?.uptime_seconds;
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const utcTime = now.toLocaleTimeString("en-GB", { timeZone: "UTC", hour12: false });
+  const systemTime = now.toLocaleTimeString("en-GB", { hour12: false });
   const prefetchIntent = (path: string): void => {
     void prefetchRouteIntent(queryClient, path);
   };
@@ -891,6 +838,18 @@ export function DashboardShell({
               <p className="topbar-subtitle">{meta.sub}</p>
             </div>
 
+            <div className="topbar-status" title="Gateway status">
+              <span className={`status-indicator-dot ${healthError ? "offline" : isHealthy ? "online" : "pulse"}`} />
+              <span>{healthError ? "System offline" : isHealthy ? "All systems operational" : "Connecting…"}</span>
+              <span className="topbar-status-sep" aria-hidden="true" />
+              <Globe size={13} aria-hidden="true" />
+              <span title="UTC time">{utcTime} UTC</span>
+              <Clock size={13} aria-hidden="true" />
+              <span title="Server system time">{systemTime}</span>
+              <Timer size={13} aria-hidden="true" />
+              <span title="Gateway uptime">up {formatUptime(uptimeSeconds)}</span>
+            </div>
+
             <div className="topbar-actions">
               <button
                 type="button"
@@ -931,14 +890,6 @@ export function DashboardShell({
             {children}
           </main>
 
-          {/* Footer Taskbar Clock — hidden on immersive pages */}
-          {location.pathname !== "/model-lab" ? (
-            <div
-              style={{ marginTop: "auto", paddingTop: "12px", paddingBottom: "8px", width: "100%" }}
-            >
-              <FooterClock />
-            </div>
-          ) : null}
         </div>
       </div>
       <CommandPalette open={paletteOpen} close={() => setPaletteOpen(false)} />
