@@ -343,17 +343,14 @@ function CliToolDetailBody({
 
             {status?.settingsPath ? (
               <div
-                style={{
-                  marginTop: "10px",
+                className="mono-text" style={{ marginTop: "10px",
                   padding: "8px 12px",
                   borderRadius: "8px",
                   background: "var(--surface-2)",
                   border: "1px solid var(--inner-border)",
                   fontSize: "11px",
-                  fontFamily: "var(--font-mono)",
                   color: "var(--text-secondary)",
-                  wordBreak: "break-all",
-                }}
+                  wordBreak: "break-all" }}
               >
                 Config file: {status.settingsPath}
               </div>
@@ -575,8 +572,7 @@ function CliToolDetailBody({
                         setPickerFor(model.alias);
                         setPickerMode("slot");
                       }}
-                      style={{
-                        display: "flex",
+                      className="mono-text" style={{ display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
                         gap: "8px",
@@ -584,14 +580,12 @@ function CliToolDetailBody({
                         borderRadius: "8px",
                         border: "1px solid var(--inner-border)",
                         background: "var(--surface-2)",
-                        fontFamily: "var(--font-mono)",
                         fontSize: "11.5px",
                         color: "var(--text-primary)",
                         cursor: "pointer",
                         textAlign: "left",
                         width: "100%",
-                        minWidth: 0,
-                      }}
+                        minWidth: 0 }}
                     >
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {slotValue}

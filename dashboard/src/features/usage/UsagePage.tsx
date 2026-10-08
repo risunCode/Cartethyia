@@ -344,9 +344,7 @@ function StatusCodeWithExplainer({
         aria-expanded={open}
         aria-label={explainer}
         title={explainer}
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontWeight: 700,
+        className="mono-text" style={{ fontWeight: 700,
           fontVariantNumeric: "tabular-nums",
           color: STATUS_TONE_COLOR[code.tone],
           background: "none",
@@ -354,8 +352,7 @@ function StatusCodeWithExplainer({
           borderRadius: "6px",
           padding: "0 4px",
           cursor: "pointer",
-          fontSize: "inherit",
-        }}
+          fontSize: "inherit" }}
       >
         {code.code}
       </button>
@@ -737,8 +734,8 @@ function BreakdownSnapshot({
                     }}
                   >
                     <span
-                      className="truncate"
-                      style={{ minWidth: 0, flex: 1, fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 600 }}
+                      className="truncate mono-text"
+                       style={{ minWidth: 0, flex: 1, fontSize: "11px", fontWeight: 600 }}
                     >
                       {displayName}
                     </span>                    <span
@@ -882,16 +879,13 @@ function RequestDetailDrawer({
         <Stack gap="12px">
           <div style={{ display: "flex", alignItems: "center", gap: "8px", borderRadius: "10px", border: "1px solid var(--inner-border)", background: "var(--surface-2)", padding: "8px 12px", minWidth: 0 }}>
             <span
-              className="select-text"
+              className="select-text mono-text"
               title={detail.requestId}
-              style={{
-                minWidth: 0,
+              style={{ minWidth: 0,
                 flex: 1,
                 overflowWrap: "anywhere",
                 wordBreak: "break-word",
-                fontFamily: "var(--font-mono)",
-                fontSize: "11.5px",
-              }}
+                fontSize: "11.5px" }}
             >
               request_id {detail.requestId}
             </span>
@@ -912,7 +906,7 @@ function RequestDetailDrawer({
               <strong style={{ fontSize: "12px" }}>
                 {errorLabel(detail.status, detail.errorKind, detail.errorOrigin, detail.httpStatus)}
               </strong>
-              <span style={{ color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: "10px", overflowWrap: "anywhere" }}>
+              <span className="mono-text" style={{ color: "var(--text-tertiary)", fontSize: "10px", overflowWrap: "anywhere" }}>
                 {detail.errorKind}
               </span>
             </div>
@@ -1021,7 +1015,7 @@ function RequestDetailDrawer({
                   <Icon size={14} style={{ flexShrink: 0, color: kind === "request" ? "var(--accent)" : "var(--green)" }} />
                   <span style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{label}</span>
                 </span>
-                <span style={{ flexShrink: 0, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: "10px", fontWeight: 500 }}>
+                <span className="mono-text" style={{ flexShrink: 0, color: "var(--text-tertiary)", fontSize: "10px", fontWeight: 500 }}>
                   {formatBytes(payloadView(kind).bytes)}
                 </span>
               </summary>
@@ -1058,9 +1052,8 @@ function RequestDetailDrawer({
                     />
                   </div>
                   <pre
-                    className="select-text"
-                    style={{
-                      maxHeight: "256px",
+                    className="select-text mono-text"
+                     style={{ maxHeight: "256px",
                       overflow: "auto",
                       whiteSpace: "pre-wrap",
                       overflowWrap: "break-word",
@@ -1068,10 +1061,8 @@ function RequestDetailDrawer({
                       margin: 0,
                       borderTop: "1px solid var(--inner-border)",
                       padding: "8px 12px 12px",
-                      fontFamily: "var(--font-mono)",
                       fontSize: "10px",
-                      color: "var(--text-secondary)",
-                    }}
+                      color: "var(--text-secondary)" }}
                   >
                     {payloadView(kind).text}
                   </pre>
@@ -1132,7 +1123,7 @@ function InFlightPill({
           flexShrink: 0,
         }}
       />
-      <span style={{ fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--text-primary)" }}>
+      <span className="mono-text" style={{ fontWeight: 700, color: "var(--text-primary)" }}>
         {active} in flight · {ips} {ipWord}
       </span>
     </span>
@@ -1237,8 +1228,7 @@ function TokenScaleSwitch({
       aria-label={`${label}: currently ${currentName}, switch to ${nextName}`}
       title={`Show ${nextName}`}
       onClick={() => onChange(next)}
-      style={{
-        display: "inline-flex",
+      className="mono-text" style={{ display: "inline-flex",
         alignItems: "center",
         gap: "4px",
         padding: "3px 7px",
@@ -1247,12 +1237,10 @@ function TokenScaleSwitch({
         background: "var(--surface-2)",
         color: "var(--text-secondary)",
         cursor: "pointer",
-        fontFamily: "var(--font-mono)",
         fontSize: "10px",
         fontWeight: 700,
         letterSpacing: "0.04em",
-        lineHeight: 1,
-      }}
+        lineHeight: 1 }}
     >
       <Scaling size={11} aria-hidden="true" />
       {currentName}
@@ -1709,12 +1697,9 @@ export default function Usage(): ReactNode {
                     <td style={{ whiteSpace: "nowrap", fontSize: "11px" }}>
                       <div>
                         <span
-                          style={{
-                            display: "inline-block",
+                          className="mono-text" style={{ display: "inline-block",
                             minWidth: "13ch",
-                            fontFamily: "var(--font-mono)",
-                            color: "var(--text-secondary)",
-                          }}
+                            color: "var(--text-secondary)" }}
                         >
                           {row.mode === "stream" ? "streaming" : "non-streaming"}
                         </span>

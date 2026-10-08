@@ -92,20 +92,17 @@ export function ToolChips({ message }: { message: StudioMessage }): ReactNode {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        style={{
-          display: "inline-flex",
+        className="mono-text" style={{ display: "inline-flex",
           alignItems: "center",
           gap: "6px",
           border: "1px solid var(--inner-border)",
           borderRadius: "9999px",
           background: "var(--surface-muted)",
           color: "var(--text-secondary)",
-          fontFamily: "var(--font-mono)",
           fontSize: "10px",
           fontWeight: 600,
           padding: "3px 10px",
-          cursor: "pointer",
-        }}
+          cursor: "pointer" }}
       >
         <Wrench size={11} /> {calls.length} tool call{calls.length === 1 ? "" : "s"}
         <ChevronDown size={11} style={{ transform: open ? "rotate(180deg)" : undefined }} />
@@ -115,14 +112,11 @@ export function ToolChips({ message }: { message: StudioMessage }): ReactNode {
           {calls.map((call, index) => (
             <div
               key={`${call.name}-${index}`}
-              style={{
-                border: "1px solid var(--inner-border)",
+              className="mono-text" style={{ border: "1px solid var(--inner-border)",
                 borderRadius: "8px",
                 background: "var(--code-surface)",
                 padding: "8px 10px",
-                fontFamily: "var(--font-mono)",
-                fontSize: "11px",
-              }}
+                fontSize: "11px" }}
             >
               <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>{call.name}</div>
               <div style={{ color: "var(--text-secondary)", wordBreak: "break-all" }}>
@@ -150,12 +144,9 @@ export function MessageMeta({ message }: { message: StudioMessage }): ReactNode 
   return (
     <div
       title={detail}
-      style={{
-        marginTop: "6px",
-        fontFamily: "var(--font-mono)",
+      className="mono-text" style={{ marginTop: "6px",
         fontSize: "10px",
-        color: "var(--text-tertiary)",
-      }}
+        color: "var(--text-tertiary)" }}
     >
       {detail}
     </div>

@@ -241,7 +241,7 @@ function PoolEditForm({
           label="Endpoint"
           value={endpoint}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndpoint(e.target.value)}
-          style={{ ...inputStyle, fontFamily: "var(--font-mono)" }}
+          className="mono-text" style={{ ...inputStyle }}
         />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -840,14 +840,11 @@ function PoolAddressBlock({
     <>
       {pool.egressIp ? (
         <span
-          style={{
-            display: "block",
-            fontFamily: "var(--font-mono)",
+          className="mono-text" style={{ display: "block",
             fontSize: "11.5px",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
+            whiteSpace: "nowrap" }}
           title={maskValues ? "Proxy address masked" : `egress ${pool.egressIp} · ${view.display.endpoint}`}
         >
           {pool.egressIp}
@@ -925,12 +922,9 @@ function PoolUsageBars({
           />
         </div>
         <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "10.5px",
+          className="mono-text" style={{ fontSize: "10.5px",
             color: "var(--text-secondary)",
-            whiteSpace: "nowrap",
-          }}
+            whiteSpace: "nowrap" }}
         >
           {view.inflight}/{pool.maxInflight}
         </span>
@@ -962,12 +956,9 @@ function PoolUsageBars({
           />
         </div>
         <span
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "10.5px",
+          className="mono-text" style={{ fontSize: "10.5px",
             color: over ? "var(--red)" : "var(--text-secondary)",
-            whiteSpace: "nowrap",
-          }}
+            whiteSpace: "nowrap" }}
         >
           {formatBytes(view.used)}
           {quota ? ` / ${formatBytes(quota)}` : ""}

@@ -199,11 +199,9 @@ export function ModelPickerModal({
             {selected.map((s) => (
               <span
                 key={s}
-                style={{
-                  display: "inline-flex",
+                className="mono-text" style={{ display: "inline-flex",
                   alignItems: "center",
                   gap: "4px",
-                  fontFamily: "var(--font-mono)",
                   fontSize: "11px",
                   background: "var(--accent-soft)",
                   color: "var(--accent)",
@@ -212,8 +210,7 @@ export function ModelPickerModal({
                   border: "1px solid var(--accent)",
                   maxWidth: "100%",
                   overflow: "hidden",
-                  wordBreak: "break-all",
-                }}
+                  wordBreak: "break-all" }}
               >
                 <span
                   style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
@@ -355,17 +352,14 @@ export function ModelPickerModal({
                         )}
                         <span
                           title={e.qualified}
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: "11px",
+                          className="mono-text" style={{ fontSize: "11px",
                             fontWeight: 600,
                             color: sel ? "var(--accent)" : "var(--text-primary)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
                             paddingRight: sel ? "16px" : 0,
-                            width: "100%",
-                          }}
+                            width: "100%" }}
                         >
                           {e.modelId}
                           {/* A non-chat service (System One) is not served on
@@ -394,15 +388,12 @@ export function ModelPickerModal({
                         </span>
                         <span
                           title={e.qualified}
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: "10px",
+                          className="mono-text" style={{ fontSize: "10px",
                             color: "var(--text-tertiary)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
-                            width: "100%",
-                          }}
+                            width: "100%" }}
                         >
                           {/* An alias/combo is a named routing target, so its
                               target is the useful second line — not token

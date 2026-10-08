@@ -518,9 +518,9 @@ function AuditRow({ entry }: { entry: AuditEntry }): ReactNode {
         <div style={{ fontSize: "12.5px", fontWeight: 600 }}>{entry.actorName ?? entry.actor}</div>
         {entry.actorName ? (
           <div
-            className="truncate"
+            className="truncate mono-text"
             title={entry.actor}
-            style={{ fontFamily: "var(--font-mono)", fontSize: "10.5px", color: "var(--text-tertiary)" }}
+             style={{ fontSize: "10.5px", color: "var(--text-tertiary)" }}
           >
             {entry.actor}
           </div>
@@ -535,20 +535,17 @@ function AuditRow({ entry }: { entry: AuditEntry }): ReactNode {
         </Badge>
       </td>
       <td
-        className="truncate"
+        className="truncate mono-text"
         title={entry.target}
-        style={{ fontFamily: "var(--font-mono)", fontSize: "11.5px", maxWidth: "220px" }}
+         style={{ fontSize: "11.5px", maxWidth: "220px" }}
       >
         {entry.target}
       </td>
       <td
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: "11px",
+        className="mono-text" style={{ fontSize: "11px",
           maxWidth: "320px",
           overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
+          textOverflow: "ellipsis" }}
       >
         {entry.detail ? JSON.stringify(entry.detail) : "—"}
       </td>

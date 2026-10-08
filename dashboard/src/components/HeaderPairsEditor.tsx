@@ -42,13 +42,13 @@ export function HeaderPairsEditor({
               placeholder="Header-Name"
               value={key}
               onChange={(e) => setPair(index, [e.target.value, value])}
-              style={{ minWidth: 0, flex: 1, fontFamily: "var(--font-mono)", fontSize: "12px" }}
+              className="mono-text" style={{ minWidth: 0, flex: 1, fontSize: "12px" }}
             />
             <Input
               placeholder="value"
               value={value}
               onChange={(e) => setPair(index, [key, e.target.value])}
-              style={{ minWidth: 0, flex: 1, fontFamily: "var(--font-mono)", fontSize: "12px" }}
+              className="mono-text" style={{ minWidth: 0, flex: 1, fontSize: "12px" }}
             />
             <Button
               type="button"

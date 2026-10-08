@@ -40,19 +40,16 @@ function ApiEndpointCard() {
       <CardBody>
         <Stack gap="10px">
           <div
-            style={{
-              padding: "10px 14px",
+            className="mono-text" style={{ padding: "10px 14px",
               borderRadius: "10px",
               border: "1px solid var(--inner-border)",
               background: "var(--code-surface)",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-              fontFamily: "var(--font-mono)",
               fontSize: "13px",
               fontWeight: 600,
-              color: "var(--text-primary)",
-            }}
+              color: "var(--text-primary)" }}
           >
             <code>{endpoint}</code>
             <span style={{ fontSize: "11px", color: "var(--text-tertiary)", fontWeight: 400 }}>

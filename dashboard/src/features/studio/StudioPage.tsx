@@ -1180,18 +1180,15 @@ export default function ModelLab(): ReactNode {
                                   ) : (
                                     <span
                                       key={`${attachment.name}-${attachmentIndex}`}
-                                      style={{
-                                        display: "inline-flex",
+                                      className="mono-text" style={{ display: "inline-flex",
                                         alignItems: "center",
                                         gap: "6px",
                                         background: "var(--surface-muted)",
                                         borderRadius: "12px",
                                         padding: "8px 10px",
-                                        fontFamily: "var(--font-mono)",
                                         fontSize: "10.5px",
                                         color: "var(--text-secondary)",
-                                        maxWidth: "220px",
-                                      }}
+                                        maxWidth: "220px" }}
                                     >
                                       {attachment.kind === "audio" ? (
                                         <FileAudio size={14} style={{ flexShrink: 0 }} />
@@ -1328,14 +1325,11 @@ export default function ModelLab(): ReactNode {
                   ) : null}
                   {toolStatus ? (
                     <div
-                      style={{
-                        display: "inline-flex",
+                      className="mono-text" style={{ display: "inline-flex",
                         alignItems: "center",
                         gap: "8px",
-                        fontFamily: "var(--font-mono)",
                         fontSize: "11px",
-                        color: "var(--text-secondary)",
-                      }}
+                        color: "var(--text-secondary)" }}
                     >
                       <span className="mlab-live-dot" /> {toolStatus}
                     </div>
@@ -1581,19 +1575,16 @@ export default function ModelLab(): ReactNode {
                     size="sm"
                     onClick={openPicker}
                     title={model || "Pick model"}
-                    style={{
-                      maxWidth: "220px",
+                    className="mono-text" style={{ maxWidth: "220px",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
-                      fontFamily: "var(--font-mono)",
                       fontSize: "11px",
                       borderRadius: "9999px",
                       border: "1px solid transparent",
                       background: "var(--surface-muted)",
                       padding: "0 12px",
-                      height: "28px",
-                    }}
+                      height: "28px" }}
                   >
                     {model ? model.split("/").slice(-1)[0] : "Pick model"}
                   </Button>
@@ -1881,7 +1872,7 @@ export default function ModelLab(): ReactNode {
                                     placeholder="temp"
                                     aria-label="Temperature"
                                     disabled={!temperatureOn}
-                                    style={{ fontFamily: "var(--font-mono)", fontSize: "11px" }}
+                                    className="mono-text" style={{ fontSize: "11px" }}
                                   />
                                   <input
                                     type="checkbox"
@@ -1895,7 +1886,7 @@ export default function ModelLab(): ReactNode {
                                     placeholder="max toks"
                                     aria-label="Max tokens"
                                     disabled={!maxTokensOn}
-                                    style={{ fontFamily: "var(--font-mono)", fontSize: "11px" }}
+                                    className="mono-text" style={{ fontSize: "11px" }}
                                   />
                                 </div>
                                 <span style={{ fontSize: "11px", color: "var(--text-tertiary)", lineHeight: 1.4 }}>
@@ -1917,7 +1908,7 @@ export default function ModelLab(): ReactNode {
                                     placeholder="top-p (0-1)"
                                     aria-label="Top P"
                                     disabled={!topPOn}
-                                    style={{ fontFamily: "var(--font-mono)", fontSize: "11px" }}
+                                    className="mono-text" style={{ fontSize: "11px" }}
                                   />
                                   <input
                                     type="checkbox"
@@ -1931,7 +1922,7 @@ export default function ModelLab(): ReactNode {
                                     placeholder="top logprobs (0-20)"
                                     aria-label="Top logprobs"
                                     disabled={!logprobsOn}
-                                    style={{ fontFamily: "var(--font-mono)", fontSize: "11px" }}
+                                    className="mono-text" style={{ fontSize: "11px" }}
                                   />
                                 </div>
                                 <span style={{ fontSize: "11px", color: "var(--text-tertiary)", lineHeight: 1.4 }}>

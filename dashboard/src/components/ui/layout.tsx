@@ -86,14 +86,11 @@ export function StatCard({
         {action ? <span style={{ flexShrink: 0 }}>{action}</span> : null}
       </div>
       <p
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: "20px",
+        className="mono-text" style={{ fontSize: "20px",
           fontWeight: 700,
           color: valueColor || "var(--text-primary)",
           lineHeight: 1.2,
-          margin: "2px 0 0 0",
-        }}
+          margin: "2px 0 0 0" }}
       >
         {value}
       </p>

@@ -807,6 +807,13 @@
   margin-top: 1px;
 }
 
+/* A bare monospaced value that is not a chip — ids, addresses, counts inside
+   a row or cell. The chip variants live on .code-chip. */
+.mono-text {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ===== inline status callout ===== */
 /* A compact ok/err/warn banner inside a form or panel (test result, failure
    note). Toned via data-tone; color-mix keeps it working on any surface. */

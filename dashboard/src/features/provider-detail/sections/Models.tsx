@@ -289,7 +289,7 @@ export function AddModelModal({
         </Inline>
         {wasPrefixed && (
           <div className="form-section-caption">
-            Using <span style={{ fontFamily: "var(--font-mono)" }}>{normalized}</span> (provider
+            Using <span className="mono-text">{normalized}</span> (provider
             prefix removed).
           </div>
         )}
@@ -332,7 +332,7 @@ export function AddModelModal({
         {declaredWires !== undefined && !declaredWires.includes(wireFamily) && (
           <div className="form-section-caption">
             This provider does not declare the{" "}
-            <span style={{ fontFamily: "var(--font-mono)" }}>{wireLabel(wireFamily)}</span> wire.
+            <span className="mono-text">{wireLabel(wireFamily)}</span> wire.
             The request is sent as chosen; the upstream decides whether it answers.
           </div>
         )}
@@ -495,16 +495,13 @@ function ModelCard({
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
             <div
               title={copyId}
-              style={{
-                minWidth: 0,
+              className="mono-text" style={{ minWidth: 0,
                 overflow: "hidden",
                 whiteSpace: "nowrap",
                 textOverflow: "ellipsis",
-                fontFamily: "var(--font-mono)",
                 fontSize: "12px",
                 fontWeight: 600,
-                lineHeight: 1.35,
-              }}
+                lineHeight: 1.35 }}
             >
               {qualifiedId}
             </div>

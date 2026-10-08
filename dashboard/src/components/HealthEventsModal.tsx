@@ -188,10 +188,10 @@ export function HealthEventsModal({
                       </span>
                       <Badge tone={statusTone(ev.toStatus)}>{ev.toStatus}</Badge>
                     </td>
-                    <td style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", overflowWrap: "anywhere" }}>
+                    <td className="mono-text" style={{ fontSize: "11px", color: "var(--text-secondary)", overflowWrap: "anywhere" }}>
                       {ev.modelId ?? "—"}
                     </td>
-                    <td style={{ fontSize: "11.5px", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>
+                    <td className="mono-text" style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}>
                       {ev.errorCategory ?? "—"}
                     </td>
                     <td style={{ fontSize: "11px", color: "var(--text-primary)", minWidth: "220px", maxWidth: "520px", overflowWrap: "anywhere" }}>

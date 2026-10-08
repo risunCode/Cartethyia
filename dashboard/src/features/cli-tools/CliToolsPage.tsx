@@ -133,15 +133,12 @@ export default function CliTools(): ReactNode {
                       }}
                     >
                       <span
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "10px",
+                        className="mono-text" style={{ fontSize: "10px",
                           fontWeight: 600,
                           background: "var(--kbd-bg)",
                           padding: "1px 5px",
                           borderRadius: "4px",
-                          color: "var(--text-secondary)",
-                        }}
+                          color: "var(--text-secondary)" }}
                       >
                         {tool.id}
                       </span>
@@ -211,15 +208,12 @@ export default function CliTools(): ReactNode {
                     }}
                   >
                     <span
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "10px",
+                      className="mono-text" style={{ fontSize: "10px",
                         fontWeight: 600,
                         background: "var(--kbd-bg)",
                         padding: "1px 5px",
                         borderRadius: "4px",
-                        color: "var(--text-secondary)",
-                      }}
+                        color: "var(--text-secondary)" }}
                     >
                       {tool.id}
                     </span>

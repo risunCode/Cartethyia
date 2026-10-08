@@ -555,12 +555,9 @@ function CombosSection(): ReactNode {
                   ))}
                   {c.members.length > COMBO_MEMBER_CHIP_MAX ? (
                     <span
-                      style={{
-                        fontSize: "11px",
+                      className="mono-text" style={{ fontSize: "11px",
                         color: "var(--text-tertiary)",
-                        fontFamily: "var(--font-mono)",
-                        alignSelf: "center",
-                      }}
+                        alignSelf: "center" }}
                       title={c.members.slice(COMBO_MEMBER_CHIP_MAX).join(", ")}
                     >
                       +{c.members.length - COMBO_MEMBER_CHIP_MAX} more models

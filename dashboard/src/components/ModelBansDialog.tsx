@@ -86,12 +86,9 @@ export function ModelBansDialog({ onClose }: { readonly onClose: () => void }): 
                   {bans.map((ban) => (
                     <tr key={ban.ip}>
                       <td
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11.5px",
+                        className="mono-text" style={{ fontSize: "11.5px",
                           color: "var(--text-primary)",
-                          whiteSpace: "nowrap",
-                        }}
+                          whiteSpace: "nowrap" }}
                       >
                         {ban.ip}
                       </td>

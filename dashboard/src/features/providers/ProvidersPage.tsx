@@ -441,15 +441,12 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
             }}
           >
             <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "10px",
+              className="mono-text" style={{ fontSize: "10px",
                 fontWeight: 600,
                 background: "var(--kbd-bg)",
                 padding: "1px 5px",
                 borderRadius: "4px",
-                color: "var(--text-secondary)",
-              }}
+                color: "var(--text-secondary)" }}
             >
               {customProvider.providerId}/
             </span>
@@ -925,15 +922,12 @@ const ProviderCard = memo(function ProviderCard({
             }}
           >
             <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "10px",
+              className="mono-text" style={{ fontSize: "10px",
                 fontWeight: 600,
                 background: "var(--kbd-bg)",
                 padding: "1px 5px",
                 borderRadius: "4px",
-                color: "var(--text-secondary)",
-              }}
+                color: "var(--text-secondary)" }}
             >
               {provider.providerId}/
             </span>

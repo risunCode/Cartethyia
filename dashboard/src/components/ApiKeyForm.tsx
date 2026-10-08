@@ -815,18 +815,15 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
               models.map((m) => (
                 <span
                   key={m}
-                  style={{
-                    display: "inline-flex",
+                  className="mono-text" style={{ display: "inline-flex",
                     alignItems: "center",
                     gap: "4px",
-                    fontFamily: "var(--font-mono)",
                     fontSize: "11px",
                     background: "var(--accent-soft)",
                     color: "var(--accent)",
                     padding: "2px 8px",
                     borderRadius: "6px",
-                    border: "1px solid var(--accent)",
-                  }}
+                    border: "1px solid var(--accent)" }}
                 >
                   {m}
                   <button

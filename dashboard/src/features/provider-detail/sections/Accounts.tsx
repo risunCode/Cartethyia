@@ -1087,20 +1087,17 @@ export function AddAccountModal({
               placeholder="Paste one credential, or many — one per line, a JSON array, or newline-delimited OAuth exports. Kind and account naming are detected automatically…"
               rows={6}
               spellCheck={false}
-              style={{
-                flex: 1,
+              className="mono-text" style={{ flex: 1,
                 minWidth: 0,
                 minHeight: "130px",
                 borderRadius: "10px",
                 border: "1px solid var(--inner-border)",
                 background: "var(--input-bg)",
                 padding: "10px 12px",
-                fontFamily: "var(--font-mono)",
                 fontSize: "12px",
                 color: "var(--text-primary)",
                 resize: "vertical",
-                boxSizing: "border-box",
-              }}
+                boxSizing: "border-box" }}
             />
             <Button
               variant="secondary"
