@@ -812,22 +812,21 @@ export function DashboardShell({
               <p className="topbar-subtitle">{meta.sub}</p>
             </div>
 
-            <div className="topbar-status">
-              <span className="topbar-status-item" title="UTC time">
-                <Globe size={13} aria-hidden="true" />
-                {utcTime} UTC
-              </span>
-              <span className="topbar-status-item" title="Server system time">
-                <Clock size={13} aria-hidden="true" />
-                {systemTime}
-              </span>
-              <span className="topbar-status-item" title="Gateway uptime">
-                <Timer size={13} aria-hidden="true" />
-                up {formatUptime(uptimeSeconds)}
-              </span>
-            </div>
-
             <div className="topbar-actions">
+              <div className="topbar-status">
+                <span className="topbar-status-item" title="UTC time">
+                  <Globe size={13} aria-hidden="true" />
+                  {utcTime} UTC
+                </span>
+                <span className="topbar-status-item" title="Server system time">
+                  <Clock size={13} aria-hidden="true" />
+                  {systemTime}
+                </span>
+                <span className="topbar-status-item" title="Gateway uptime">
+                  <Timer size={13} aria-hidden="true" />
+                  up {formatUptime(uptimeSeconds)}
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
