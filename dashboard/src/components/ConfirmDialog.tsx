@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
+import { DialogActions } from "./ui/dialog-actions";
 import { getErrorMessage } from "../lib/helpers";
 
 /**
@@ -65,7 +66,7 @@ export function ConfirmDialog({
             {error}
           </p>
         ) : null}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+        <DialogActions>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={pending}>
             {cancelLabel}
           </Button>
@@ -77,7 +78,7 @@ export function ConfirmDialog({
           >
             {pending ? "Working…" : confirmLabel}
           </Button>
-        </div>
+        </DialogActions>
       </div>
     </Dialog>
   );

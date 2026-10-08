@@ -13,6 +13,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { Dialog } from "../../components/ui/dialog";
+import { DialogActions } from "../../components/ui/dialog-actions";
 import { Input } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
@@ -503,9 +504,7 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
               {getErrorMessage(deleteMutation.error, "Delete failed")}
             </p>
           ) : null}
-          <div
-            style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "8px" }}
-          >
+          <DialogActions>
             <Button variant="secondary" onClick={() => setDeleteOpen(false)}>
               Cancel
             </Button>
@@ -521,7 +520,7 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete Provider"}
             </Button>
-          </div>
+          </DialogActions>
         </Stack>
       </Dialog>
     </Card>
