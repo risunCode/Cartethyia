@@ -1,6 +1,5 @@
 import { Cable, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
 import type { ReactNode } from "react";
-import { Button } from "../../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../../components/ui/card";
 import { Inline } from "../../../components/ui/inline";
 import { Select } from "../../../components/ui/select";
@@ -13,6 +12,10 @@ import {
   useRoutingStrategy,
 } from "../../../hooks/use-routing-strategy";
 
+/** The slider's own scale: 1–50, with one step past the end meaning unlimited. */
+const SLIDER_MAX = 50;
+/** A typed number may go past the slider, but not past this. */
+const MANUAL_MAX = 100;
 const USER_AGENT_PRESETS = [
   { value: "codex_cli_rs/0.156.1", label: "Codex" },
   { value: "claude-cli/2.1.280 (external, cli)", label: "Claude Code" },
@@ -40,12 +43,16 @@ function Row({ children }: { readonly children: ReactNode }): ReactNode {
 
 export function RoutingStrategyCard({
   providerId,
-  showUserAgent,
+  clientVersion,
+  userAgentEditable,
 }: {
   readonly providerId: string;
-  readonly showUserAgent: boolean;
+  /** The provider's own discovered client, shown when its identity is fixed. */
+  readonly clientVersion?: { readonly client: string; readonly version: string };
+  /** False when the provider stamps its own identity, so the shown value cannot be changed. */
+  readonly userAgentEditable: boolean;
 }): ReactNode {
-  const routing = useRoutingStrategy(providerId, showUserAgent);
+  const routing = useRoutingStrategy(providerId, userAgentEditable);
   const showUnsupportedHint = PROXY_UNSUPPORTED_HINT_PROVIDERS.has(providerId);
   const userAgentOptions = USER_AGENT_PRESETS.some((option) => option.value === routing.userAgent)
     ? USER_AGENT_PRESETS
@@ -63,9 +70,11 @@ export function RoutingStrategyCard({
     : routing.saveFailed
       ? "Save failed — reverted to last saved value"
       : `Active: ${activeLabel}`;
-  // Slider reads 1–100; `null` (unlimited) parks the thumb at the far right.
-  const maxInflightValue =
-    routing.maxInflight === null ? 100 : Math.min(100, Math.max(1, routing.maxInflight));
+  // The slider stops at 50; one step further is unlimited. A typed value above
+  // 50 still shows, parked at the end with its real number beside it.
+  const unlimited = routing.maxInflight === null;
+  const sliderValue = unlimited ? SLIDER_MAX + 1 : Math.min(SLIDER_MAX + 1, Math.max(1, routing.maxInflight));
+  const shownValue = unlimited ? "∞" : String(routing.maxInflight);
   const handleUserAgentChange = (next: string) => {
     if (next === routing.userAgent) return;
     routing.setUserAgent(next);
@@ -122,148 +131,22 @@ export function RoutingStrategyCard({
                   Requests served before the rotation advances
                 </div>
               </div>
-              <Inline gap="10px" style={{ flexShrink: 0 }}>
-                <input
-                  id="routing-rotate-count"
-                  type="range"
-                  min={1}
-                  max={10}
-                  step={1}
-                  value={Math.min(10, routing.rotateCount)}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    if (Number.isFinite(value))
-                      routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
-                  }}
-                  style={{ width: "160px" }}
-                />
-                <input
-                  type="number"
-                  aria-label="Accounts per rotation"
-                  min={1}
-                  max={1000}
-                  value={routing.rotateCount}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    if (Number.isFinite(value))
-                      routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
-                  }}
-                  className="form-input"
-                  style={{ width: "64px", textAlign: "center", padding: "6px 8px" }}
-                />
-              </Inline>
+              <input
+                id="routing-rotate-count"
+                type="number"
+                min={1}
+                max={1000}
+                value={routing.rotateCount}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value))
+                    routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
+                }}
+                className="form-input"
+                style={{ width: "72px", flexShrink: 0, textAlign: "center", padding: "6px 8px" }}
+              />
             </Row>
           ) : null}
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "10px",
-              minWidth: 0,
-            }}
-          >
-            <div
-              style={{
-                padding: "10px 12px",
-                borderRadius: "10px",
-                border: "1px solid var(--inner-border)",
-                minWidth: 0,
-              }}
-            >
-              <div className="form-group">
-                <label htmlFor="routing-max-inflight" className="form-label">
-                  <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
-                    <Gauge
-                      size={15}
-                      aria-hidden="true"
-                      style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
-                    />
-                    Max inflight / account
-                  </Inline>
-                </label>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                  Shared provider ceiling
-                </div>
-                <Inline gap="10px" style={{ marginTop: "18px" }}>
-                  <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        position: "absolute",
-                        left: `${((maxInflightValue - 1) / 99) * 100}%`,
-                        transform: "translate(-50%, -100%)",
-                        marginTop: "-8px",
-                        padding: "1px 6px",
-                        borderRadius: "6px",
-                        background: "var(--accent)",
-                        color: "var(--accent-foreground)",
-                        fontSize: "11px",
-                        fontWeight: 600,
-                        fontVariantNumeric: "tabular-nums",
-                        pointerEvents: "none",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {routing.maxInflight === null ? "∞" : maxInflightValue}
-                    </span>
-                    <input
-                      id="routing-max-inflight"
-                      type="range"
-                      className="form-range"
-                      min={1}
-                      max={100}
-                      step={1}
-                      value={maxInflightValue}
-                      onChange={(event) => {
-                        const value = Number(event.target.value);
-                        if (Number.isFinite(value))
-                          routing.setMaxInflight(Math.max(1, Math.round(value)));
-                      }}
-                      style={{ width: "100%" }}
-                    />
-                  </div>
-                  <Button
-                    size="sm"
-                    variant={routing.maxInflight === null ? "primary" : "secondary"}
-                    onClick={() => routing.setMaxInflight(null)}
-                  >
-                    Unlimited
-                  </Button>
-                </Inline>
-              </div>
-            </div>
-
-            {showUserAgent ? (
-              <div
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: "10px",
-                  border: "1px solid var(--inner-border)",
-                  minWidth: 0,
-                }}
-              >
-                <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
-                  <Fingerprint
-                    size={15}
-                    aria-hidden="true"
-                    style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
-                  />
-                  Client identity
-                </Inline>
-                <Select
-                  id="routing-user-agent-preset"
-                  aria-label="Client identity"
-                  value={routing.userAgent}
-                  options={userAgentOptions}
-                  onValueChange={handleUserAgentChange}
-                />
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                  Adapter-owned identities are preserved.
-                </div>
-              </div>
-            ) : null}
-          </div>
 
           <Row>
             <div style={{ minWidth: 0 }}>
@@ -291,6 +174,118 @@ export function RoutingStrategyCard({
             />
           </Row>
 
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "10px",
+              minWidth: 0,
+            }}
+          >
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid var(--inner-border)",
+                minWidth: 0,
+              }}
+            >
+              <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
+                <Fingerprint
+                  size={15}
+                  aria-hidden="true"
+                  style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
+                />
+                Client identity
+              </Inline>
+              {userAgentEditable ? (
+                <Select
+                  id="routing-user-agent-preset"
+                  aria-label="Client identity"
+                  value={routing.userAgent}
+                  options={userAgentOptions}
+                  onValueChange={handleUserAgentChange}
+                />
+              ) : (
+                <div aria-label="Client identity" className="form-input" aria-disabled="true">
+                  {clientVersion
+                    ? `${clientVersion.client} ${clientVersion.version}`
+                    : "Provider default"}
+                </div>
+              )}
+              <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+                {userAgentEditable
+                  ? "Sent when the provider has no identity of its own."
+                  : "Set by the provider. It cannot be changed."}
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid var(--inner-border)",
+                minWidth: 0,
+              }}
+            >
+              <label htmlFor="routing-max-inflight" className="form-label">
+                <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                  <Gauge
+                    size={15}
+                    aria-hidden="true"
+                    style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
+                  />
+                  Max inflight / account
+                </Inline>
+              </label>
+              <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginBottom: "6px" }}>
+                Shared provider ceiling. One step past {SLIDER_MAX} is unlimited.
+              </div>
+              <Inline gap="10px" style={{ marginTop: "6px" }}>
+                <input
+                  id="routing-max-inflight"
+                  type="range"
+                  className="routing-slider"
+                  data-unlimited={unlimited ? "true" : undefined}
+                  min={1}
+                  max={SLIDER_MAX + 1}
+                  step={1}
+                  value={sliderValue}
+                  aria-valuetext={unlimited ? "Unlimited" : String(routing.maxInflight)}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    if (!Number.isFinite(value)) return;
+                    routing.setMaxInflight(value > SLIDER_MAX ? null : Math.round(value));
+                  }}
+                  style={{ flex: 1, minWidth: 0, ["--slider-pct" as string]: `${(sliderValue / (SLIDER_MAX + 1)) * 100}%` }}
+                />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  aria-label="Max inflight per account"
+                  value={shownValue}
+                  onChange={(event) => {
+                    const raw = event.target.value.trim();
+                    if (raw === "" || raw === "∞") {
+                      routing.setMaxInflight(null);
+                      return;
+                    }
+                    const value = Number(raw);
+                    if (Number.isFinite(value) && value >= 1)
+                      routing.setMaxInflight(Math.min(MANUAL_MAX, Math.round(value)));
+                  }}
+                  className="form-input"
+                  style={{
+                    width: "52px",
+                    flexShrink: 0,
+                    textAlign: "center",
+                    padding: "6px 4px",
+                    color: unlimited ? "var(--status-success)" : undefined,
+                  }}
+                />
+              </Inline>
+            </div>
+          </div>
           {showUnsupportedHint && (
             <Inline
               gap="6px"
