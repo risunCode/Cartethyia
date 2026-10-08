@@ -1336,10 +1336,25 @@ html[data-theme="dark"] .app-bg {
 }
 
 .topbar-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 16px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text-primary);
+}
+/* The page icon marks the route on desktop. On mobile the menu button already
+   is an icon at the left, so the title icon would double it — hide it there. */
+.topbar-title-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+@media (max-width: 1024px) {
+  .topbar-title-icon {
+    display: none;
+  }
+}
 }
 
 .topbar-subtitle {
@@ -1445,12 +1460,6 @@ html[data-theme="dark"] .app-bg {
   width: 13px;
   height: 13px;
   color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-.topbar-status-sep {
-  width: 1px;
-  height: 12px;
-  background: var(--inner-border);
   flex-shrink: 0;
 }
 

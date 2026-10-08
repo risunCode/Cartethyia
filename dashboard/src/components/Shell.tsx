@@ -81,32 +81,36 @@ export const navigationGroups: readonly NavGroupDef[] = [
 ];
 
 
-const titlesMap: Record<string, { title: string; sub: string }> = {
-  "/": { title: "Overview", sub: "Gateway health, capacity, and live metrics" },
-  "/usage": { title: "Usage & Metrics", sub: "Token economics, requests, and cost breakdown" },
-  "/providers": { title: "Provider Catalog", sub: "Upstream credentials, models, and latency" },
+const titlesMap: Record<string, { title: string; sub: string; icon: LucideIcon }> = {
+  "/": { title: "Overview", sub: "Gateway health, capacity, and live metrics" , icon: LayoutDashboard },
+  "/usage": { title: "Usage & Metrics", sub: "Token economics, requests, and cost breakdown" , icon: Activity },
+  "/providers": { title: "Provider Catalog", sub: "Upstream credentials, models, and latency" , icon: Server },
   "/combos": {
     title: "Combos & Routing",
     sub: "Failover policies, model aliases, and weighted routes",
+    icon: Cpu,
   },
-  "/quota": { title: "Quota Management", sub: "Rate limits, leases, and tenant quotas" },
+  "/quota": { title: "Quota Management", sub: "Rate limits, leases, and tenant quotas" , icon: ShieldAlert },
   "/proxy": {
     title: "Proxy & Requests",
     sub: "Network pools, SOCKS5/HTTP egress, and dispatch",
+    icon: Network,
   },
-  "/console-log": { title: "Console Log", sub: "Live server logs and audit trail" },
-  "/model-lab": { title: "Model Lab", sub: "Live model playground — chat, thinking, and image generation" },
+  "/console-log": { title: "Console Log", sub: "Live server logs and audit trail" , icon: ScrollText },
+  "/model-lab": { title: "Model Lab", sub: "Live model playground — chat, thinking, and image generation" , icon: FlaskConical },
   "/cli-tools": {
     title: "CLI Tools",
     sub: "Claude Code CLI, OpenCode, and local developer tool integrations",
+    icon: Terminal,
   },
   "/settings": {
     title: "Settings",
     sub: "Account security, runtime preferences, and state recovery",
+    icon: SettingsIcon,
   },
 };
 
-const CONSOLE_FALLBACK = { title: "Console", sub: "Cartethyia AI Gateway Administration" };
+const CONSOLE_FALLBACK = { title: "Console", sub: "Cartethyia AI Gateway Administration", icon: LayoutDashboard };
 
 /**
  * Resolves the topbar title/subtitle for a pathname.
@@ -118,13 +122,14 @@ const CONSOLE_FALLBACK = { title: "Console", sub: "Cartethyia AI Gateway Adminis
 function resolveRouteMeta(
   pathname: string,
   providers: readonly { readonly providerId: string; readonly displayName: string; readonly label?: string }[],
-): { title: string; sub: string } {
+): { title: string; sub: string; icon: LucideIcon } {
   const providerMatch = /^\/providers\/([^/]+)\/?$/.exec(pathname);
   if (providerMatch?.[1]) {
     const provider = providers.find((candidate) => candidate.providerId === providerMatch[1]);
     return {
       title: provider?.label || provider?.displayName || providerMatch[1],
       sub: "Routing, accounts, models, and health",
+      icon: Server,
     };
   }
   const toolMatch = /^\/cli-tools\/([^/]+)\/?$/.exec(pathname);
@@ -132,6 +137,7 @@ function resolveRouteMeta(
     return {
       title: "CLI Tool",
       sub: `${toolMatch[1]} — mappings, endpoints, and downloadable config`,
+      icon: Terminal,
     };
   }
   return titlesMap[pathname] ?? CONSOLE_FALLBACK;
@@ -834,14 +840,18 @@ export function DashboardShell({
               <Menu size={18} />
             </button>
             <div className="topbar-meta">
-              <h1 className="topbar-title">{meta.title}</h1>
+              <h1 className="topbar-title">
+                <meta.icon className="topbar-title-icon" size={16} aria-hidden="true" />
+                {meta.title}
+              </h1>
               <p className="topbar-subtitle">{meta.sub}</p>
             </div>
 
-            <div className="topbar-status" title="Gateway status">
-              <span className={`status-indicator-dot ${healthError ? "offline" : isHealthy ? "online" : "pulse"}`} />
-              <span>{healthError ? "System offline" : isHealthy ? "All systems operational" : "Connecting…"}</span>
-              <span className="topbar-status-sep" aria-hidden="true" />
+            <div className="topbar-status">
+              <span
+                className={`status-indicator-dot ${healthError ? "offline" : isHealthy ? "online" : "pulse"}`}
+                title={healthError ? "System offline" : isHealthy ? "All systems operational" : "Connecting to gateway…"}
+              />
               <Globe size={13} aria-hidden="true" />
               <span title="UTC time">{utcTime} UTC</span>
               <Clock size={13} aria-hidden="true" />
