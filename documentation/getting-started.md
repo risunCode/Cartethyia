@@ -204,13 +204,15 @@ Compose also manages the PostgreSQL and Redis the app connects to: the app reach
 both by service name on the Compose network, and a fresh `postgres` volume is
 migrated at first boot. `DATABASE_URL` is therefore set by Compose rather than
 read from `.env`. To point the app at an external database instead, override its
-`DATABASE_URL` or remove the `postgres` service. To run the app container with
-Lite:
+`DATABASE_URL` or remove the `postgres` service. Inside Compose the Redis URL is
+the Compose-only `CARTETHYIA_REDIS_URL` (`environment` wins over `env_file`), so
+a host-oriented `REDIS_URL=redis://localhost:6379` in `.env` for `bun dev` cannot
+leak into the container. To run the app container with Lite:
 
 ```dotenv
 CARTETHYIA_DB_MODE=lite
 # DATABASE_URL is not needed in Lite mode.
-# REDIS_URL=redis://redis:6379  # omit or leave empty for in-memory coordination
+# CARTETHYIA_REDIS_URL=  # omit or leave empty for in-memory coordination
 ```
 
 The Compose app stores gateway state and telemetry payloads in the persistent

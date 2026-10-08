@@ -104,8 +104,12 @@ describe("Docker Contract", () => {
     // host-oriented DATABASE_URL inherited from .env: inside the network the
     // service name is the only host that resolves.
     expect(composeContent).toContain("@postgres:5432/");
-    // Defaulted, not hardcoded, so an operator can still empty REDIS_URL.
-    expect(composeContent).toMatch(/REDIS_URL:.*redis:\/\/redis:6379/);
+    // The host interpolation variable must NOT be `REDIS_URL`: `environment`
+    // overrides `env_file`, so a `.env` written for a host-run `bun dev`
+    // (redis://localhost:6379, unreachable inside the container) would be
+    // injected verbatim and every Redis command would fail. Compose-only name.
+    expect(composeContent).toMatch(/REDIS_URL:\s*\$\{CARTETHYIA_REDIS_URL-redis:\/\/redis:6379\}/);
+    expect(composeContent).not.toMatch(/\$\{REDIS_URL-/);
     // The app migrates at boot, so it must wait for Postgres to accept
     // connections rather than crash-loop against a starting server.
     expect(composeContent).toMatch(
