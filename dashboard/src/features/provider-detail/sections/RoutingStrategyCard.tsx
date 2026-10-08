@@ -2,6 +2,7 @@ import { Cable, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "luci
 import type { ReactNode } from "react";
 import { Card, CardBody, CardHeader } from "../../../components/ui/card";
 import { Inline } from "../../../components/ui/inline";
+import { ListRow } from "../../../components/ui/list-row";
 import { Select } from "../../../components/ui/select";
 import { ErrorState, LoadingState } from "../../../components/ui/state";
 import { Switch } from "../../../components/ui/switch";
@@ -23,22 +24,7 @@ const USER_AGENT_PRESETS = [
 
 /** Shared shell for the grouped settings rows. */
 function Row({ children }: { readonly children: ReactNode }): ReactNode {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "12px",
-        padding: "10px 12px",
-        borderRadius: "10px",
-        border: "1px solid var(--inner-border)",
-        minWidth: 0,
-      }}
-    >
-      {children}
-    </div>
-  );
+  return <ListRow style={{ justifyContent: "space-between" }}>{children}</ListRow>;
 }
 
 export function RoutingStrategyCard({
