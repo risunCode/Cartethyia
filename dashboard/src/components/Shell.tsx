@@ -31,7 +31,6 @@ import { applyConsoleTheme, isDarkEffective, readConsoleTheme, writeConsoleTheme
 import { consoleRequest } from "../data/api";
 import { queryClient } from "../data/query-client";
 import { prefetchRouteIntent } from "../data/route-prefetch";
-import { usePullToRefresh } from "../hooks/use-pull-to-refresh";
 import { useSystemHealth, useLatestRelease } from "../hooks/system";
 import { useProviders } from "../hooks/providers";
 import { DASHBOARD_RELEASE_LABEL, DASHBOARD_VERSION } from "../lib/version";
@@ -644,8 +643,6 @@ export function DashboardShell({
   const updateAvailable = isNewerRelease(localVersion, latestTag);
   const providersQuery = useProviders();
   const drawerPresence = usePresence(drawerOpen);
-  const pull = usePullToRefresh(() => queryClient.invalidateQueries());
-
   const isHealthy = healthQuery.data?.status === "healthy";
   const uptimeSeconds = healthQuery.data?.uptime_seconds;
   const [now, setNow] = useState(() => new Date());
@@ -674,22 +671,13 @@ export function DashboardShell({
     setDrawerOpen(false);
   }, [location.pathname]);
 
-  // The app scrolls inside `.app-main-column`, not the document, so React
-  // Router's window-based restoration never applies and the previous page's
-  // offset carried into the next one — landing on a provider detail already
-  // scrolled past its header, for example.
-  //
-  // Reuses the pull hook's ref rather than re-querying the column, so the
-  // selector stays in one place. That ref is assigned in the hook's own effect;
-  // on the very first commit this layout effect runs before it, but a fresh
-  // load already starts at the top, and `DashboardShell` stays mounted across
-  // route changes, so every navigation this must correct has it set.
-  // Layout timing (not `useEffect`) because a post-paint reset would show the
-  // stale offset for one frame.
+  // The shell stays mounted across navigations, so the document keeps the
+  // previous page's offset and the next page opens already scrolled. Layout
+  // timing, not `useEffect`: a post-paint reset shows the stale offset for one
+  // frame.
   useLayoutEffect(() => {
-    const scroller = pull.scrollerRef.current;
-    if (scroller) scroller.scrollTop = 0;
-  }, [location.pathname, pull.scrollerRef]);
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
   const logout = async () => {
     setLoggingOut(true);
     try {
@@ -714,13 +702,6 @@ export function DashboardShell({
   const logoUrl = defaultLogoUrl;
   return (
     <>
-      <img
-        className="console-background"
-        src={`${import.meta.env.BASE_URL}default-backgrounds.webp`}
-        alt=""
-        aria-hidden="true"
-        draggable={false}
-      />
       <div className="app-bg" aria-hidden="true" />
       <div className="app-shell-root">
         {drawerPresence.mounted && (
@@ -812,22 +793,7 @@ export function DashboardShell({
         </aside>
 
         {/* Main Column */}
-        <div className="app-main-column" ref={pull.scrollerRef as React.RefObject<HTMLDivElement>}>
-          <div
-            aria-hidden={pull.pullPx === 0 && !pull.refreshing}
-            style={{
-              height: `${pull.refreshing ? 44 : pull.pullPx}px`,
-              overflow: "hidden",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "12px",
-              color: "var(--text-tertiary)",
-              transition: pull.pullPx === 0 && !pull.refreshing ? "height 180ms ease" : undefined,
-            }}
-          >
-            {pull.refreshing ? "Refreshing…" : pull.pullPx > 0 ? "Pull to refresh" : ""}
-          </div>
+        <div className="app-main-column">
           {/* Topbar Header */}
           <header className="glass app-topbar">
             <button
@@ -888,16 +854,7 @@ export function DashboardShell({
           </header>
 
           {/* Content Outlet */}
-          <main
-            className="route-enter"
-            style={{
-              flex: "1 0 auto",
-              minHeight: 0,
-              display: "flex",
-              flexDirection: "column",
-              gap: "16px",
-            }}
-          >
+          <main className="route-enter">
             {children}
           </main>
 

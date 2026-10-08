@@ -57,7 +57,7 @@ import { useInFlight, type InFlightState } from "../../hooks/live";
 import { useTrackedTimeout } from "../../hooks/use-timeout";
 import { USAGE_PERIODS, type UsagePeriod as Period } from "../../data/usage-periods";
 import { httpStatusLabel, httpStatusShortLabel, httpStatusTone } from "../../features/usage/http-status";
-import { USAGE_DIMENSIONS, type UsageDimension } from "../../data/contracts";
+import { USAGE_DIMENSIONS, type UsageDimension, type UsageSummaryTotals } from "../../data/contracts";
 import {
   DEFAULT_TOKEN_SCALE,
   RAW_TOKEN_SCALE,
@@ -128,6 +128,23 @@ const PERIOD_OPTIONS = USAGE_PERIODS.map((value) => ({
 
 function periodLabel(period: Period): string {
   return PERIOD_LABELS[period] ?? period;
+}
+
+/**
+ * The card headline. The period alone read as a label with nothing under it,
+ * so it carries the period's own totals: how many requests, how many failed,
+ * and what they cost.
+ */
+function usageHeadline(
+  period: Period,
+  pending: boolean,
+  totals: UsageSummaryTotals | undefined,
+): string {
+  const label = periodLabel(period);
+  if (pending || totals === undefined) return label;
+  const requests = formatNumber(totals.requests);
+  const failed = totals.errors > 0 ? ` · ${formatNumber(totals.errors)} failed` : "";
+  return `${label} · ${requests} requests${failed} · ${formatUsd(totals.estimatedCostUsd)}`;
 }
 
 function asPeriod(value: string | null): Period {
@@ -547,7 +564,7 @@ function ChartPanel({ period, metric }: { readonly period: Period; readonly metr
     );
   }
   return (
-    <div style={{ height: "224px" }}>
+    <div className="usage-panel-body">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={buckets} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
           <defs>
@@ -617,7 +634,9 @@ function BreakdownSnapshot({
     () => new Map((providersQuery.data ?? []).map((provider) => [provider.providerId, provider.label || provider.displayName])),
     [providersQuery.data],
   );
-  const rows = byQuery.data?.rows ?? [];
+  // A response that names another dimension is a tab the operator already left.
+  // Showing it would leave the list unchanged after the click.
+  const rows = byQuery.data?.dimension === dimension ? byQuery.data.rows : [];
   const maxTotal = rows.length > 0 ? Math.max(...rows.map((row) => row.total)) : 1;
   const totalRequests = rows.reduce((sum, row) => sum + row.requests, 0);
   const totalErrors = rows.reduce((sum, row) => sum + row.errors, 0);
@@ -655,11 +674,15 @@ function BreakdownSnapshot({
       />
       <CardBody>
         {byQuery.isPending && rows.length === 0 ? (
-          <LoadingState label="Loading breakdown…" />
+          <div className="usage-panel-body">
+            <LoadingState compact label="Loading breakdown…" />
+          </div>
         ) : byQuery.isError && rows.length === 0 ? (
           <ErrorState message="Failed to load breakdown." onRetry={() => void byQuery.refetch()} />
         ) : rows.length === 0 ? (
-          <EmptyState title="No usage for this period" message="Route requests to populate the breakdown." />
+          <div className="usage-panel-body">
+            <EmptyState compact title="No usage for this period" message="Route requests to populate the breakdown." />
+          </div>
         ) : (
           <div
             className="scroll-region"
@@ -1442,7 +1465,11 @@ export default function Usage(): ReactNode {
     <InFlightProvider>
       <Stack gap="16px">
       <Card>
-        <CardHeader title="Usage" subtitle={periodLabel(period)} icon={<Activity size={16} />} />
+        <CardHeader
+          title="Usage"
+          subtitle={usageHeadline(period, summaryQuery.isPending, summary)}
+          icon={<Activity size={16} />}
+        />
         <CardBody style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div className="metric-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
         <RequestsStatCard

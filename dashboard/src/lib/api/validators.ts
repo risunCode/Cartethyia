@@ -1,5 +1,6 @@
 import type { QueryFunctionContext } from "@tanstack/react-query";
 import { isRecord } from "../../data/api";
+import { USAGE_DIMENSIONS } from "../../data/contracts";
 import type { ApiErrorShape } from "../../data/api";
 import type {
   ApiKeyResponse,
@@ -129,7 +130,11 @@ export function assertUsageChart(value: unknown): UsageChartResponse {
   return value as unknown as UsageChartResponse;
 }
 export function assertUsageBy(value: unknown): UsageByResponse {
-  if (!isRecord(value) || !Array.isArray(value.rows)) {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.rows) ||
+    !(USAGE_DIMENSIONS as readonly string[]).includes(String(value.dimension))
+  ) {
     throw invalidResponse("Invalid usage breakdown response");
   }
   for (const row of value.rows) {

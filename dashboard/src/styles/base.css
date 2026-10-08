@@ -152,13 +152,13 @@
   scrollbar-color: var(--inner-border) transparent;
 }
 
-/* The page column still scrolls, it just does not draw a bar: the content is
+/* The page scrolls on the document, and it does not draw a bar: the content is
    the signal, and the rail is always visible for orientation anyway. */
-.app-main-column {
+html {
   scrollbar-width: none;
 }
 
-.app-main-column::-webkit-scrollbar {
+html::-webkit-scrollbar {
   display: none;
 }
 
@@ -195,24 +195,27 @@
 
 html {
   font-size: 14px;
-  height: 100%;
-  height: 100dvh;
   background: var(--page-bg);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  overflow: hidden;
+  /* The document scrolls, like the share page. A fixed inner scroller is what
+     kept the browser's own pull-to-refresh from ever firing. `overflow-x` stays
+     `visible`: setting it to `hidden` computes the vertical axis to `auto` as
+     well, and that box becomes the scroll container — which is exactly what
+     breaks `position: sticky` on the topbar. */
+  overflow-x: visible;
+  overflow-y: visible;
   -webkit-font-smoothing: antialiased;
 }
 
 body {
   margin: 0;
-  height: 100%;
-  height: 100dvh;
+  min-height: 100%;
+  min-height: 100dvh;
   font-family: var(--font-sans);
   color: var(--text-primary);
   background-color: var(--page-bg);
   background-attachment: fixed;
-  overflow: hidden;
 }
 
 html[data-ambient-glow="off"] body {
@@ -278,19 +281,6 @@ html[data-ambient-glow="off"] body {
 html[data-glass-depth="2"] {
   --glass-depth: 2;
 }
-/* The console key art. A veil of the page color sits over it in .app-bg's
-   sibling so the art reads as atmosphere, not as a poster. */
-.console-background {
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
-  filter: blur(2px);
-  transform: scale(1.02);
-}
 
 
 @media (max-width: 640px) {
@@ -299,11 +289,10 @@ html[data-glass-depth="2"] {
   }
 }
 #root {
-  height: 100%;
-  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 ::selection {
@@ -837,7 +826,11 @@ html[data-glass-enabled="true"] .card-solid {
 }
 
 .data-table {
+  /* `width: 100%` alone loses to the automatic table layout once the table sits
+     in a flex column: it stayed at its content width and the columns crushed
+     into the left half of the card. */
   width: 100%;
+  min-width: 100%;
   border-collapse: collapse;
   text-align: left;
   font-size: 12.5px;
@@ -917,6 +910,12 @@ main > .state-viewport {
   min-height: clamp(220px, calc(100dvh - 270px), 1000px);
 }
 
+/* A short dashboard page still reaches the shell footer; the shell's
+   min-height carries the shell, this floor carries the page column. */
+.dashboard-page:only-child {
+  min-height: clamp(240px, calc(100dvh - 200px), 1200px);
+}
+
 /* A state inside a dialog or card has no route to center in, so it drops the
    floor and the oversized padding and reads as an inline message. */
 .state-viewport-compact {
@@ -927,7 +926,8 @@ main > .state-viewport {
 /* A state that is the whole card body fills it, instead of reading as a
    short message floating at the top of an otherwise empty panel. */
 .card-body-content > .state-viewport {
-  min-height: clamp(220px, calc(100dvh - 320px), 1000px);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .state-viewport-compact .state-box {

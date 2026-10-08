@@ -508,7 +508,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       // Same fail-closed gate as the request list: storage keeps the raw
       // address, only presentation masks it.
       const hideClientIp = await shouldMaskClientIp(this.preferences, tenantId);
-      if (!hideClientIp) return { rows: mapped };
+      if (!hideClientIp) return { dimension, rows: mapped };
       // Grouping happened on the raw address, so masking can collapse distinct
       // hosts into one display name (`203.0.113.7` and `203.0.113.9` both become
       // `203.0.113.xxx`). Re-aggregate by the masked name: two rows the operator
@@ -539,13 +539,15 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
         });
       }
       return {
+        dimension,
         rows: [...merged.values()].sort((a, b) => b.requests - a.requests),
       };
     }
-    if (dimension !== "key") return { rows: mapped };
+    if (dimension !== "key") return { dimension, rows: mapped };
     const ids = [...new Set(mapped.map((row) => row.name))];
     const labels = ids.length > 0 ? await this.apiKeyLabels(tenantId, ids) : new Map<string, string>();
     return {
+      dimension,
       rows: mapped.map((row) => {
         const label = labels.get(row.name);
         return label === undefined ? row : { ...row, label };

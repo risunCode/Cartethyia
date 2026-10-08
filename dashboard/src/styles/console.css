@@ -957,18 +957,20 @@
   z-index: 10;
   width: 100%;
   max-width: 1560px;
-  height: 100vh;
-  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0 auto;
   padding: 16px;
   display: grid;
   grid-template-columns: 272px minmax(0, 1fr);
   gap: 16px;
-  overflow: hidden;
   box-sizing: border-box;
 }
 
 @media (max-width: 1024px) {
+  .app-main-column {
+    grid-column: 1;
+  }
   .app-shell-root {
     grid-template-columns: minmax(0, 1fr);
     padding: 12px;
@@ -978,11 +980,14 @@
 
 /* Sidebar Rail — 100% Pinned to left column, independent scroll inside */
 .app-sidebar {
+  position: fixed;
+  top: 16px;
+  left: max(16px, calc((100vw - 1560px) / 2 + 16px));
   width: 272px;
   min-width: 272px;
   max-width: 272px;
   flex-shrink: 0;
-  height: 100%;
+  height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -998,13 +1003,7 @@
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  /* A veil over the key art. The art stays visible enough to read through a
-     glass card; the page color keeps text legible. Dark art needs less veil. */
-  --console-backdrop-veil: 0.45;
-  background: color-mix(in srgb, var(--page-bg) calc(var(--console-backdrop-veil) * 100%), transparent);
-}
-html[data-theme="dark"] .app-bg {
-  --console-backdrop-veil: 0.3;
+  background: var(--page-bg);
 }
 @media (max-width: 1024px) {
   .app-sidebar {
@@ -1264,15 +1263,82 @@ html[data-theme="dark"] .app-bg {
    Main Content Column — THE ONE THAT SCROLLS
    ========================================================================== */
 .app-main-column {
+  grid-column: 2;
   min-width: 0;
   max-width: 100%;
   height: 100%;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-bottom: 20px;
   box-sizing: border-box;
+}
+
+/* Page fills remaining height under the sticky topbar; long content grows past
+   the shell and the document scrolls. No inner overflow - document is the scroller
+   so pull-to-refresh fires. The floor is what makes a short page (combos, quota)
+   still end at the footer without an inner scroller. */
+main.route-enter {
+  flex: 1 1 auto;
+  min-height: calc(100dvh - 104px);
+  display: flex;
+  flex-direction: column;
+}
+main.route-enter > * {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Direct card children split the page height (e.g. combos 50/50). Without this
+   a short page would stop mid-viewport instead of reaching the footer. Scoped
+   to the standard stacked layout so settings-column and overview keep their
+   auto-height cards. */
+main.route-enter > *:not(.settings-column) > .card-solid,
+main.route-enter > *:not(.settings-column) > .card-glass,
+main.route-enter > *:not(.settings-column) > .card-muted {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+main.route-enter .card-solid:last-child,
+main.route-enter .card-glass:last-child,
+main.route-enter .card-muted:last-child {
+  flex: 1 1 auto;
+}
+.settings-column > .card-solid,
+.settings-column > .card-glass,
+.settings-column > .card-muted,
+.dashboard-page > .card-solid,
+.dashboard-page > .card-glass,
+.dashboard-page > .card-muted {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+}
+main.route-enter .card-body-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.console-log-toolbar {
+  flex: 0 0 auto !important;
+  min-height: 0;
+  flex-wrap: wrap;
+}
+/* Tables keep card width; scoped to the container so grids do not get a forced
+   min-width that makes cells overflow and cards overlap. */
+main.route-enter .card-body-content > .data-table-container {
+  min-width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+main.route-enter .state-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .dashboard-page {
@@ -1289,14 +1355,14 @@ html[data-theme="dark"] .app-bg {
    legible as they scroll beneath it. */
 .page-toolbar-sticky {
   position: sticky;
-  top: var(--topbar-height);
+  top: calc(16px + var(--topbar-height));
   z-index: 20;
 }
 
 /* Desktop Header Topbar */
 .app-topbar {
   position: sticky;
-  top: 0;
+  top: 16px;
   z-index: 40;
   display: flex;
   align-items: center;

@@ -53,9 +53,10 @@ export function CompressionPanel(): ReactNode {
           <div
             style={{
               display: "flex",
-              alignItems: "center",
+              alignItems: "flex-start",
               justifyContent: "space-between",
-              gap: "12px",
+              gap: "10px 12px",
+              flexWrap: "wrap",
             }}
           >
             <div style={{ display: "flex", gap: "10px", minWidth: 0 }}>
@@ -66,7 +67,7 @@ export function CompressionPanel(): ReactNode {
                     Prune tool output (RTK)
                   </Inline>
                 </label>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                <div style={{ fontSize: "11px", color: "var(--text-tertiary)", overflowWrap: "anywhere", maxWidth: "100%" }}>
                   Compact bulky tool results (diffs, grep dumps, listings) in the message history so a
                   long conversation stops re-sending megabytes of raw output. Higher strength compresses
                   more aggressively.
@@ -117,9 +118,10 @@ export function CompressionPanel(): ReactNode {
           <div
             style={{
               display: "flex",
-              alignItems: "center",
+              alignItems: "flex-start",
               justifyContent: "space-between",
-              gap: "12px",
+              gap: "10px 12px",
+              flexWrap: "wrap",
             }}
           >
             <div style={{ display: "flex", gap: "10px", minWidth: 0 }}>
@@ -130,7 +132,7 @@ export function CompressionPanel(): ReactNode {
                     PonyTail (system directive)
                   </Inline>
                 </label>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                <div style={{ fontSize: "11px", color: "var(--text-tertiary)", overflowWrap: "anywhere", maxWidth: "100%" }}>
                   Appends a minimal-code directive to the system content, biasing the model toward the
                   smallest working change. Higher strength pushes harder toward deletion over addition.
                 </div>

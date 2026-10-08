@@ -131,6 +131,8 @@ export interface UsageByRow {
 export { USAGE_DIMENSIONS, type UsageDimension };
 
 export interface UsageByResponse {
+  /** The dimension these rows were grouped by, so a stale response can never be read as another tab's data. */
+  dimension: UsageDimension;
   rows: UsageByRow[];
 }
 export interface UsageCacheResponse {

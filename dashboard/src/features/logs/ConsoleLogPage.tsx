@@ -114,22 +114,12 @@ export default function ConsoleLogPage(): ReactNode {
     </div>
   );
   return (
-    <div
-      className="console-log-page"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "calc(100vh - 160px)",
-        minHeight: "480px",
-      }}
-    >
-      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        {activeTab === "logs" ? (
-          <LiveLogsPanel tabAction={tabAction} />
-        ) : (
-          <AuditPanel tabAction={tabAction} />
-        )}
-      </div>
+    <div className="console-log-page">
+      {activeTab === "logs" ? (
+        <LiveLogsPanel tabAction={tabAction} />
+      ) : (
+        <AuditPanel tabAction={tabAction} />
+      )}
     </div>
   );
 }
