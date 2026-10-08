@@ -234,9 +234,11 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
         // Rename. The label was accepted by the body schema and validated, but
         // never copied into the patch — so "save" silently kept the old name and
         // the key looked unrenamable. Blank falls back to the existing label
-        // rather than wiping it, since `label` is NOT NULL.
-        ...(patchRequest.label === undefined ||
-        (current.isDefault === true && patchRequest.label.trim() !== current.label)
+        // rather than wiping it, since `label` is NOT NULL. The default key is
+        // renameable like any other (c2a93545); gating on `isDefault` dropped
+        // exactly the one patch that changes a name, and left the store with an
+        // empty `set(...)` that threw.
+        ...(patchRequest.label === undefined
           ? {}
           : { label: patchRequest.label.trim() === "" ? current.label : patchRequest.label.trim() }),
         ...(patchRequest.notesTitle === undefined

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { dropCorruptAttachments } from "../../src/transport/translation/attachment-integrity";
 import type { CanonicalRequest, ContentPart } from "../../src/protocol/canonical-model";
-import { readFileSync } from "node:fs";
-
-const CORRUPT_SCREENSHOT = "C:\\Users\\Aria\\Desktop\\awok..txt";
 
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
@@ -143,32 +140,10 @@ describe("dropCorruptAttachments", () => {
     expect(texts(result.request)).toHaveLength(2);
   });
 
-  // Regression: the capture that motivated this module. The screenshot at
-  // message 637 was written before the writer flushed, so one IDAT chunk's
-  // stored CRC does not match its bytes — and the upstream rejected the whole
-  // request with an unnamed `model_param_invalid`.
-  it("drops the real corrupt screenshot from the captured request", () => {
-    const captured = JSON.parse(readFileSync(CORRUPT_SCREENSHOT, "utf-8")) as {
-      body: {
-        messages: Array<{ role: string; content: Array<{ type?: string; image_url?: { url: string } }> }>;
-      };
-    };
-    const url = captured.body.messages[637]!.content.find((p) => p.type === "image_url")?.image_url
-      ?.url;
-    expect(url).toBeDefined();
-    const result = dropCorruptAttachments(imageRequest(url!));
-    expect(result.dropped.map((d) => d.defect)).toEqual(["png_crc_mismatch"]);
-  });
-
-  it("accepts the well-formed screenshot from the same capture", () => {
-    const captured = JSON.parse(readFileSync(CORRUPT_SCREENSHOT, "utf-8")) as {
-      body: {
-        messages: Array<{ role: string; content: Array<{ type?: string; image_url?: { url: string } }> }>;
-      };
-    };
-    const url = captured.body.messages[640]!.content.find((p) => p.type === "image_url")?.image_url
-      ?.url;
-    expect(url).toBeDefined();
-    expect(dropCorruptAttachments(imageRequest(url!)).dropped).toEqual([]);
-  });
+  // The capture that motivated this module (message 637, an IDAT chunk whose
+  // stored CRC disagrees with its bytes, upstream rejecting the whole turn with
+  // an unnamed `model_param_invalid`) lived in a file on the author's Desktop
+  // and was never committed, so it cannot be replayed here. The synthetic
+  // `png_crc_mismatch` case and the "well-formed PNG" case above assert the
+  // same two outcomes against real bytes and are the standing lock.
 });

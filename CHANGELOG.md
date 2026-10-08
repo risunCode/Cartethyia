@@ -1,5 +1,20 @@
 ## Unreleased
 
+- Renaming the default API key was silently a no-op again. A clause added
+  alongside the usage-floor work dropped `label` from the PATCH exactly when an
+  `isDefault` key was being given a *different* name — the only rename that
+  matters — so the update reached `DrizzleApiKeyStore.update()` with an empty
+  `set(...)` and drizzle threw "No values to set". `test/console/api-key-default.test.ts`
+  had been red since that commit. The condition is gone; the default key
+  renames like any other, which is what `c2a93545` established.
+
+- Two cases in `test/unit/attachment-integrity.test.ts` read the original
+  corrupt-screenshot capture from an absolute path on the author's Desktop that
+  was never committed, so the file could not be replayed on any other machine
+  and the backend suite never went green. The capture is unrecoverable; the
+  synthetic `png_crc_mismatch` and well-formed-PNG cases above them assert the
+  same two outcomes, and a comment records where the case came from.
+
 - Documentation is rebuilt around what the code actually is. `configuration.md`
   is generated from `CONFIG_SPEC` by `scripts/generate/config-reference.ts` and
   guarded by `test/config`, so the operator's variable list cannot drift from
