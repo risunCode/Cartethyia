@@ -45,7 +45,14 @@ declare global {
  * boots cheap, and a handle without migrated tables behind it is never valid.
  */
 export async function bootDatabase(): Promise<DatabaseHandle> {
-  if (globalThis.__cartethyiaHandle) return globalThis.__cartethyiaHandle;
+  if (globalThis.__cartethyiaHandle) {
+    // The cached handle survives a hot reload, but the column mapping does
+    // not: it patched the previous module's columns. Reinstall it so a
+    // reloaded module reads booleans as booleans.
+    const raw = globalThis.__cartethyiaHandle.sqlite;
+    if (resolveDbMode() === "lite" && raw) buildSqliteHandle(raw);
+    return globalThis.__cartethyiaHandle;
+  }
   if (resolveDbMode() === "lite") {
     const sqlite = createSqliteDatabase(join(resolveDataDir(), "cartethyia.sqlite"));
     try {
@@ -66,7 +73,14 @@ export async function bootDatabase(): Promise<DatabaseHandle> {
 
 /** Active backend handle; throws when the database has not booted yet. */
 export function getDbHandle(): DatabaseHandle {
-  if (globalThis.__cartethyiaHandle) return globalThis.__cartethyiaHandle;
+  if (globalThis.__cartethyiaHandle) {
+    // The cached handle survives a hot reload, but the column mapping does
+    // not: it patched the previous module's columns. Reinstall it so a
+    // reloaded module reads booleans as booleans.
+    const raw = globalThis.__cartethyiaHandle.sqlite;
+    if (resolveDbMode() === "lite" && raw) buildSqliteHandle(raw);
+    return globalThis.__cartethyiaHandle;
+  }
   if (resolveDbMode() === "lite") {
     throw new Error("Lite database is not booted: await bootDatabase() before getDb()");
   }

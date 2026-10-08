@@ -30,6 +30,12 @@ export interface DatabaseHandle {
   readonly kind: "pg" | "sqlite";
   readonly db: CartethyiaDatabase;
   /**
+   * The raw bun:sqlite database, present only on the SQLite backend. A hot
+   * reload keeps this handle and has to rebuild it to repatch the column
+   * mapping the reload discarded.
+   */
+  readonly sqlite?: import("bun:sqlite").Database;
+  /**
    * Present only on the SQLite backend: the auth lookups prepared once at
    * boot. The PostgreSQL backend has no equivalent and the store falls back
    * to the query builder, so this stays optional.

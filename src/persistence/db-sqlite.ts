@@ -86,6 +86,7 @@ export function createSqliteDatabase(file: string): Database {
  * converted to ISO strings in `createSqliteDatabase`.
  */
 function installSqliteColumnMapping(schema: Record<string, unknown>): void {
+
   for (const value of Object.values(schema)) {
     const columns = tableColumns(value);
     if (columns === undefined) continue;
@@ -285,7 +286,17 @@ export function prepareAuthStatements(sqlite: Database): SqliteAuthStatements {
   };
 }
 
+
+// A reloaded module must repatch the columns even when the handle is the
+// one booted before the reload. See `buildSqliteHandle`.
+installSqliteColumnMapping(fullSchema);
+
 export function buildSqliteHandle(sqlite: Database): DatabaseHandle {
+  // Reinstalled on every call, not guarded. `bun --hot` keeps the booted
+  // handle in `globalThis` and never rebuilds it, so a mapping installed
+  // once at boot dies with the module it patched: booleans came back as
+  // integers and login rejected a valid user as `unknown_user`. The
+  // reloaded module calls this again and repatches the live columns.
   installSqliteColumnMapping(fullSchema);
   const built = drizzle(sqlite, { schema: fullSchema });
   // node-postgres exposes `execute` for raw SQL. bun-sqlite exposes `run` and
@@ -331,6 +342,7 @@ export function buildSqliteHandle(sqlite: Database): DatabaseHandle {
   return {
     kind: "sqlite",
     db: db as unknown as DatabaseHandle["db"],
+    sqlite,
     auth: prepareAuthStatements(sqlite),
     query: (text, params) => {
       // bun:sqlite types `all` as a tuple spread, which a `readonly unknown[]`
