@@ -33,6 +33,8 @@ export interface ClientVersionSource {
 export interface ClientVersionResolverOptions {
   /** Stable cache key; must be unique per provider (`grok`, `codex`, …). */
   readonly key: string;
+  /** The client this version belongs to, shown beside it. */
+  readonly client: string;
   /** Pinned constant used until (or unless) discovery succeeds. */
   readonly fallback: string;
   /** Ordered upstream probes; first valid version wins. */
@@ -54,6 +56,7 @@ export interface ClientVersionResolverOptions {
 }
 
 export interface ClientVersionSnapshot {
+  readonly client: string;
   readonly version: string;
   readonly source: "latest" | "fallback";
 }
@@ -173,6 +176,7 @@ export function createClientVersionResolver(
     },
     snapshot(): ClientVersionSnapshot {
       return {
+        client: options.client,
         version: discovered ?? options.fallback,
         source: discovered === null ? "fallback" : "latest",
       };

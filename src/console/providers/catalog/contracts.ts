@@ -485,6 +485,8 @@ export interface ProviderLoginField {
 }
 
 export interface ProviderClientVersion {
+  /** The client the adapter presents itself as. */
+  readonly client: string;
   readonly version: string;
   readonly source: "latest" | "fallback";
 }

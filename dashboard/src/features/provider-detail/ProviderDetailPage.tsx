@@ -448,7 +448,8 @@ export default function ProviderDetail(): ReactNode {
       {activeService === "llm" ? (
         <RoutingStrategyCard
           providerId={id}
-          showUserAgent={providerCanConfigureUserAgent(provider)}
+          clientVersion={provider.clientVersion}
+          userAgentEditable={providerCanConfigureUserAgent(provider)}
         />
       ) : null}
       {/* Accounts */}
