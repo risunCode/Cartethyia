@@ -866,9 +866,9 @@ export default function QuotaPage(): ReactNode {
 
   return (
     <Stack gap="16px" className="dashboard-page" style={{ minHeight: 0, flex: 1 }}>
-      <Card style={filteredAccounts.length === 0 && !isLoading && !isError ? { minHeight: "min(78dvh, calc(100dvh - 160px))", display: "flex", flexDirection: "column" } : undefined}>
+      <Card style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
         <CardHeader title="Quota" subtitle="Provider account limits and what is left of them" icon={<SlidersHorizontal size={16} />} />
-        <CardBody style={filteredAccounts.length === 0 && !isLoading && !isError ? { flex: 1, display: "flex", flexDirection: "column" } : undefined}>
+        <CardBody style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
       <Toolbar>
         <Select
           aria-label="Filter quota by provider"
@@ -998,11 +998,14 @@ export default function QuotaPage(): ReactNode {
         </div>
       ) : (
         <div
-          className="grid grid-cols-1 gap-3 lg:grid-cols-2"
+          className="scroll-region"
           style={{
+            minHeight: 0,
+            flex: 1,
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(min(420px, 100%), 1fr))",
             gap: "12px",
+            alignContent: "start",
           }}
         >
           {filteredAccounts.map((account) => (
