@@ -1172,8 +1172,18 @@
    ========================================================================== */
 .app-shell-frame {
   /* The container lives on the wrapper, not the grid: a container query cannot
-     match the element that declares it, so the collapse has to be measured one
-     level up. */
+     match the element that declares it, so the collapse is measured one level
+     up. The drawer below keys off this container, not the viewport, so a wide
+     window with a narrow shell (a docked panel, a split view) still collapses.
+     A size container with no width of its own sizes to its content, and the
+     grid inside it could then never grow past that — the frame must be a
+     full-width block or the content column stops where the content stops. */
+  display: block;
+  /* #root is a flex column, and a flex item's percentage width resolves against
+     an indefinite size, so `width: 100%` shrinks this to its content and the
+     page ends up centered in the window. Flex growth is what fills it. */
+  flex: 1 0 auto;
+  width: 100%;
   container-type: inline-size;
   container-name: app-shell;
 }
@@ -1196,14 +1206,11 @@
   box-sizing: border-box;
 }
 
-@media (max-width: 860px) {
+@container app-shell (max-width: 860px) {
   .app-shell-root {
     grid-template-columns: minmax(0, 1fr);
     padding: 12px;
     gap: 12px;
-  }
-  .app-main-column {
-    grid-column: 1;
   }
   .app-shell-root[data-drawer="open"] .app-main-column {
     position: relative;
@@ -1218,42 +1225,17 @@
     border-radius: var(--radius-card);
     pointer-events: auto;
   }
-  .app-sidebar {
-    top: 12px;
-    bottom: 12px;
-    left: 12px;
-    z-index: 80;
-    width: min(280px, calc(100vw - 24px));
-    min-width: 0;
-    max-width: 280px;
-    height: auto;
-    transform: translateX(calc(-100% - 24px));
-    transition: transform 280ms var(--ease-spring);
-    box-shadow: var(--shadow-popout);
-  }
-  .app-sidebar.is-open {
-    transform: translateX(0);
-    background: var(--surface-1);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-
-  .topbar-menu-btn {
-    display: grid;
-  }
-  .topbar-title-icon {
-    display: none;
-  }
 }
 
-/* Sidebar Rail — 100% Pinned to left column, independent scroll inside */
+/* Sidebar rail. It is a grid item, so it takes its column from the grid instead
+   of a hand-computed offset, and it sticks to the viewport while the document
+   scrolls. Long nav lists scroll inside the rail. */
 .app-sidebar {
-  position: fixed;
+  position: sticky;
   top: 16px;
-  left: max(16px, calc((100vw - 1560px) / 2 + 16px));
-  width: 272px;
-  max-width: 272px;
-  flex-shrink: 0;
+  align-self: start;
+  width: 100%;
+  min-width: 0;
   height: calc(100dvh - 32px);
   display: flex;
   flex-direction: column;
@@ -1264,6 +1246,31 @@
   z-index: 30;
   box-sizing: border-box;
 }
+/* Off-canvas: below the shell collapse the rail leaves the grid and slides in
+   over the content. It is fixed only in this state; at desktop width it is an
+   ordinary sticky grid item. This follows the base rule so it wins on source order. */
+@container app-shell (max-width: 860px) {
+  .app-sidebar {
+    position: fixed;
+    top: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 80;
+    width: min(280px, calc(100vw - 24px));
+    max-width: 280px;
+    /* top and bottom alone do not stretch a fixed box; give it the height. */
+    height: calc(100dvh - 24px);
+    transform: translateX(calc(-100% - 24px));
+    transition: transform 280ms var(--ease-spring);
+    box-shadow: var(--shadow-popout);
+  }
+  .app-sidebar.is-open {
+    transform: translateX(0);
+    background: var(--surface-1);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
 
 .app-bg {
   position: fixed;
@@ -1273,20 +1280,6 @@
   background: var(--page-bg);
 }
 
-
-.mobile-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 5;
-  background: rgba(0, 0, 0, 0.72);
-  border: 0;
-  cursor: default;
-  animation: dialog-overlay-in 180ms var(--ease-spring) both;
-}
-
-.mobile-scrim.closing {
-  animation: dialog-overlay-out 180ms var(--ease-spring) both;
-}
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -1509,7 +1502,6 @@
    Main Content Column — THE ONE THAT SCROLLS
    ========================================================================== */
 .app-main-column {
-  grid-column: 2;
   min-width: 0;
   max-width: 100%;
   height: 100%;
@@ -1519,54 +1511,18 @@
   box-sizing: border-box;
 }
 
-/* Page fills remaining height under the sticky topbar; long content grows past
-   the shell and the document scrolls. No inner overflow - document is the scroller
-   so pull-to-refresh fires. The floor is what makes a short page (combos, quota)
-   still end at the footer without an inner scroller. */
+/* The document is the scroller, so a page grows with its content and a short
+   page (combos, quota) still reaches the footer through this floor. A page
+   that wants to fill the floor and scroll internally (console log, model lab)
+   opts in with its own `flex: 1`; the shell does not force it onto every page
+   root, because that is what collapsed the settings grid and shrank cards
+   below their content. */
 main.route-enter {
   flex: 1 1 auto;
   min-height: calc(100dvh - 104px);
-  display: flex;
-  flex-direction: column;
-}
-/* The page root is a flex column so a page that opts in (Model Lab's own
-   `flex: 1`, Console Log's scroll region) can fill the floor. It must not
-   also force every card to split that height: a card's height comes from its
-   content, and a grid page root (settings) must keep the display its own
-   class declares. Forcing `display: flex` here is what collapsed
-   `.settings-column` from a 2-column grid into a stack, and `flex: 1 1 0`
-   on every card is what shrank the Compression card below its content so the
-   second row painted over the card beneath it. */
-main.route-enter > * {
-  flex: 1 1 auto;
-  min-height: 0;
   min-width: 0;
-}
-main.route-enter > .card-solid,
-main.route-enter > .card-glass,
-main.route-enter > .card-muted {
   display: flex;
   flex-direction: column;
-}
-/* The last card of a stacked page absorbs leftover height, so a short page
-   (one card, or a stack whose earlier cards are content-sized) still reaches
-   the footer. Earlier cards stay content-sized: `flex-basis: 0` would shrink
-   them below their content whenever the stack is taller than the floor. */
-main.route-enter > :not(.settings-column) > .card-solid:last-child,
-main.route-enter > :not(.settings-column) > .card-glass:last-child,
-main.route-enter > :not(.settings-column) > .card-muted:last-child {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-}
-/* Settings is a grid, not a stack, so none of its cards should grow to fill a
-   flex line — that growth is what stretched Backup over the row Security and
-   Privacy are meant to share. */
-.settings-column > .card-solid,
-.settings-column > .card-glass,
-.settings-column > .card-muted {
-  height: auto;
-  min-height: 0;
 }
 main.route-enter .card-body-content {
   flex: 1 1 auto;
@@ -1601,19 +1557,20 @@ main.route-enter .state-viewport {
   gap: 16px;
 }
 
-/* Toolbar pinned under the app topbar. `.app-main-column` is the scroller, so
-   `top` is the topbar's own height. The opaque surface + shadow keeps cards
-   legible as they scroll beneath it. */
+/* Toolbar pinned under the topbar. The document scrolls, and the topbar sticks
+   at the shell padding, so a toolbar clears it by the topbar's own height. The
+   opaque surface and shadow keep cards legible as they pass beneath. */
 .page-toolbar-sticky {
   position: sticky;
-  top: calc(16px + var(--topbar-height));
+  top: var(--topbar-height);
   z-index: 20;
 }
 
-/* Desktop Header Topbar. It scrolls away with the page: pinning it covered
-   the content beneath, which is what the operator asked to stop. */
+/* Topbar sticks to the viewport while the document scrolls. Its opaque surface
+   and shadow are what keep the content passing beneath it readable. */
 .app-topbar {
-  position: static;
+  position: sticky;
+  top: 16px;
   z-index: 40;
   display: flex;
   align-items: center;
@@ -1622,11 +1579,6 @@ main.route-enter .state-viewport {
   border-radius: var(--radius-card);
   border: 1px solid var(--inner-border);
   box-shadow: var(--shadow-card);
-}
-@media (max-width: 1024px) {
-  .app-topbar {
-    border-radius: var(--radius-card);
-  }
 }
 
 .topbar-menu-btn {
@@ -1640,7 +1592,10 @@ main.route-enter .state-viewport {
   place-items: center;
   flex-shrink: 0;
 }
-@media (max-width: 860px) {
+/* The menu button and the title icon trade places: below the shell collapse the
+   button opens the drawer, and the title icon would only double it. This follows
+   the base rule so it wins on source order. */
+@container app-shell (max-width: 860px) {
   .topbar-menu-btn {
     display: grid;
   }
@@ -2575,6 +2530,9 @@ main.route-enter .state-viewport {
   container-name: console-log;
   display: flex;
   flex-direction: column;
+  /* The log fills the route floor and scrolls inside itself. The shell does
+     not hand every page a flex height, so this page claims it on its own. */
+  flex: 1 1 auto;
   min-height: 0;
 }
 
@@ -2591,6 +2549,7 @@ main.route-enter .state-viewport {
 
 .console-log-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
   padding: 3px 16px;
@@ -2598,8 +2557,6 @@ main.route-enter .state-viewport {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
-  white-space: nowrap;
-  overflow: hidden;
 }
 
 .console-log-row--warn {
@@ -2635,11 +2592,16 @@ main.route-enter .state-viewport {
   text-align: left;
 }
 
+/* A plain server line wraps and pushes the row taller instead of spilling
+   onto the next row. Every continuation line is parked under the message
+   column so the timestamp/level gutter never clips it. */
 .console-log-msg {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 1 1 0;
   color: #9aa5a1;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* ---- structured request fields ---- */
@@ -2717,12 +2679,17 @@ main.route-enter .state-viewport {
   font-variant-numeric: tabular-nums;
 }
 
+/* Request lifecycle rows keep their dedicated fields (`>` / `{` / quoted
+   message). Those fields wrap into the same row instead of spilling onto
+   the next logical line: `display: contents` lets the `gap` on the row
+   separate them without introducing an extra flex box. */
+.console-log-fields {
+  display: contents;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .console-log-errmsg {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: #ff8080;
 }
 

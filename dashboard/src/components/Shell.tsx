@@ -627,8 +627,6 @@ export function DashboardShell({
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [compact, setCompact] = useState(false);
-  const shellFrameRef = useRef<HTMLDivElement>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const healthQuery = useSafeSystemHealth();
@@ -680,21 +678,6 @@ export function DashboardShell({
     }
   };
 
-  // Container queries do not fire reliably here, so the shell measures itself.
-  // Below 860px the sidebar becomes a drawer and the page takes the full width;
-  // a fixed viewport breakpoint was wrong because the window can be wide while
-  // this column is not.
-  useEffect(() => {
-    const frame = shellFrameRef.current;
-    if (!frame || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width ?? frame.clientWidth;
-      setCompact(width < 860);
-    });
-    observer.observe(frame);
-    return () => observer.disconnect();
-  }, []);
-
   useEffect(() => {
     document.documentElement.dataset.glassEnabled = "true";
     return () => {
@@ -708,8 +691,8 @@ export function DashboardShell({
   return (
     <>
       <div className="app-bg" aria-hidden="true" />
-      <div className="app-shell-frame" ref={shellFrameRef} data-compact={compact ? "true" : undefined}>
-      <div className="app-shell-root" data-compact={compact ? "true" : undefined} data-drawer={drawerOpen ? "open" : undefined} onClick={(event) => { if (drawerOpen && (event.target as HTMLElement).closest(".app-main-column")) setDrawerOpen(false); }}>
+      <div className="app-shell-frame">
+      <div className="app-shell-root" data-drawer={drawerOpen ? "open" : undefined} onClick={(event) => { if (drawerOpen && (event.target as HTMLElement).closest(".app-main-column")) setDrawerOpen(false); }}>
         <aside
           className={`glass app-sidebar ${drawerOpen ? "is-open" : ""}`}
           aria-label="Dashboard navigation"

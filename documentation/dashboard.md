@@ -130,10 +130,11 @@ are injected by `src/console/dashboard-assets.ts` into the one
 
 ## Layout rules
 
-`.app-main-column` is the only scroll container. `.app-topbar` is sticky inside
-it. A sticky toolbar uses `top: var(--topbar-height)`. It is a sibling above
-the scrolling content, opaque, with its own shadow. `.dashboard-page` and
-`.route-enter` do not scroll.
+The document is the only scroll container. `.app-topbar` and `.app-sidebar` are
+sticky against it. A sticky toolbar uses `top: var(--topbar-height)`. It is a
+sibling above the scrolling content, opaque, with its own shadow.
+`.app-main-column`, `.dashboard-page`, and `.route-enter` do not scroll. The
+sidebar collapses to a drawer on the shell's own width, not the viewport's.
 
 Dialog sizes are `sm` 420, `md` 640, `lg` 880, `xl` 1160. An expanded dialog
 caps at 1160. Below 640px the panel becomes a bottom sheet. New dialogs use

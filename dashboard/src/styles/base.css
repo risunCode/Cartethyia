@@ -199,10 +199,11 @@ html {
   color: var(--text-primary);
   font-family: var(--font-sans);
   /* The document scrolls, like the share page. A fixed inner scroller is what
-     kept the browser's own pull-to-refresh from ever firing. `overflow-x` stays
-     `visible`: setting it to `hidden` computes the vertical axis to `auto` as
-     well, and that box becomes the scroll container — which is exactly what
-     breaks `position: sticky` on the topbar. */
+     kept the browser's own pull-to-refresh from ever firing, so neither `html`
+     nor the shell column owns the scroll. `overflow-x` stays `visible`: setting
+     it to `hidden` computes the vertical axis to `auto` as well, and that box
+     becomes the scroll container — which is exactly what breaks
+     `position: sticky` on the topbar and the sidebar. */
   overflow-x: visible;
   overflow-y: visible;
   -webkit-font-smoothing: antialiased;

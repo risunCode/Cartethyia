@@ -206,13 +206,17 @@ const LogRow = memo(function LogRow({
   );
 });
 
-/** The structured half of a request lifecycle row. */
+/**
+ * The structured half of a request lifecycle row. The whole row is a single
+ * flex line; request fields are inline chips inside one wrapping span so a
+ * wrapped message does not push a `>` or `{` onto the next timestamp.
+ */
 function RequestFields({ line }: { readonly line: ConsoleLogEntry }): ReactNode {
   const isStart = line.event === "request_start";
   const route = eventRoute(line);
   const tokens = readTokenUsage(line);
   return (
-    <>
+    <span className="console-log-fields">
       <span className="console-log-method">{line.method ?? "POST"}</span>
       <span className="console-log-path">{line.endpoint ?? ""}</span>
       {line.status !== undefined ? (
@@ -244,7 +248,7 @@ function RequestFields({ line }: { readonly line: ConsoleLogEntry }): ReactNode 
         </>
       ) : null}
       {isStart ? null : <span className="console-log-id">{line.requestId?.slice(0, 8) ?? ""}</span>}
-    </>
+    </span>
   );
 }
 

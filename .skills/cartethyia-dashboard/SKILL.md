@@ -14,10 +14,13 @@ the backend.
 
 ## Rules at a glance
 
-- `.app-main-column` is the only scroll container. `.app-topbar` is sticky inside
-  it; `.dashboard-page` and `.route-enter` are not scrollers. A sticky toolbar
-  uses `top: var(--topbar-height)`, not a magic number, stays opaque and
-  shadowed, and sits as a sibling above scrolling content.
+- The document is the only scroll container. `.app-topbar` and `.app-sidebar`
+  are sticky against it; `.app-main-column`, `.dashboard-page`, and
+  `.route-enter` are not scrollers. A sticky toolbar uses
+  `top: var(--topbar-height)`, not a magic number, stays opaque and shadowed,
+  and sits as a sibling above scrolling content. The sidebar collapses to a
+  drawer on the shell's own width (`@container app-shell`), never a viewport
+  breakpoint.
 - Polling lists use stable sorting with a deterministic name tiebreaker.
 - Every console mutation toasts on both arms: `toast.success(...)` on success
   (short outcome, e.g. "Proxy pool created") and `toast.error(...)` with
