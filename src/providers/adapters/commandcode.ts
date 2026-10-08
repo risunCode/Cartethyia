@@ -8,8 +8,8 @@ import {
   mapUpstreamHttpError,
   upstreamErrorIdentifier,
 } from "../../transport/failure-policy";
-import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../protocol/canonical-model";
-import { isRecord, readNumber, readString } from "../../protocol/codecs";
+import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason, ContentPart } from "../../protocol/canonical-model";
+import { isRecord, readNumber, readString, resolveImageSource, splitDataUrl } from "../../protocol/codecs";
 import { usageFromProvider } from "../usage";
 import { readCredentialSecret, type ProviderDispatchTarget, type ProviderAdapter, type ProviderDispatchContext } from "../contracts";
 import { providerBaseUrl } from "../metadata";
@@ -68,52 +68,121 @@ export const COMMANDCODE_BASE_URL = providerBaseUrl("commandcode");
 export const COMMANDCODE_PROVIDER_ID = "commandcode" as const;
 const COMMANDCODE_DEFAULT_MAX_TOKENS = 4096;
 
-export function convertMessages(messages: CanonicalRequest["messages"]): { messages: Array<Record<string, unknown>>; system?: string } {
+/**
+ * The `/alpha/generate` wire, as the CLI client sends it:
+ *  - `params.system` is a top-level string; system turns never enter `messages`
+ *  - every `content` is an array of blocks, never a string
+ *  - an assistant tool call is `{type:"tool-call", toolCallId, toolName, input}`
+ *    and is preceded by a reasoning block, which the upstream requires
+ *  - a tool result is its own `role:"tool"` turn, not text glued into the user turn
+ *  - an image is `{type:"image", image, mimeType}`
+ */
+function toolResultValue(content: readonly ContentPart[] | string): string {
+  if (typeof content === "string") return content;
+  return content
+    .filter((part) => part.kind === "text")
+    .map((part) => part.text)
+    .filter((text) => text.length > 0)
+    .join("\n");
+}
+
+function imageBlock(payload: unknown): Record<string, unknown> | undefined {
+  const source = resolveImageSource(payload);
+  if (source?.url === undefined) return undefined;
+  const inline = splitDataUrl(source.url);
+  return { type: "image", image: source.url, ...(inline ? { mimeType: inline.mediaType } : {}) };
+}
+
+function contentBlocks(parts: readonly ContentPart[]): Array<Record<string, unknown>> {
+  const blocks: Array<Record<string, unknown>> = [];
+  for (const part of parts) {
+    if (part.kind === "text") {
+      if (part.text.length > 0) blocks.push({ type: "text", text: part.text });
+      continue;
+    }
+    if (part.kind === "image") {
+      const block = imageBlock(part.payload);
+      if (block) blocks.push(block);
+    }
+  }
+  return blocks.length > 0 ? blocks : [{ type: "text", text: "" }];
+}
+
+function parsedInput(value: unknown): unknown {
+  if (typeof value !== "string") return value ?? {};
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
+}
+
+export function convertMessages(messages: CanonicalRequest["messages"]): {
+  messages: Array<Record<string, unknown>>;
+  system?: string;
+} {
   const out: Array<Record<string, unknown>> = [];
-  let system: string | undefined;
+  const systemTexts: string[] = [];
   for (const message of messages) {
     if (message.role === "system" || message.role === "developer") {
       const text = joinTextParts(message.content);
-      if (text) system = system ? `${system}\n${text}` : text;
+      if (text.length > 0) systemTexts.push(text);
       continue;
     }
     // Answers live in `tool` turns or in `user` turns (the Messages ledger
-    // re-homes them). Checking only `role: "tool"` dropped every result from a
-    // Messages-origin history, leaving the assistant's `tool_calls` unanswered.
-    if (canContainToolResult(message)) {
-      const parts: Array<Record<string, unknown>> = [];
-      for (const block of toolResultParts(message)) {
-        const content = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
-        parts.push({ type: "text", text: `Tool ${block.call_id} result: ${content}` });
+    // re-homes them). Each result is its own `role:"tool"` turn: flattening
+    // them into the user turn as prose left the tool call unanswered.
+    if (canContainToolResult(message) && toolResultParts(message).length > 0) {
+      for (const result of toolResultParts(message)) {
+        out.push({
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: result.call_id,
+              toolName: "",
+              output: { type: "text", value: toolResultValue(result.content) },
+            },
+          ],
+        });
       }
-      const remaining = message.content.filter((part) => part.kind !== "toolResult");
-      const remainingText = joinTextParts(remaining);
-      if (remainingText.length > 0) parts.push({ type: "text", text: remainingText });
-      if (parts.length > 0) out.push({ role: "user", content: parts });
+      const remainder = contentBlocks(message.content.filter((part) => part.kind !== "toolResult"));
+      if (remainder.some((block) => block["text"] !== "")) out.push({ role: "user", content: remainder });
       continue;
     }
     if (message.role === "assistant") {
-      const text = joinTextParts(message.content);
-      const toolCalls = toolCallParts(message).map((b) => ({ id: b.call_id, type: "function" as const, function: { name: b.name, arguments: typeof b.arguments === "string" ? b.arguments : JSON.stringify(b.arguments) } }));
-      const msg: Record<string, unknown> = { role: "assistant" };
-      if (toolCalls.length > 0) {
-        msg["content"] = text.length > 0 ? text : "";
-        msg["tool_calls"] = toolCalls;
-      } else {
-        msg["content"] = text.length > 0 ? text : "";
+      const blocks: Array<Record<string, unknown>> = [];
+      const calls = toolCallParts(message);
+      const reasoning = message.content
+        .filter((part) => part.kind === "reasoning")
+        .map((part) => part.summary ?? "")
+        .filter((text) => text.length > 0)
+        .join("");
+      if (reasoning.length > 0 || calls.length > 0) {
+        blocks.push({ type: "reasoning", text: reasoning.length > 0 ? reasoning : " " });
       }
-      out.push(msg);
+      const text = joinTextParts(message.content);
+      if (text.length > 0) blocks.push({ type: "text", text });
+      for (const call of calls) {
+        blocks.push({
+          type: "tool-call",
+          toolCallId: call.call_id,
+          toolName: call.name,
+          input: parsedInput(call.arguments),
+        });
+      }
+      out.push({ role: "assistant", content: blocks.length > 0 ? blocks : [{ type: "text", text: "" }] });
       continue;
     }
-    out.push({ role: "user", content: [{ type: "text", text: joinTextParts(message.content) }] });
+    out.push({ role: "user", content: contentBlocks(message.content) });
   }
-  if (system === undefined) return { messages: out };
-  return { messages: out, system };
+  const system = systemTexts.join("\n\n");
+  return system.length > 0 ? { messages: out, system } : { messages: out };
 }
 
 export function buildRequest(
   modelId: string,
-  request: { messages: CanonicalRequest["messages"]; tools: { readonly name: string; readonly description: string | undefined; readonly jsonSchema: unknown }[]; maxOutputTokens: number | null },
+  request: { messages: CanonicalRequest["messages"]; tools: { readonly name: string; readonly description: string | undefined; readonly jsonSchema: unknown }[]; maxOutputTokens: number | null; temperature: number | null; topP: number | null; reasoningEffort: string | null },
   threadId: string,
   systemExtra?: string,
 ): Record<string, unknown> {
@@ -124,8 +193,12 @@ export function buildRequest(
     messages,
     stream: true,
     max_tokens: request.maxOutputTokens ?? COMMANDCODE_DEFAULT_MAX_TOKENS,
-    temperature: 0.3,
+    temperature: request.temperature ?? 0.3,
   };
+  if (request.topP !== null) params["top_p"] = request.topP;
+  if (request.reasoningEffort !== null && request.reasoningEffort !== "none") {
+    params["reasoning_effort"] = request.reasoningEffort;
+  }
   if (systemCombined) params["system"] = systemCombined;
   if (request.tools.length > 0) {
     params["tools"] = request.tools.map((tool) => ({
@@ -413,18 +486,26 @@ class CommandCodeAdapter implements ProviderAdapter {
     if (request.instructions) for (const p of request.instructions) if (p.kind === "text") systemExtraParts.push(p.text);
     const systemExtra = systemExtraParts.join("\n") || undefined;
 
+    const controls = request.generation_controls as Record<string, unknown>;
     const maxOutputTokens =
-      typeof (request.generation_controls as Record<string, unknown>)["max_tokens"] === "number"
-        ? ((request.generation_controls as Record<string, unknown>)["max_tokens"] as number)
-        : typeof (request.generation_controls as Record<string, unknown>)["max_output_tokens"] === "number"
-          ? ((request.generation_controls as Record<string, unknown>)["max_output_tokens"] as number)
+      typeof controls["max_tokens"] === "number"
+        ? controls["max_tokens"]
+        : typeof controls["max_output_tokens"] === "number"
+          ? controls["max_output_tokens"]
           : null;
+    const temperature = typeof controls["temperature"] === "number" ? controls["temperature"] : null;
+    const topP = typeof controls["top_p"] === "number" ? controls["top_p"] : null;
+    const reasoningEffort = request.reasoning?.effort ?? null;
 
     const sessionId = crypto.randomUUID();
 
-
-const upstreamModelId = candidate.model_id || request.model;
-    const payload = buildRequest(upstreamModelId, { messages: request.messages, tools, maxOutputTokens }, sessionId, systemExtra);
+    const upstreamModelId = candidate.model_id || request.model;
+    const payload = buildRequest(
+      upstreamModelId,
+      { messages: request.messages, tools, maxOutputTokens, temperature, topP, reasoningEffort },
+      sessionId,
+      systemExtra,
+    );
 
     const lifecycle = createUpstreamDeadlineLifecycle(context);
 
