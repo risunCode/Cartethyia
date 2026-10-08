@@ -180,7 +180,7 @@ export function RelayDeployModal({
             {deploy.isPending ? "Deploying…" : "Deploy relay"}
           </Button>
           {lastUrl ? (
-            <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+            <span className="form-section-caption">
               Registered pool at <code>{lastUrl}</code>
             </span>
           ) : null}

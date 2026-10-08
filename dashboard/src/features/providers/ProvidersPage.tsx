@@ -303,7 +303,7 @@ function AddCompatibleModal({
         >
           <div>
             <div style={{ fontSize: "13px", fontWeight: 600 }}>Auto-fetch models</div>
-            <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+            <div className="form-section-caption">
               Discover this provider's model list automatically after creation
             </div>
           </div>
@@ -323,7 +323,7 @@ function AddCompatibleModal({
             <div style={{ fontSize: "13px", fontWeight: 600 }}>
               {isAnthropic ? "Send request as Claude CLI" : "Send request as Codex CLI"}
             </div>
-            <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+            <div className="form-section-caption">
               {isAnthropic
                 ? "Emits official Claude CLI User-Agent and Stainless headers to upstream"
                 : "Emits official codex_cli_rs User-Agent and originator headers to upstream"}
@@ -1142,7 +1142,7 @@ export default function Providers(): ReactNode {
                 {section.title} ({section.providers.length})
               </h2>
               {section.subtitle ? (
-                <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                <p className="form-section-caption">
                   {section.subtitle}
                 </p>
               ) : null}

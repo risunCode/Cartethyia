@@ -2184,6 +2184,21 @@ main.route-enter .state-viewport {
   margin-top: 2px;
 }
 
+/* A small heading inside a form or panel, with an optional muted caption
+   directly under it. Replaces the inline 13px/700 + 11px/tertiary pair that
+   forms re-declared per section. */
+.form-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.form-section-caption {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
 .usage-status-filters {
   display: inline-flex;
   align-items: center;

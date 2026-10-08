@@ -288,7 +288,7 @@ export function AddModelModal({
           </Button>
         </Inline>
         {wasPrefixed && (
-          <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+          <div className="form-section-caption">
             Using <span style={{ fontFamily: "var(--font-mono)" }}>{normalized}</span> (provider
             prefix removed).
           </div>
@@ -330,7 +330,7 @@ export function AddModelModal({
           </div>
         </div>
         {declaredWires !== undefined && !declaredWires.includes(wireFamily) && (
-          <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+          <div className="form-section-caption">
             This provider does not declare the{" "}
             <span style={{ fontFamily: "var(--font-mono)" }}>{wireLabel(wireFamily)}</span> wire.
             The request is sent as chosen; the upstream decides whether it answers.
@@ -785,7 +785,7 @@ export function ModelGrid({
                 <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-secondary)" }}>
                   {group.label}
                 </span>
-                <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                <span className="form-section-caption">
                   {group.rows.length}
                 </span>
                 <span

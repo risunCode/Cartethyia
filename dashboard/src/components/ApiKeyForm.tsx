@@ -194,7 +194,7 @@ function RemoteRoutingRow({
         <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>
           {tool.name}
         </div>
-        <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+        <p className="form-section-caption">
           {enabled
             ? `Remote routing on — ${rowCount} route${rowCount === 1 ? "" : "s"} active, routing:cli_mapping granted.`
             : "Remote routing off — this key's requests go straight to the provider."}
@@ -253,7 +253,7 @@ function RemoteRoutingSection({
         <h4 id="remote-routing-heading" style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
           Remote routing
         </h4>
-        <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+        <p className="form-section-caption">
           Route this key's CLI model calls through persisted mappings and grant routing:cli_mapping. Applies immediately — no save needed.
         </p>
       </div>
@@ -436,7 +436,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
   return (
     <div className="api-key-form-layout">
       <section className="api-key-form-section api-key-form-section-wide">
-        <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>Credential mode</h3>
+        <h3 className="form-section-title">Credential mode</h3>
         <div role="group" aria-label="Credential mode" style={{ display: "flex", gap: "8px" }}>
           {(["personal", "share"] as const).map((modeOption) => (
             <button key={modeOption} type="button" aria-pressed={keyMode === modeOption}
@@ -450,7 +450,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
             </button>
           ))}
         </div>
-        <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+        <p className="form-section-caption">
           {keyMode === "share"
             ? "A share template does not authenticate requests. Recipients generate their own child key from its public enrollment page."
             : "A personal key authenticates requests directly; its secret is shown once when created or rotated."}
@@ -460,8 +460,8 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       {mode === "create" && (
         <section className="api-key-form-section">
           <div>
-            <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>Identity</h3>
-            <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+            <h3 className="form-section-title">Identity</h3>
+            <p className="form-section-caption">
               Give this credential a recognizable name.
             </p>
           </div>
@@ -480,10 +480,10 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       {mode === "edit" && (
         <section className="api-key-form-section">
           <div>
-            <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
+            <h3 className="form-section-title">
               Identity
             </h3>
-            <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+            <p className="form-section-caption">
               {record?.isDefault
                 ? "The default key's name is fixed. Limits, access, and everything else can still change."
                 : "Update the label for this credential."}
@@ -504,10 +504,10 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       )}
       <section className="api-key-form-section">
         <div>
-          <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
+          <h3 className="form-section-title">
             Share notes
           </h3>
-          <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+          <p className="form-section-caption">
             Optional copy shown on the public share page.
           </p>
         </div>
@@ -537,10 +537,10 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       </section>
       <section className="api-key-form-section">
         <div>
-          <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
+          <h3 className="form-section-title">
             Limits
           </h3>
-          <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+          <p className="form-section-caption">
             Keep this credential predictable under load.
           </p>
         </div>
@@ -660,10 +660,10 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       <section className="api-key-form-section api-key-form-section-wide" aria-labelledby="share-popup-heading">
         <div className="api-key-popup-header">
           <div>
-            <h3 id="share-popup-heading" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
+            <h3 id="share-popup-heading" className="form-section-title">
               Share page popup
             </h3>
-            <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+            <p className="form-section-caption">
               Optional card visitors open from the Base URL card on your share page.
             </p>
           </div>
@@ -741,10 +741,10 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       </section>
       <section className="api-key-form-section api-key-form-section-wide">
         <div>
-          <h3 style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)" }}>
+          <h3 className="form-section-title">
             Access
           </h3>
-          <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+          <p className="form-section-caption">
             Choose which models this key can use and what it is allowed to access.
           </p>
         </div>
@@ -808,7 +808,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
           </label>
           <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
             {models.length === 0 ? (
-              <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+              <span className="form-section-caption">
                 {modelAccessMode === "whitelist" ? "All models allowed" : "No models blocked"}
               </span>
             ) : (
@@ -873,7 +873,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
             <h4 id="blocked-routers-heading" style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
               Blocked client routers
             </h4>
-            <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+            <p className="form-section-caption">
               Matching fingerprints are rejected with 403 before routing. Detection is best-effort; clients without a fingerprint are not matched. This may also block bazaar probe links that share the same fingerprint.
             </p>
           </div>
@@ -897,7 +897,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
                   <div style={{ fontSize: "12px", color: "var(--text-primary)" }}>
                     Block {router.label} Client
                   </div>
-                  <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>
+                  <p className="form-section-caption">
                     Reject requests fingerprinted as {router.label}.
                   </p>
                 </div>
@@ -943,7 +943,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
               >
                 <div>
                   <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{scope}</div>
-                  <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>{SCOPE_DESCRIPTIONS[scope]}</p>
+                  <p className="form-section-caption">{SCOPE_DESCRIPTIONS[scope]}</p>
                 </div>
                 <Switch checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} disabled={busy} aria-label={`Grant ${scope}`} />
               </div>
@@ -998,7 +998,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
               >
                 <div>
                   <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{scope}</div>
-                  <p style={{ marginTop: "2px", fontSize: "11px", color: "var(--text-tertiary)" }}>{SCOPE_DESCRIPTIONS[scope]}</p>
+                  <p className="form-section-caption">{SCOPE_DESCRIPTIONS[scope]}</p>
                 </div>
                 <Switch checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} disabled={busy} aria-label={`Grant ${scope}`} />
               </div>

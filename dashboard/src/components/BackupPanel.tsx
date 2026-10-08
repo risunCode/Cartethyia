@@ -229,14 +229,14 @@ export function BackupPanel(): ReactNode {
               <span>Telemetry history</span>
             </label>
           </fieldset>
-          <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+          <p className="form-section-caption">
             Both actions re-authenticate with your console password. The export is plain JSON
             containing provider credentials, API-key hashes, routing configuration, and Studio sessions.
             Telemetry is optional; prompt/response payload files, health-event history, and console
             identity/session data are intentionally excluded from the config backup. Treat the file exactly as you would the database.
           </p>
 
-          <p style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+          <p className="form-section-caption">
             A backup carries request metadata only — status, tokens, cost, latency — never prompt or
             response bodies, so it is not a substitute for a database dump. Restored history older
             than the retention window is pruned again on the next sweep; raise

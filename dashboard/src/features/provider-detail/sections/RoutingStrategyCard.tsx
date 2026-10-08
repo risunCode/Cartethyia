@@ -102,7 +102,7 @@ export function RoutingStrategyCard({
                   Round robin
                 </Inline>
               </label>
-              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+              <div className="form-section-caption">
                 Off = failover: use accounts in priority order, fall through on failure. On = rotate
                 requests across this provider's accounts.
               </div>
@@ -127,7 +127,7 @@ export function RoutingStrategyCard({
                     Accounts per rotation
                   </Inline>
                 </label>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                <div className="form-section-caption">
                   Requests served before the rotation advances
                 </div>
               </div>
@@ -163,7 +163,7 @@ export function RoutingStrategyCard({
                   Always direct
                 </Inline>
               </label>
-              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+              <div className="form-section-caption">
                 Bypass automatic proxy-pool routing for this provider and always dial direct
               </div>
             </div>
@@ -290,7 +290,7 @@ export function RoutingStrategyCard({
             <Inline
               gap="6px"
               align="flex-start"
-              style={{ fontSize: "11px", color: "var(--text-tertiary)" }}
+              className="form-section-caption"
             >
               <Info size={12} style={{ flexShrink: 0, marginTop: "1px" }} />
               <span>
