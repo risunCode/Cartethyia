@@ -57,7 +57,7 @@ export default defineConfig({
         changeOrigin: false,
         bypass: (req) => {
           const path = (req.url ?? "").split("?")[0] ?? "";
-          if (path.endsWith("/data") || path.endsWith("/issue")) return undefined;
+          if (path.endsWith("/data") || path.endsWith("/issue") || path.endsWith("/stats") || path.endsWith("/stream") || path.endsWith("/popup-image")) return undefined;
           return "/index.html";
         },
       },
