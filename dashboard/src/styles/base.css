@@ -924,6 +924,12 @@ main > .state-viewport {
   padding: 4px 0;
 }
 
+/* A state that is the whole card body fills it, instead of reading as a
+   short message floating at the top of an otherwise empty panel. */
+.card-body-content > .state-viewport {
+  min-height: clamp(220px, calc(100dvh - 320px), 1000px);
+}
+
 .state-viewport-compact .state-box {
   gap: 6px;
   padding: 8px;

@@ -1057,14 +1057,24 @@ export default function Providers(): ReactNode {
     })).filter((section) => section.providers.length > 0);
   }, [llmProviders, orderedSearch, tab]);
 
-  if (q.isPending && !q.data) return <LoadingState label="Loading providers..." />;
-  if (q.isError)
+  const state = q.isPending && !q.data
+    ? <LoadingState label="Loading providers..." />
+    : q.isError
+      ? (
+        <ErrorState
+          message={getErrorMessage(q.error, "Failed to load providers")}
+          onRetry={() => q.refetch()}
+        />
+      )
+      : null;
+  if (state) {
     return (
-      <ErrorState
-        message={getErrorMessage(q.error, "Failed to load providers")}
-        onRetry={() => q.refetch()}
-      />
+      <Card>
+        <CardHeader title="Providers" icon={<Server size={16} />} />
+        <CardBody style={{ display: "flex", flex: 1 }}>{state}</CardBody>
+      </Card>
     );
+  }
 
   return (
     <Stack gap="24px">
