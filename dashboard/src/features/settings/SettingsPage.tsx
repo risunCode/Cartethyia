@@ -174,23 +174,30 @@ function PasswordChangeForm(): ReactNode {
 
 export default function Settings(): ReactNode {
   return (
-    <Stack gap="16px">
-      <section className="flex flex-col gap-[10px]">
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Account</h2>
-        <div className="two-column-grid">
-          <Card className="h-full">
-            <CardHeader title="Security" subtitle="Change the password used to sign in to this console" icon={<Shield size={16} />} />
-            <CardBody className="flex flex-1 flex-col">
-              <PasswordChangeForm />
-            </CardBody>
-          </Card>
-          <PrivacyPanel />
-        </div>
-      </section>
-      <section className="flex flex-col gap-[10px]">
-        <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Data</h2>
-        <BackupPanel />
-      </section>
-    </Stack>
+    <Card>
+      <CardHeader
+        title="Settings"
+        subtitle="Account security, privacy, and tenant data"
+        icon={<Shield size={16} />}
+      />
+      <CardBody className="flex flex-col gap-[20px]">
+        <section className="flex flex-col gap-[10px]">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Account</h2>
+          <div className="two-column-grid">
+            <Card className="h-full">
+              <CardHeader title="Security" subtitle="Change the password used to sign in to this console" icon={<Shield size={16} />} />
+              <CardBody className="flex flex-1 flex-col">
+                <PasswordChangeForm />
+              </CardBody>
+            </Card>
+            <PrivacyPanel />
+          </div>
+        </section>
+        <section className="flex flex-col gap-[10px]">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Data</h2>
+          <BackupPanel />
+        </section>
+      </CardBody>
+    </Card>
   );
 }

@@ -43,6 +43,8 @@ export interface ExportOptions {
   readonly password: string;
   /** The tenant whose rows are exported. Never another tenant's. */
   readonly tenantId: string;
+  /** Decrypt ciphertext and gzip the file. Applies to every selected section. */
+  readonly compressed?: boolean;
 }
 
 /** One table as it appears in a backup file, and whether it can be restored. */
@@ -101,6 +103,7 @@ export class BackupService {
       this.options.db,
       sections.flatMap((section) => tablesForSection(section)),
       options.tenantId,
+      options.compressed === true,
     );
     return { payload, counts };
   }

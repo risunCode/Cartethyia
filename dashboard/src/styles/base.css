@@ -441,6 +441,11 @@ html[data-glass-enabled="true"] .card-solid .backup-section-option,
 html[data-glass-enabled="true"] .card-solid .nested-panel {
   background-color: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent) !important;
 }
+.card-solid .card-solid {
+  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
 
 .glass {
   background: var(--glass-bg);

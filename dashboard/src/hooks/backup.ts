@@ -1,4 +1,5 @@
-import { consoleRequest } from "../data/api";
+import { consoleBytes, consoleRequest, consoleUpload } from "../data/api";
+import type { TransferProgress } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import type { BackupExportResponse, BackupImportResponse } from "../data/contracts";
 import type { DeleteAllScope } from "../../../src/console/backup/store";
@@ -18,11 +19,18 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
  * dashboard hands the parsed file over and renders the report it gets back.
  */
 export function useExportBackup() {
-  return useMutation<BackupExportResponse, ApiErrorShape, { password: string; sections?: string }>({
-    mutationFn: ({ password, sections }) => {
+  return useMutation<BackupExportResponse | Uint8Array, ApiErrorShape, { password: string; sections?: string; compressed?: boolean; onProgress?: (progress: TransferProgress) => void }>({
+    mutationFn: async ({ password, sections, compressed, onProgress }) => {
       const query = new URLSearchParams({ password });
       if (sections !== undefined && sections.length > 0) query.set("sections", sections);
-      return consoleRequest<BackupExportResponse>(`/backup/export?${query.toString()}`);
+      if (compressed === true) query.set("compressed", "1");
+      const path = `/backup/export?${query.toString()}`;
+      if (compressed !== true) return consoleRequest<BackupExportResponse>(path);
+      const envelope = await consoleRequest<{ bytes: string }>(path);
+      const binary = atob(envelope.bytes);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      onProgress?.({ loaded: bytes.byteLength, total: bytes.byteLength });
+      return bytes;
     },
   });
 }
@@ -53,12 +61,13 @@ export function useDeleteAllBackup() {
 
 export function useRestoreBackup() {
   const queryClient = useQueryClient();
-  return useMutation<BackupImportResponse, ApiErrorShape, { password: string; backup: unknown }>({
-    mutationFn: ({ password, backup }) =>
-      consoleRequest<BackupImportResponse>("/backup/import", {
-        method: "POST",
-        body: JSON.stringify({ password, backup }),
-      }),
+  return useMutation<BackupImportResponse, ApiErrorShape, { password: string; backup: unknown; onProgress?: (progress: TransferProgress) => void }>({
+    mutationFn: ({ password, backup, onProgress }) =>
+      consoleUpload<BackupImportResponse>(
+        "/backup/import",
+        JSON.stringify({ password, backup }),
+        onProgress,
+      ),
     onSuccess: async () => {
       await queryClient.invalidateQueries();
     },

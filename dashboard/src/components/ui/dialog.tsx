@@ -83,6 +83,15 @@ export function Dialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+          const target = event.target;
+          if (target instanceof HTMLTextAreaElement) return;
+          const submit = event.currentTarget.querySelector(".modal-footer .btn-primary, .modal-footer .btn-danger");
+          if (!(submit instanceof HTMLButtonElement) || submit.disabled) return;
+          event.preventDefault();
+          submit.click();
+        }}
       >
         <div className="modal-header">
           <div className="window-traffic-lights" role="group" aria-label="Window controls">

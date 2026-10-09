@@ -30,11 +30,13 @@
  *   has a random PK, so the natural key is checked explicitly.
  */
 import { and, eq, sql } from "drizzle-orm";
+import { gzipSync } from "node:zlib";
 import { differsFrom } from "../../persistence/dialect";
 import { readTelemetryEvents, TELEMETRY_EVENT_DIR } from "../../observability/event-log";
 import { appendFile, mkdir } from "node:fs/promises";
 import { getTableColumns, type Column, type SQL, type Table } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
+import { decryptCredentialToString } from "../../security/crypto";
 import {
   apiKeys,
   cliToolMappings,
@@ -78,7 +80,7 @@ import {
 } from "./contracts";
 
 /** Encodes one cell into a JSON-safe value. */
-function encodeCell(value: unknown, dataType: string): unknown {
+function encodeCell(value: unknown, dataType: string, raw: boolean): unknown {
   if (value === null || value === undefined) return null;
   if (dataType === "date") {
     const date = value instanceof Date ? value : new Date(String(value));
@@ -87,13 +89,58 @@ function encodeCell(value: unknown, dataType: string): unknown {
       : ({ __date: date.toISOString() } satisfies BackupDate);
   }
   if (dataType === "custom") {
-    if (Buffer.isBuffer(value)) return { __bytes: value.toString("base64") } satisfies BackupBytes;
-    if (value instanceof Uint8Array) {
-      return { __bytes: Buffer.from(value).toString("base64") } satisfies BackupBytes;
+    const bytes = Buffer.isBuffer(value)
+      ? value
+      : value instanceof Uint8Array
+        ? Buffer.from(value)
+        : null;
+    if (bytes === null) return null;
+    if (!raw) return { __bytes: bytes.toString("base64") } satisfies BackupBytes;
+    try {
+      return decryptCredentialToString(bytes);
+    } catch {
+      return bytes.toString("utf8");
     }
-    return null;
   }
   return value;
+}
+const RAW_SECRET_NAMES: Readonly<Record<string, string>> = {
+  credential_ciphertext: "access_token",
+  refresh_ciphertext: "refresh_token",
+  client_secret_ciphertext: "client_secret",
+  key_encrypted: "api_key",
+};
+
+function rawSecretName(name: string): string {
+  return RAW_SECRET_NAMES[name] ?? name;
+}
+function attachOauthSecrets(config: Record<string, readonly BackupRow[]>): void {
+  const accounts = config.provider_accounts;
+  const states = config.provider_oauth_states;
+  if (!Array.isArray(accounts)) return;
+  const byAccount = new Map((states ?? []).map((state) => [String(state.provider_account_id), state]));
+  config.providerConnections = accounts.map((account) => {
+    const state = byAccount.get(String(account.id));
+    return {
+      id: account.id,
+      provider: account.provider_id,
+      authType: account.credential_kind,
+      name: account.label,
+      accessToken: account.access_token ?? null,
+      refreshToken: state?.refresh_token ?? null,
+      clientSecret: state?.client_secret ?? null,
+      expiresAt: dateText(state?.expires_at),
+      isActive: account.status === "active",
+      createdAt: dateText(account.created_at),
+      providerSpecificData: account.auth_state ?? {},
+    };
+  });
+}
+
+function dateText(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || !("__date" in value)) return null;
+  const date = value.__date;
+  return typeof date === "string" ? date : null;
 }
 
 /** Decodes one payload cell back to what the driver expects for that column. */
@@ -178,6 +225,7 @@ async function exportTable(
   db: CartethyiaDatabase,
   table: Table,
   tenantId: string,
+  raw: boolean,
 ): Promise<BackupRow[]> {
   const index = columnIndex(table);
   const rows = (await db
@@ -187,7 +235,11 @@ async function exportTable(
     .limit(MAX_ROWS_PER_TABLE)) as Array<Record<string, unknown>>;
   return rows.map((row) => {
     const out: BackupRow = {};
-    for (const [name, { key, dataType }] of index) out[name] = encodeCell(row[key], dataType);
+    for (const [name, { key, dataType }] of index) {
+      const secret = raw && name in RAW_SECRET_NAMES;
+      const value = encodeCell(row[key], secret ? "custom" : dataType, raw);
+      out[raw ? rawSecretName(name) : name] = value;
+    }
     return out;
   });
 }
@@ -204,6 +256,7 @@ export async function exportBackup(
   db: CartethyiaDatabase,
   tables: readonly Table[],
   tenantId: string,
+  raw = false,
 ): Promise<BackupExportResult> {
   const config: Record<string, readonly BackupRow[]> = {};
   const telemetry: Record<string, readonly BackupRow[]> = {};
@@ -214,12 +267,13 @@ export async function exportBackup(
   for (const table of tables) {
     const rows = table === telemetryEvents
       ? await exportEventFile(tenantId)
-      : await exportTable(db, table, tenantId);
+      : await exportTable(db, table, tenantId, raw);
     const name = tableName(table);
     counts[name] = rows.length;
     if (configSet.has(table)) config[name] = rows;
     else if (telemetrySet.has(table)) telemetry[name] = rows;
   }
+  if (raw) attachOauthSecrets(config);
 
   const payload: BackupPayload = {
     app: BACKUP_APP,
@@ -231,6 +285,10 @@ export async function exportBackup(
     },
   };
   return { counts, payload };
+}
+/** Gzip a raw backup. The bytes inside are plaintext; only the file is compressed. */
+export function compressBackup(payload: unknown): Buffer {
+  return gzipSync(Buffer.from(JSON.stringify(payload), "utf8"));
 }
 
 /**

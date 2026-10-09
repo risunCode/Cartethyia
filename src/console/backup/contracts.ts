@@ -86,7 +86,6 @@ export const CONFIG_TABLES = [
   cliToolMappings,
   cliToolSettings,
   consoleSettings,
-  studioSessions,
   apiKeys,
   consoleUsers,
 ] as const satisfies readonly Table[];
@@ -107,6 +106,7 @@ export const TENANT_TABLE = tenants;
 
 /** Restorable metadata events and durable lifetime totals; payloads are excluded. */
 export const TELEMETRY_TABLES = [telemetryEvents, telemetryUsageTotals] as const satisfies readonly Table[];
+
 
 /**
  * Which rows of a table belong to one tenant, and how a restore replaces them.

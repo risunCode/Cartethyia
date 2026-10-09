@@ -21,3 +21,17 @@ export function downloadTextFile(filename: string, content: string, mimeType: st
     URL.revokeObjectURL(url);
   }, 0);
 }
+export function downloadBytes(filename: string, bytes: Uint8Array, mimeType: string): void {
+  const blob = new Blob([bytes], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  window.setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 0);
+}

@@ -20,9 +20,8 @@ import { invalidateApiKeyCache } from "../../security/api-key-auth";
 import { ConsoleDomainError, errorResponse, requireAnyScope } from "../shared/errors";
 import { MAX_BACKUP_BYTES } from "./contracts";
 import type { BackupSection } from "./contracts";
-import { DELETE_ALL_SCOPES } from "./store";
+import { DELETE_ALL_SCOPES, compressBackup } from "./store";
 import type { BackupService } from "./service";
-import type { AuditSink } from "../audit/contracts";
 
 export interface BackupRoutesConfig {
   readonly accessResolver: ConsoleAccessResolver;
@@ -82,6 +81,7 @@ const importBody = t.Object({
 const exportQuery = t.Object({
   password: t.String(),
   sections: t.Optional(t.String()),
+  compressed: t.Optional(t.String()),
 });
 
 const deleteAllBody = t.Object({
@@ -107,18 +107,23 @@ export function createBackupRoutes(config: BackupRoutesConfig): Elysia {
         }
         const backup = config.backupFor(request);
         const sections = parseSections(query.sections);
+        const compressed = query.compressed === "1";
         const { payload } = await backup.export({
           password: query.password,
           tenantId: access.tenantId,
+          compressed,
           ...(sections === undefined ? {} : { sections }),
         });
-        set.headers["content-disposition"] = `attachment; filename="cartethyia-backup-${new Date()
-          .toISOString()
-          .replace(/[:.]/g, "-")}.json"`;
-        set.headers["content-type"] = "application/json; charset=utf-8";
-        // A backup must never be cached by a proxy or the browser.
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
         set.headers["cache-control"] = "no-store";
-        return payload;
+        if (!compressed) {
+          set.headers["content-disposition"] = `attachment; filename="cartethyia_backup_${stamp}.json"`;
+          set.headers["content-type"] = "application/json; charset=utf-8";
+          return payload;
+        }
+        const bytes = compressBackup(payload);
+        set.headers["content-type"] = "application/json; charset=utf-8";
+        return { compressed: true, filename: `cartethyia_backup_${stamp}.json.gz`, bytes: bytes.toString("base64") };
       } catch (error) {
         return errorResponse(error, set, "Backup export failed");
       }

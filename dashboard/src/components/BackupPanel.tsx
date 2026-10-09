@@ -4,8 +4,9 @@ import { Button } from "./ui/button";
 import { Card, CardBody, CardHeader } from "./ui/card";
 import { Input } from "./ui/input";
 import { Stack } from "./ui/stack";
+import { Switch } from "./ui/switch";
 import { toast } from "../lib/toast";
-import { downloadTextFile } from "../lib/download";
+import { downloadBytes, downloadTextFile } from "../lib/download";
 import { getErrorMessage } from "../lib/helpers";
 import { useDeleteAllBackup, useExportBackup, useRestoreBackup } from "../hooks/backup";
 import { Dialog } from "./ui/dialog";
@@ -66,11 +67,26 @@ function ImportReportPanel({ report }: { readonly report: BackupImportReport }):
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function transferLabel(transfer: { loaded: number; total: number | null; startedAt: number } | null, fallback: string): string {
+  if (transfer === null) return fallback;
+  const seconds = Math.max((Date.now() - transfer.startedAt) / 1000, 0.1);
+  const speed = formatBytes(transfer.loaded / seconds);
+  const size = transfer.total === null ? formatBytes(transfer.loaded) : `${formatBytes(transfer.loaded)} / ${formatBytes(transfer.total)}`;
+  return `${size} · ${speed}/s`;
+}
 export function BackupPanel(): ReactNode {
   const [password, setPassword] = useState("");
   const [passwordFor, setPasswordFor] = useState<"download" | "restore" | "delete" | null>(null);
   const [includeConfig, setIncludeConfig] = useState(true);
   const [includeTelemetry, setIncludeTelemetry] = useState(false);
+  const [highlyCompress, setHighlyCompress] = useState(true);
+  const [transfer, setTransfer] = useState<{ loaded: number; total: number | null; startedAt: number } | null>(null);
   const [restored, setRestored] = useState<Record<string, number> | null>(null);
   const [report, setReport] = useState<BackupImportReport | null>(null);
   const [format, setFormat] = useState<string | null>(null);
@@ -114,15 +130,19 @@ export function BackupPanel(): ReactNode {
       return;
     }
     exportBackup.mutate(
-      { password, sections },
+      { password, sections, compressed: highlyCompress, onProgress: (progress) => setTransfer((current) => ({ ...progress, startedAt: current?.startedAt ?? Date.now() })) },
       {
         onSuccess: (payload) => {
-          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-          downloadTextFile(
-            `cartethyia-backup-${stamp}.json`,
-            JSON.stringify(payload, null, 2),
-            "application/json",
-          );
+          const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+          if (payload instanceof Uint8Array) {
+            downloadBytes(`cartethyia_backup_${stamp}.json.gz`, payload, "application/gzip");
+          } else {
+            downloadTextFile(
+              `cartethyia_backup_${stamp}.json`,
+              JSON.stringify(payload, null, 2),
+              "application/json",
+            );
+          }
           closePassword();
           toast.success("Backup downloaded.");
         },
@@ -151,7 +171,7 @@ export function BackupPanel(): ReactNode {
     } catch {
       throw new Error("That file is not valid JSON.");
     }
-    const result = await restoreBackup.mutateAsync({ password, backup: parsed });
+    const result = await restoreBackup.mutateAsync({ password, backup: parsed, onProgress: (progress) => setTransfer((current) => ({ ...progress, startedAt: current?.startedAt ?? Date.now() })) });
     setRestored(result.restored);
     setReport(result.report ?? null);
     setFormat(result.format);
@@ -179,7 +199,7 @@ export function BackupPanel(): ReactNode {
                 <input type="checkbox" checked={includeConfig} onChange={(event) => setIncludeConfig(event.target.checked)} />
                 <span>
                   <strong>Account, proxy &amp; settings</strong>
-                  <small>Credentials, API-key hashes, routing, Studio sessions</small>
+                  <small>Credentials, API-key hashes, routing, and settings</small>
                 </span>
               </label>
               <label className="backup-section-option">
@@ -190,8 +210,15 @@ export function BackupPanel(): ReactNode {
                 </span>
               </label>
             </fieldset>
+            <div className="flex items-center justify-between gap-[12px] rounded-[10px] border border-inner-border px-[12px] py-[10px]">
+              <span>
+                <strong className="block text-[13px]">Highly Compress Backup</strong>
+                <small className="text-[11px] text-text-tertiary">Makes the download smaller.</small>
+              </span>
+              <Switch checked={highlyCompress} onChange={setHighlyCompress} aria-label="Highly Compress Backup" />
+            </div>
             <p className="form-section-caption">
-              The file is plain JSON and contains provider credentials. Treat it like the database. Prompt and response bodies, health-event history, and console sessions are left out.
+              The file contains provider credentials. Treat it like the database. Prompt and response bodies, health-event history, and console sessions are left out.
             </p>
             <div className="mt-auto flex justify-end gap-[8px]">
               <Button variant="primary" size="sm" onClick={() => { setPassword(""); setPasswordFor("download"); }} disabled={!includeConfig && !includeTelemetry} icon={<Download size={13} />}>
@@ -271,20 +298,26 @@ export function BackupPanel(): ReactNode {
           <Button
             variant={passwordFor === "delete" ? "danger" : "primary"}
             size="sm"
+            loading={exportBackup.isPending || restoreBackup.isPending || deleteAllBackup.isPending}
             disabled={password.length === 0 || exportBackup.isPending || restoreBackup.isPending || deleteAllBackup.isPending}
             onClick={() => {
+              setTransfer(null);
               if (passwordFor === "download") download();
               else if (passwordFor === "restore") void performRestore();
               else void performDelete();
             }}
           >
-            {exportBackup.isPending || restoreBackup.isPending || deleteAllBackup.isPending
-              ? "Working…"
-              : passwordFor === "delete"
-                ? "Delete permanently"
-                : passwordFor === "restore"
-                  ? "Restore"
-                  : "Download"}
+            {exportBackup.isPending
+              ? transferLabel(transfer, "Downloading…")
+              : restoreBackup.isPending
+                ? transferLabel(transfer, "Uploading…")
+                : deleteAllBackup.isPending
+                  ? "Working…"
+                  : passwordFor === "delete"
+                    ? "Delete permanently"
+                    : passwordFor === "restore"
+                      ? "Restore"
+                      : "Download"}
           </Button>
         </>
       }
