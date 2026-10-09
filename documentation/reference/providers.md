@@ -163,8 +163,7 @@ leaving operator-owned `enabled` alone.
 `baseUrl`, `credential`, optional `fetcher`, and optional `authState`. Most
 OpenAI-compatible providers reuse `fetchOpenAICompatibleModels`
 (`src/providers/discovery/openai-model-discovery.ts:25`). Per-account catalogs
-declare `modelDiscoveryRequiresCredential: true` — Cursor's `GetUsableModels`
-and Kiro's list both answer with what the credential's plan reaches, so the
+declare `modelDiscoveryRequiresCredential: true` — Kiro's list answers with what the credential's plan reaches, so the
 static rows are only an offline seed. Persisted rows get `source: 'discovered'`
 or `'auto_free'` (`src/providers/discovery/probing-service.ts:800`), which keeps
 a free-tier row distinguishable at the only point it is still known.

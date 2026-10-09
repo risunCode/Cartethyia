@@ -75,17 +75,6 @@ async function kiroVersion(response: Response): Promise<string | null> {
   return isSemverish(version) ? version : null;
 }
 
-/**
- * Cursor publishes no version feed for the CLI. The installer script is the
- * feed: it pins the build it downloads (`downloads.cursor.com/lab/<version>/`),
- * and that script is regenerated on every release, so reading it is what keeps
- * the advertised client current.
- */
-async function cursorCliVersion(response: Response): Promise<string | null> {
-  const body = await response.text();
-  const version = /downloads\.cursor\.com\/lab\/([^/"'\s]+)\//.exec(body)?.[1];
-  return version && version.length > 0 ? `cli-${version}` : null;
-}
 async function antigravityVersion(response: Response): Promise<string | null> {
   const body = await response.text();
   for (const line of body.split(/\r?\n/)) {
@@ -256,15 +245,6 @@ export const VERSION_SOURCES = {
     fallback: "1.52.0",
     sources: [{ url: "https://pypi.org/pypi/kimi-cli/json", extract: kimiVersion }],
   },
-  cursor: {
-    key: "cursor",
-    // Tracks the Cursor CLI line the wire advertises. The pinned floor is the
-    // version the adapter sends, so discovery can move it forward but an
-    // upstream feed lagging behind can never silently downgrade the badge.
-    fallback: "cli-2026.10.01-e373342",
-    minVersion: "cli-2026.10.01-e373342",
-    sources: [{ url: "https://cursor.com/install", extract: cursorCliVersion }],
-  },
   kiro: {
     key: "kiro",
     fallback: "1.2.37",
@@ -364,7 +344,6 @@ const resolvers = {
   claudeCli: createClientVersionResolver({ ...VERSION_SOURCES.claudeCli, client: "claude" }),
   claudeSdk: createClientVersionResolver({ ...VERSION_SOURCES.claudeSdk, client: "claude-sdk" }),
   kiro: createClientVersionResolver({ ...VERSION_SOURCES.kiro, client: "kiro" }),
-  cursor: createClientVersionResolver({ ...VERSION_SOURCES.cursor, client: "cursor" }),
   github: createClientVersionResolver({ ...VERSION_SOURCES.github, client: "github-copilot" }),
   kilo: createClientVersionResolver({ ...VERSION_SOURCES.kilo, client: "kilo" }),
   mimo: createClientVersionResolver({ ...VERSION_SOURCES.mimo, client: "mimo" }),
@@ -388,7 +367,6 @@ const PROVIDER_VERSION_RESOLVERS: Readonly<Record<string, ClientVersionResolver>
   cbcn: resolvers.codebuddyCn,
   kimi: resolvers.kimiCli,
   kiro: resolvers.kiro,
-  cursor: resolvers.cursor,
   anthropic: resolvers.claudeCli,
   claude: resolvers.claudeCli,
   github: resolvers.github,
@@ -433,7 +411,6 @@ export const getQoderVersion = accessor("qoder").get;
 export const getAntigravityVersion = accessor("antigravity").get;
 
 export const getOpenCodeVersion = accessor("opencode").get;
-export const getCursorVersion = accessor("cursor").get;
 
 export const getCommandCodeVersion = accessor("commandcode").get;
 

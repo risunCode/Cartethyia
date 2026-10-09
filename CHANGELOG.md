@@ -92,30 +92,11 @@
   including an explicit-input-only response, a non-positive context percentage,
   and a measured total below the completion estimate.
 
-- A Cursor `not_found` now cools the model down instead of being reported and
-  retried forever. Cursor answers it for a model the credential's plan does not
-  reach, and the adapter collapsed it into a generic 502 with no provider code,
-  so the classifier filed it as `server_error` with nothing to mutate: every
-  probe of an unreachable model failed and the next request dialed it again.
-  It is now surfaced as `model_not_found` carrying the Connect code, and
-  classified as `model_unreachable` — a verdict on one (account, model) pair,
-  written to that pair's cooldown while the account stays active and routable
-  for every other model it holds. Every Cursor error also carries an upstream
-  origin now; the local default had made even `resource_exhausted` unable to
-  cool anything.
-
-- The Cursor catalog exposes Auto and Composer only. Grok and Claude Opus are
-  dropped on evidence rather than taste: this account's plan answers
-  `resource_exhausted` for the Grok rows and `not_found` for the Opus rows, so
-  a catalog that listed them advertised a model no request could ever reach.
-
-- Cursor is a bundled provider. A signed-in account dispatches chat through
-  Cursor's own `agent.v1.AgentService` backend over Connect-RPC/HTTP2, with
-  the deep-link login and automatic token refresh the console already drives
-  for other providers. The model list comes from the account
-  (`GetUsableModels`), so it reflects what that plan can actually reach. A
-  caller's system message is delivered as labelled history, because Cursor
-  composes the model prompt itself and discards a real system role.
+- The Cursor provider is removed. Its adapter, OAuth client, quota collector,
+  model discovery, client-version tracking, catalog metadata, and protocol
+  tests are gone, and nothing references it. On the next boot the unowned
+  `providers` row it left behind is retired and its builtin model rows go
+  with it through the foreign key; telemetry history is not touched.
 
 - The Devin provider is removed. Its adapter, OAuth client, quota collector,
   model discovery, client-version tracking, catalog metadata, and dashboard

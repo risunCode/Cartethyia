@@ -75,7 +75,6 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   amp: { file: "amp", ext: "webp" },
   qwen: { file: "qwen", ext: "webp" },
   kiro: { file: "kiro", ext: "webp" },
-  cursor: { file: "cursor", ext: "webp" },
   kimchi: { file: "kimchi", ext: "webp" },
   commandcode: { file: "commandcode", ext: "webp" },
 };

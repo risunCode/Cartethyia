@@ -109,17 +109,6 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     credentialUrl: "https://kiro.dev",
     credentialHint: "Sign in with AWS Builder ID, an Identity Center organization, Google/GitHub, or paste a Kiro API key.",
   },
-  {
-    // Cursor frames its own agent protocol over Connect-RPC/HTTP2 and has no
-    // chat-shaped endpoint to route through.
-    id: "cursor",
-    displayName: "Cursor",
-    baseUrl: "https://api2.cursor.sh",
-    bespokeWire: true,
-    hasAdapterUserAgent: true,
-    credentialUrl: "https://cursor.com",
-    credentialHint: "Sign in with a Cursor account; there is no key to paste.",
-  },
   { id: "kimi", displayName: "Kimi Code", baseUrl: "https://api.kimi.com/coding", credentialUrl: "https://platform.moonshot.ai/console/api-keys" },
   { id: "opencodeft", displayName: "OpenCode Free", baseUrl: "https://opencode.ai", requiresAccount: false, ipScopedRateLimit: true, hasAdapterUserAgent: true },
   { id: "opencodezen", displayName: "OpenCode Zen", baseUrl: "https://opencode.ai", hasAdapterUserAgent: true, credentialUrl: "https://opencode.ai/auth" },
