@@ -284,11 +284,6 @@ html[data-app="share"] .share-hud-card {
   letter-spacing: -0.02em;
 }
 
-.share-section-caption {
-  color: var(--text-tertiary);
-  font-size: 11px;
-}
-
 .share-credentials {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -724,10 +719,6 @@ html[data-app="share"] .share-hud-card {
     padding: 20px;
   }
 
-  .share-section-caption {
-    display: none;
-  }
-
   .share-model-groups {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -991,13 +982,6 @@ html[data-app="share"] .share-hud-card {
   height: 100%;
   border-radius: 4px;
   background: var(--red);
-  transition: width 240ms ease;
-}
-
-.share-quota-fill {
-  height: 100%;
-  border-radius: 4px;
-  background: var(--teal);
   transition: width 240ms ease;
 }
 

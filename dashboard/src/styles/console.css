@@ -154,18 +154,6 @@
   box-shadow: var(--shadow-card);
 }
 
-.motion-fade {
-  transition:
-    opacity var(--dur-micro) var(--ease-spring),
-    background-color var(--dur-micro) var(--ease-spring),
-    border-color var(--dur-micro) var(--ease-spring),
-    color var(--dur-micro) var(--ease-spring);
-}
-
-.meter-fill {
-  transition: width var(--dur-macro) var(--ease-spring);
-}
-
 .popout-enter {
   animation: popout-in var(--dur-micro) var(--ease-spring) both;
   transform-origin: top right;
@@ -547,22 +535,12 @@
   outline-offset: 1px;
 }
 
-.modal-form-layout {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-}
-
 .modal-form-section-wide,
 .modal-form-actions {
   grid-column: 1 / -1;
 }
 
 @media (max-width: 640px) {
-  .modal-form-layout {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
 
   .modal-form-section-wide,
   .modal-form-actions {
@@ -896,11 +874,6 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   align-items: start;
-  min-width: 0;
-}
-
-.api-key-form-field-wide {
-  grid-column: 1 / -1;
   min-width: 0;
 }
 
@@ -1560,11 +1533,6 @@ main.route-enter .state-viewport {
 /* Toolbar pinned under the topbar. The document scrolls, and the topbar sticks
    at the shell padding, so a toolbar clears it by the topbar's own height. The
    opaque surface and shadow keep cards legible as they pass beneath. */
-.page-toolbar-sticky {
-  position: sticky;
-  top: var(--topbar-height);
-  z-index: 20;
-}
 
 /* Topbar sticks to the viewport while the document scrolls. Its opaque surface
    and shadow are what keep the content passing beneath it readable. */
@@ -1794,13 +1762,6 @@ main.route-enter .state-viewport {
 
 
 /* Health Card & Overview Resource Widgets */
-.health-resource-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
-  gap: 12px;
-  width: 100%;
-  min-width: 0;
-}
 
 /* A card needs roughly 240px to show its name, status, and model count without
    clipping. Below that the grid drops a column on its own. */
@@ -1945,184 +1906,6 @@ main.route-enter .state-viewport {
   }
 }
 
-
-.health-card-resource {
-  height: 100%;
-  min-height: 218px;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--inner-border);
-  background: var(--surface-2);
-  padding: 10px 12px;
-  box-sizing: border-box;
-  min-width: 0;
-}
-
-.info-tooltip-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  cursor: help;
-}
-
-.info-tooltip-popup {
-  display: none;
-  position: absolute;
-  bottom: calc(100% + 6px);
-  right: 0;
-  z-index: 50;
-  width: 200px;
-  padding: 6px 10px;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--border-strong);
-  background: var(--surface-1);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  font-size: 10px;
-  line-height: 1.35;
-  color: var(--text-secondary);
-  pointer-events: none;
-  white-space: normal;
-}
-
-.info-tooltip-wrap:hover .info-tooltip-popup,
-.info-tooltip-wrap:focus-within .info-tooltip-popup {
-  display: block;
-}
-.overview-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.overview-card-primary {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.overview-card-primary-value {
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.overview-card-primary-value-sm {
-  font-size: 17px;
-}
-
-.overview-card-primary-label {
-  font-size: 9.5px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-}
-
-.overview-card-summary {
-  font-size: 9.5px;
-  line-height: 1.3;
-  color: var(--text-tertiary);
-  margin-top: 4px;
-  white-space: pre-line;
-}
-
-.overview-card-footer {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.overview-mini-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.overview-mini {
-  min-width: 0;
-  border: 1px solid var(--inner-border);
-  border-radius: var(--radius-control);
-  background: var(--surface-muted);
-  padding: 6px 8px;
-}
-
-.overview-mini-label {
-  font-size: 8.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-tertiary);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.overview-mini-value {
-  margin-top: 3px;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-}
-
-.overview-mini-caption {
-  margin-top: 2px;
-  font-size: 8.5px;
-  color: var(--text-tertiary);
-}
-
-.overview-bar-rail {
-  border: 1px solid var(--inner-border);
-  border-radius: var(--radius-control);
-  background: var(--surface-muted);
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.overview-bar {
-  height: 5px;
-  overflow: hidden;
-  border-radius: var(--radius-pill);
-  background: var(--track);
-  display: flex;
-  gap: 1px;
-}
-
-.overview-bar-fill {
-  height: 100%;
-  border-radius: var(--radius-pill);
-  transform-origin: left center;
-  transition: width 400ms ease;
-}
-
-.overview-bar-fill--accent {
-  background: var(--accent);
-}
-.overview-bar-fill--orange {
-  background: var(--orange);
-}
-.overview-bar-fill--green {
-  background: #30d158;
-}
-.overview-bar-fill--blue {
-  background: #0a84ff;
-}
-.overview-bar-fill--purple {
-  background: #bf5af2;
-}
-
 /* Section Header */
 .section-header {
   display: flex;
@@ -2216,45 +1999,6 @@ main.route-enter .state-viewport {
 
 .usage-status-filter[data-tone="err"] {
   --status-color: var(--red);
-}
-.radix-slider-root {
-  position: relative;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: 20px;
-  touch-action: none;
-}
-
-.radix-slider-track {
-  position: relative;
-  height: 4px;
-  width: 100%;
-  border-radius: var(--radius-pill);
-  background: var(--inner-border);
-}
-
-.radix-slider-range {
-  position: absolute;
-  height: 100%;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-}
-
-.radix-slider-thumb {
-  display: block;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  border: 2px solid var(--surface-1);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
-  cursor: grab;
-}
-
-.radix-slider-thumb:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 
 .radix-select-trigger {
@@ -2354,11 +2098,6 @@ main.route-enter .state-viewport {
 
 .radix-select-trigger[data-state="open"] svg {
   transform: rotate(180deg);
-}
-.form-range {
-  width: 100%;
-  accent-color: var(--accent);
-  cursor: pointer;
 }
 
 /* Chunky rounded bar, square thumb. The native range read as a bare stick and
@@ -2793,16 +2532,6 @@ main.route-enter .state-viewport {
   opacity: 0.65;
   font-variant-numeric: tabular-nums;
 }
-
-.console-log-clear {
-  margin-left: 6px;
-  color: var(--red);
-}
-
-.console-log-clear:hover {
-  background: var(--red-soft);
-  color: var(--red);
-}
 main.route-enter .console-log-toolbar {
   display: flex;
   flex-direction: row;
@@ -3223,12 +2952,6 @@ main.route-enter .console-log-toolbar {
   flex: 1;
   display: flex;
   flex-direction: column;
-}
-
-.mlab-tool-toggle[aria-pressed="true"] {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 /* ===== share ===== */
 /* Owner-side share dialog: the stable link row, the recipient table, and the
