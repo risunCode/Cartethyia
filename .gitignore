@@ -55,3 +55,7 @@ data/
 backup-probe.json
 cartethyia-backup-*.json
 .cleanup-work/
+
+# Visual regression baseline captured by scripts/dev/visual-baseline.ts.
+# A measurement artifact, not a source of truth — regenerate, do not review.
+dashboard/visual/

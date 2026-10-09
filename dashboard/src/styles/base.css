@@ -1,5 +1,107 @@
 @import "tailwindcss";
 
+/*
+ * The design system, named for Tailwind.
+ *
+ * Every key resolves through the custom property below it rather than copying
+ * its value: `:root[data-theme="dark"]` redefines 40 of those properties, and a
+ * utility that reads the token follows the swap with no dark variant written
+ * anywhere. A hex value frozen in here would look identical in light mode and
+ * stay wrong in dark, and nothing in a typecheck would notice.
+ *
+ * Token names are the ones already used by the sheets, so a writer chooses
+ * between `bg-surface-1` and `background: var(--surface-1)` for the same value.
+ */
+@theme inline {
+  --color-page-bg: var(--page-bg);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-border-soft: var(--border-soft);
+  --color-inner-border: var(--inner-border);
+  --color-glass-border: var(--glass-border);
+  --color-glass-border-2: var(--glass-border-2);
+  --color-glass-bg: var(--glass-bg);
+  --color-glass-bg-2: var(--glass-bg-2);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-hover: var(--accent-hover);
+  --color-status-success: var(--status-success);
+  --color-status-danger: var(--status-danger);
+  --color-status-warning: var(--status-warning);
+  --color-status-info: var(--status-info);
+  --color-green: var(--green);
+  --color-green-soft: var(--green-soft);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-orange: var(--orange);
+  --color-orange-soft: var(--orange-soft);
+  --color-teal: var(--teal);
+  --color-teal-soft: var(--teal-soft);
+  --color-purple: var(--purple);
+  --color-purple-soft: var(--purple-soft);
+  --color-focus-ring: var(--focus-ring);
+  --color-track: var(--track);
+  --color-code-surface: var(--code-surface);
+  --color-popover-bg: var(--popover-bg);
+  --color-kbd-bg: var(--kbd-bg);
+  --color-hover: var(--hover);
+  --color-active-pill: var(--active-pill);
+  --color-input-bg: var(--input-bg);
+
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-sidebar: var(--radius-sidebar);
+  --radius-pill: var(--radius-pill);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-head: var(--font-head);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-popout: var(--shadow-popout);
+
+  --ease-spring: var(--ease-spring);
+
+  /*
+   * Stacking, named for the layer that owns it. The previous ladder was 33
+   * declarations over 16 unordered values ending at 9999. Every value here is
+   * the one it replaces, so nothing moves; what changes is that the reader can
+   * see which overlay is meant to beat which.
+   */
+  --z-behind: -1;
+  --z-card: 2;
+  --z-chip: 4;
+  --z-sticky: 10;
+  --z-rail: 20;
+  --z-floating: 30;
+  --z-header: 40;
+  --z-mobile-overlay: 45;
+  --z-mobile-panel: 46;
+  --z-popover: 50;
+  --z-tooltip: 80;
+  --z-drawer: 1000;
+  --z-modal: 1100;
+  --z-toast: 9999;
+
+  /*
+   * Spacing is deliberately absent here. Tailwind's default step is
+   * `0.25rem`, which the 14px root font turns into 3.5px, and the landing
+   * overview grid (`apps/landing/page.tsx`) was written against that step —
+   * `gap-4` there means 14px, `py-3` means 10.5px. Changing the step without
+   * renumbering those utilities moves real pixels, so the switch to a 2px step
+   * lands together with the conversion of the block that depends on it.
+   */
+}
+
 /* Shared Tailwind layer, theme tokens, resets, and base elements. */
 :root {
   --page-bg: #f7f3ed;
