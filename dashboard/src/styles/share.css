@@ -1,3 +1,4 @@
+@layer components {
 /* The public enrollment HUD uses the console's light/dark design tokens. */
 html[data-app="share"],
 html[data-app="share"] body {
@@ -1342,4 +1343,5 @@ html[data-app="share"] .share-hud-card {
     padding-left: 6px;
     padding-right: 6px;
   }
+}
 }

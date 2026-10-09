@@ -1,6 +1,6 @@
 ---
 name: cartethyia-dashboard
-description: "Build and verify dashboard/ React code: shell layout and scroll rules, social metadata injection, share pages, toasts and dialog sizing, localStorage namespacing, and headless browser verification via CDP."
+description: "Build and verify dashboard/ React code: shell layout and scroll rules, social metadata injection, share pages, toasts and dialog sizing, localStorage namespacing, and headless browser verification via the browser agent (Puppeteer)."
 ---
 
 # Dashboard
@@ -53,11 +53,13 @@ Pick the tool that can actually answer:
 - **Markup/layout structure only** — throwaway SSR script with every query
   seeded; assert ids, text, count, and order. SSR does not prove CSS, effects,
   or stateful interaction.
-- **CSS/layout/overflow** — a real browser engine headlessly whenever
-  Edge/Chrome CDP is available. Build first, serve the built dashboard on a
+- **CSS/layout/overflow** — a real browser engine headlessly, driven through the
+  browser agent (Puppeteer under the hood). Prefer it over a hand-rolled CDP
+  client: it is far easier to control. Reach for raw CDP only when the browser
+  agent cannot express the check. Build first, serve the built dashboard on a
   separate port, measure DOM geometry at short and tall viewports, then tear
-  down the temporary browser/profile/server. If no CDP-capable browser exists,
-  mark UI verification **unverified** instead of substituting markup guesses.
+  down the temporary browser/profile/server. If no browser runtime exists, mark
+  UI verification **unverified** instead of substituting markup guesses.
 - **API stubbing** — intercept only the console API pattern, read actual request
   shapes, and use a fresh browser connection when changing handlers. Never pause
   the module graph.

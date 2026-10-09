@@ -245,6 +245,15 @@
   }
 }
 
+/*
+ * Everything below is the hand-written component surface. It lives in the
+ * `components` layer so a Tailwind utility in markup can override it, which
+ * is what an inline `style` used to do: unlayered rules outrank every named
+ * layer, so while these sat at the top level no utility could touch a
+ * `.btn`, no matter how specific. Descendant overrides (`.data-table .btn-sm`)
+ * stay inside the same layer, so specificity still decides between them.
+ */
+@layer components {
 /* Scrollbars: the page column hides its bar, while contained regions (the
    sidebar rail, dialogs, `.scroll-region`) keep a thin overlay style. */
 .app-sidebar nav,
@@ -1136,4 +1145,5 @@ input[type="checkbox"] {
   flex: 0 0 auto;
   accent-color: var(--accent);
   cursor: pointer;
+}
 }

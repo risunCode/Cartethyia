@@ -61,8 +61,10 @@ closest owner instead — one folder, one skill.
    `Grep`, `Glob`, or a targeted command) and obtain the same context manually.
 4. Read the skill for the subsystem, then the target's callers, contracts,
    config, and docs.
-5. When a browser/CDP runtime is available, use it headlessly for dashboard/UI
-   verification; do not replace measurable browser evidence with markup guesses.
+5. Verify dashboard/UI in a real browser through the browser agent (Puppeteer
+   under the hood). Prefer that automation over a hand-rolled CDP client: it is
+   far easier to control. Reach for raw CDP only when the browser agent cannot
+   express the check. Measure real DOM geometry; never substitute markup guesses.
 
 Do not spend a turn only restating a plan. The first useful action should read,
 search, reproduce, edit, or verify something.
@@ -125,10 +127,11 @@ bun run test:backend             # or bun run test / dashboard:test / test:watch
 The repository carries an active test suite (`test/`, `dashboard/test/`, run via
 `scripts/ci-run-tests.ts` against the isolated `.env.test` database — never the
 dev database). Typecheck is not behavioral proof. Exercise the real boundary: a
-live gateway request, headless browser/CDP surface when available, database
+live gateway request, headless browser surface when available, database
 migration in an isolated environment, or a temporary script calling production
-code. If a browser/CDP runtime is available, UI claims require that automation
-evidence; if unavailable, say exactly why.
+code. UI claims require browser-agent (Puppeteer) automation evidence; if no
+browser runtime is available, say exactly why. Do not write a raw CDP client
+when the browser agent can express the check.
 
 Prove a new test actually locks the fix: revert the change, see it fail, restore
 it, see it pass. A test that passes both ways proves nothing.

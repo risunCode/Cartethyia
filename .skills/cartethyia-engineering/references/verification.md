@@ -17,8 +17,10 @@ The repository carries an active test suite (`test/`, `dashboard/test/`, run via
 dev database).
 
 Typecheck proves code shape, not behavior. Run the affected scope alongside the
-gates, and exercise the real boundary: the browser, a live gateway request, or a
-`.tmp-<topic>.ts` calling production code. Delete temporary files afterward.
+gates, and exercise the real boundary: the browser through the browser agent
+(Puppeteer — prefer it over a raw CDP client, it is far easier to control), a
+live gateway request, or a `.tmp-<topic>.ts` calling production code. Delete
+temporary files afterward.
 
 ## Bug-fix loop
 

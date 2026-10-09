@@ -13,7 +13,7 @@ Entry point for repo work. Most tasks belong to a focused skill — pick it firs
 | Schema change, migration, new usage/telemetry field | `cartethyia-schema-telemetry` |
 | Add/remove/authenticate a provider; catalog, `/v1/models`, capabilities | `cartethyia-provider-catalog` |
 | Account health, cooldown class, pool selection, retries, leases | `cartethyia-health-routing` |
-| `dashboard/` React, layout, social meta, toasts, browser verification | `cartethyia-dashboard` |
+| `dashboard/` React, layout, social meta, toasts, browser-agent verification | `cartethyia-dashboard` |
 | Repo invariants, deadness, legacy-era checks | `references/guards.md` |
 | How to write the change: shape, names, types, errors | `references/taste.md` |
 | Bug-fix loop, proof, gates | `references/verification.md` |

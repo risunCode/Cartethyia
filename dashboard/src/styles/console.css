@@ -1,3 +1,4 @@
+@layer components {
 /* ===== overlays ===== */
 /* Route transitions, drawers, dialogs, OAuth modals, and form layouts. */
 /* Animations */
@@ -3292,4 +3293,5 @@ main.route-enter .console-log-toolbar {
   .quota-window-pagination {
     flex-wrap: wrap;
   }
+}
 }
