@@ -1,5 +1,18 @@
 ## Unreleased
 
+- Documentation gains `documentation/features/`: one page per feature, holding
+  the data, the owning code, and where to change what. Four features have one —
+  [CLI model mapping](documentation/features/cli-model-mapping.md),
+  [share keys](documentation/features/share-keys.md),
+  [network pools](documentation/features/network-pools.md), and
+  [routing aliases and combos](documentation/features/routing-aliases-combos.md)
+  — and the prose that used to sit inline in `architecture.md`, `backend.md`,
+  `console-api.md`, `dashboard.md`, and `protocol-and-translation.md` moved
+  there. Those five keep their indexes (route tables, domain inventory, page
+  map, snapshot mechanics) and now point into `features/`; `README.md` gained a
+  Features entry. `features/README.md` states the split, so the reference pages
+  do not grow back into feature manuals.
+
 - Renaming the default API key was silently a no-op again. A clause added
   alongside the usage-floor work dropped `label` from the PATCH exactly when an
   `isDefault` key was being given a *different* name — the only rename that

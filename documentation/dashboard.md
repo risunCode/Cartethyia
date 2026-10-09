@@ -55,8 +55,13 @@ loop.
 | `/login`, `/setup`, `/banned` | session pages | No shell |
 
 Unknown protected paths redirect to `/`. There is no fusion page and no
-minimum-balance editor. Combo strategy options come from `combo-strategy.ts`
-and are `fallback` and `round_robin`.
+minimum-balance editor.
+
+Three of those pages are backed by a feature page that owns the data and the
+console domain behind them: [`/combos`](features/routing-aliases-combos.md),
+[`/proxy`](features/network-pools.md), and `/cli-tools`
+([CLI model mapping](features/cli-model-mapping.md)). The share page is public
+and has its own: [share keys](features/share-keys.md).
 
 ## Data flow
 
@@ -119,9 +124,9 @@ to `dashboard/src/hooks/`.
 
 ## Share and landing
 
-`apps/share` is the public page a share link opens. It reads the share API. It
-does not receive probe, enable, disable, or delete controls. Model ids can be
-copied. Admin actions stay in the console.
+`apps/share` is the public page a share link opens: it reads the share API and
+carries no probe, enable, disable, or delete controls. What the page is for, and
+what enforces it, is on the [share keys](features/share-keys.md) page.
 
 `apps/landing` is the unauthenticated product page. Crawlers do not run the
 bundle, so title, description, and social tags for landing, console, and share

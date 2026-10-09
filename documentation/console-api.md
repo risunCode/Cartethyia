@@ -129,6 +129,14 @@ into the next.
 | `audit/` | `/console/api/audit` | Cursor-paginated `admin_audit_log` read, `platform:admin` only |
 | `admin/model-abuse` | `/console/api/model-bans` | Lift a model-abuse ban early; mounted only when `ctx.modelStrikes` exists (`domain-registration.ts:231`) |
 
+That table is the index. Four areas carry their own feature page — data,
+ownership, the routes behind the row, and where to change what:
+
+[CLI model mapping](features/cli-model-mapping.md) ·
+[Share keys](features/share-keys.md) ·
+[Network pools](features/network-pools.md) ·
+[Routing aliases and combos](features/routing-aliases-combos.md)
+
 ## Route snapshot
 
 A console write that changes where traffic goes must invalidate the route

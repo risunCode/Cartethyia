@@ -23,6 +23,14 @@ How the system is built:
 - [SQLite parity](sqlite-parity.md) — measured dialect differences between Lite
   and Full.
 
+One page per feature — what it is, the data behind it, who owns it:
+
+- [Features](features/README.md) — the index. CLI model mapping, share keys,
+  network pools, routing aliases and combos.
+
+The reference pages above hold the indexes (routes, domains, pages) and point
+into `features/` for the detail behind a row.
+
 Procedure lives in `.skills/`, not here. Each skill owns one topic and names the
 layer's owner: `cartethyia-engineering` (invariants, taste, gates),
 `cartethyia-trace-replay` (reproducing a failing request),

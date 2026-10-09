@@ -88,8 +88,10 @@ mutation itself does not wait for seven database reads.
 
 `RoutingEngine` turns a requested model into a `RoutePlan`. A bare name matches
 `model_id`. A `provider/model` name matches both. Alias and combo lookup happen
-before candidate filtering. Combo strategies are `fallback` and `round_robin`.
-There is no fusion strategy.
+before candidate filtering; eligibility runs after it. Each of those has its own
+page: [routing aliases and combos](features/routing-aliases-combos.md) for the
+name resolution itself, and [CLI model mapping](features/cli-model-mapping.md)
+for the per-key slot table that merges into the same resolver.
 
 `EligibilityEvaluator` then drops candidates that cannot serve the request:
 

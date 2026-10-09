@@ -93,10 +93,12 @@ precedence lives in `src/transport/surface/dialects.ts`: `parseToolDefinition`
 **Prepare.** `ProxyRequestPreparer.prepare` (`src/transport/request/preparer.ts:75`)
 runs everything that needs no knowledge of the chosen provider: the `model(high)`
 thinking suffix is stripped before anything matches on the model name (:101),
-alias and CLI remapping resolve the target, corrupt attachments are dropped
-(:155), capabilities are derived and the plan is built, degraded variants are
-tried when nothing supports the full request (:174), tool rounds are repaired
-(:281), and the request is projected onto the winning candidate
+alias and CLI remapping resolve the target
+([alias and combo resolution](features/routing-aliases-combos.md),
+[CLI model mapping](features/cli-model-mapping.md)), corrupt attachments are
+dropped (:155), capabilities are derived and the plan is built, degraded
+variants are tried when nothing supports the full request (:174), tool rounds
+are repaired (:281), and the request is projected onto the winning candidate
 (`projectForRoute`, `src/transport/translation/capabilities.ts:375`). Projection
 throws `capability_unsupported` rather than silently dropping semantics. The
 attempt loop re-projects per candidate in
