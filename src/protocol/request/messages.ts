@@ -27,6 +27,7 @@ import {
 } from "../codecs";
 import { log } from "../../observability/logger";
 import { clampReasoningEffort, claudeUsesAdaptiveThinking, LEVEL_TO_BUDGET, resolveSupportedReasoningEfforts } from "../../transport/translation/thinking";
+import { claudeResponseToEvents, parseClaudeSseStream } from "../response/messages";
 
 export const OAUTH_MESSAGES_MAX_OUTPUT_TOKENS = WIRE_TOKEN_BOUNDS["messages"]?.oauthCeiling ?? 64_000;
 
@@ -683,3 +684,10 @@ export function canonicalToClaudeMessagesPayload(
   return payload;
 }
 
+
+export const messagesCodecModule = {
+  family: "messages" as const,
+  encodeWireRequest: canonicalToClaudeMessagesPayload,
+  decodeWireResponse: claudeResponseToEvents,
+  decodeWireStream: parseClaudeSseStream,
+} as const;

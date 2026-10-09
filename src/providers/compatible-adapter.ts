@@ -183,7 +183,7 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
   ): Promise<unknown> {
     const wireFamily = candidate.wire_family;
     const effectiveRequest = this.config.prepareRequest?.(request) ?? request;
-    const payload = encodeWireRequest(wireFamily, effectiveRequest, {
+    const payload = await encodeWireRequest(wireFamily, effectiveRequest, {
       supportsPromptCaching: this.config.supports_prompt_caching !== false,
     });
     if (
@@ -388,7 +388,7 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
           classification.origin,
         );
       }
-      for (const ev of decodeWireResponse(wireFamily, json, request)) yield ev;
+      for (const ev of await decodeWireResponse(wireFamily, json, request)) yield ev;
     }
   }
 }

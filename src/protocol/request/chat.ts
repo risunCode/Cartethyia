@@ -15,6 +15,7 @@ import {
 import { isClaudeBillingHeaderText, resolveImageSource } from "../codecs";
 import { resolvePromptCacheKey } from "../../providers/operations/session-resolution";
 import { reasoningEffortFromIntent } from "../../providers/reasoning";
+import { parseChatResponseToEvents, decodeChatSseStream } from "../response/chat";
 
 /**
  * OpenAI `input_audio.format` accepts only the discrete ids `wav`/`mp3`, never a
@@ -519,3 +520,17 @@ export function canonicalToChatPayload(
   if (bounded !== undefined) payload["max_tokens"] = bounded;
   return payload;
 }
+
+/**
+ * The chat wire codec, as a single importable unit.
+ *
+ * Exported so `protocol/registry.ts` can load one wire family on demand instead
+ * of statically importing all three; each family's codec is otherwise only
+ * reachable through the individual functions above.
+ */
+export const chatCodecModule = {
+  family: "chat" as const,
+  encodeWireRequest: canonicalToChatPayload,
+  decodeWireResponse: parseChatResponseToEvents,
+  decodeWireStream: decodeChatSseStream,
+} as const;

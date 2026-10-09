@@ -86,7 +86,7 @@ export class RuntimeMetricsSampler {
   private lastPressureLogAt = 0;
   private lastGcAt = 0;
   private lastIdleGcAt = 0;
-  private heapAtLastGc = 0;
+  private rssAtLastGc = 0;
   private inFlightSource: () => number = () => 0;
 
   /**
@@ -124,7 +124,7 @@ export class RuntimeMetricsSampler {
     metrics.cartethyia_quota_cache_entries.set(this.sources.quotaCacheEntries());
 
     this.checkPressure(memory.rss);
-    this.checkIdleReclaim(memory.heapUsed);
+    this.checkIdleReclaim(memory.rss);
   }
 
   private checkPressure(rss: number): void {
@@ -146,18 +146,25 @@ export class RuntimeMetricsSampler {
   }
 
   /**
-   * Reclaims heap while the gateway is idle. A synchronous full collection is
-   * safe here because no request is in flight to stall, and it actually returns
-   * freed pages to the OS — the async form used under pressure does not.
+   * Reclaims memory while the gateway is idle.
+   *
+   * Triggered on RSS growth rather than heap growth: this process holds most of
+   * its footprint off-heap (adapters, TLS contexts, buffers), and `heapUsed`
+   * barely moves when those are allocated — a heap-based gate never opens, which
+   * is why an idle gateway held its startup peak indefinitely.
+   *
+   * A synchronous full collection is safe here because no request is in flight to
+   * stall, and it is the only form that actually returns pages to the OS; the
+   * async form used under pressure does not.
    */
-  private checkIdleReclaim(heapUsed: number): void {
+  private checkIdleReclaim(rss: number): void {
     if (!this.gcOnPressure) return;
     if (this.inFlightSource() > 0) return;
     const now = Date.now();
     if (now - this.lastIdleGcAt < IDLE_GC_WINDOW_MS) return;
-    if (heapUsed - this.heapAtLastGc < IDLE_GC_MIN_GROWTH_BYTES) return;
+    if (rss - this.rssAtLastGc < IDLE_GC_MIN_GROWTH_BYTES) return;
     this.lastIdleGcAt = now;
-    this.heapAtLastGc = heapUsed;
+    this.rssAtLastGc = rss;
     Bun.gc(true);
   }
 }

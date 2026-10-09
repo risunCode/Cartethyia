@@ -15,6 +15,7 @@ import { isClaudeBillingHeaderText, resolveImageSource, resolveOutputVerbosity }
 import { resolvePromptCacheKey } from "../../providers/operations/session-resolution";
 import { reasoningEffortFromIntent } from "../../providers/reasoning";
 import { isWebSearchTool } from "../../transport/translation/search";
+import { parseResponsesResponseToEvents, decodeResponsesSseStream } from "../response/responses";
 
 const RESPONSES_CACHEABLE_BLOCK_TYPES: ReadonlySet<string> = new Set([
   "input_text",
@@ -376,3 +377,10 @@ export function canonicalToResponsesPayload(
   return payload;
 }
 
+
+export const responsesCodecModule = {
+  family: "responses" as const,
+  encodeWireRequest: canonicalToResponsesPayload,
+  decodeWireResponse: parseResponsesResponseToEvents,
+  decodeWireStream: decodeResponsesSseStream,
+} as const;
