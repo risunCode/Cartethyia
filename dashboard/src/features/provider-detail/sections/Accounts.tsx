@@ -26,6 +26,7 @@ import { Inline } from "../../../components/ui/inline";
 import { Stack } from "../../../components/ui/stack";
 import {
   useCreateProviderAccount,
+  useCreateProviderAccountsBatch,
   useExportProviderAccounts,
   useRecoverAccount,
   useUpdateProviderAccount,
@@ -868,6 +869,7 @@ export function AddAccountModal({
   readonly onClose: () => void;
 }): ReactNode {
   const create = useCreateProviderAccount();
+  const createBatch = useCreateProviderAccountsBatch();
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
   const [batchSubmitting, setBatchSubmitting] = useState(false);
@@ -979,34 +981,41 @@ export function AddAccountModal({
     }
 
     setBatchSubmitting(true);
-    let created = 0;
-    const failed: string[] = [];
-    for (const [index, entry] of entries.entries()) {
-      const name = batchNames[index] as string;
-      try {
-        await create.mutateAsync({
-          providerId,
-          request: { label: name, ...requestForEntry(entry) },
-        });
-        created += 1;
-      } catch (err) {
-        failed.push(`${name}: ${(err as { message?: string }).message ?? "Invalid credentials"}`);
+    try {
+      // One request for the whole paste. The server creates every account in a
+      // single transaction and reports a per-item outcome, so this is one
+      // round-trip instead of N sequential ones — and the account list is
+      // invalidated once rather than after every account.
+      const result = await createBatch.mutateAsync({
+        providerId,
+        accounts: entries.map((entry, index) => ({
+          label: batchNames[index],
+          ...requestForEntry(entry),
+        })),
+      });
+
+      const failed = result.results.filter((item) => !item.ok);
+      const created = result.created;
+      if (created > 0) {
+        toast.success(
+          `${created} account${created === 1 ? "" : "s"} added`,
+          failed.length > 0 ? `${failed.length} skipped` : undefined,
+        );
       }
+      if (failed.length > 0) {
+        const detail = failed
+          .slice(0, 5)
+          .map((item) => `${batchNames[item.index] ?? item.index}: ${item.error ?? "rejected"}`)
+          .join("\n");
+        toast.error(
+          `${failed.length} account${failed.length === 1 ? "" : "s"} skipped`,
+          detail + (failed.length > 5 ? `\n…and ${failed.length - 5} more` : ""),
+        );
+      }
+      if (created > 0) onClose();
+    } finally {
+      setBatchSubmitting(false);
     }
-    setBatchSubmitting(false);
-    if (created > 0) {
-      toast.success(
-        `${created} account${created === 1 ? "" : "s"} added`,
-        failed.length > 0 ? `${failed.length} skipped` : undefined,
-      );
-    }
-    if (failed.length > 0) {
-      toast.error(
-        `${failed.length} account${failed.length === 1 ? "" : "s"} failed`,
-        failed.slice(0, 3).join("\n"),
-      );
-    }
-    if (failed.length === 0) onClose();
   };
 
   return (

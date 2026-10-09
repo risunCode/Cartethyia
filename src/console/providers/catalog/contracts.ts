@@ -370,6 +370,43 @@ export interface CreateProviderAccountRequest {
    */
   authState?: Readonly<Record<string, unknown>>;
 }
+
+/**
+ * One account in a batch create.
+ *
+ * Identical to {@link CreateProviderAccountRequest} minus nothing: a batch is
+ * just a list of single creates submitted together, so the per-account rules
+ * (credential detection, duplicate fingerprinting) stay in exactly one place
+ * rather than being restated for a second shape.
+ */
+export type CreateProviderAccountBatchItem = CreateProviderAccountRequest;
+
+/**
+ * Result of one item in a batch create.
+ *
+ * Per-item rather than all-or-nothing: an operator pasting 40 credentials wants
+ * the 38 that were fine to land even if two are duplicates. `index` ties each
+ * outcome back to the request position so the dashboard can report which paste
+ * line failed without the client re-matching on label.
+ */
+export interface CreateProviderAccountBatchItemResult {
+  readonly index: number;
+  readonly ok: boolean;
+  /** Present only when `ok` is true. */
+  readonly account?: ProviderAccountResponse;
+  /** Present only when `ok` is false. */
+  readonly error?: string;
+  /** Stable machine-readable reason, so the client can branch without matching text. */
+  readonly code?: string;
+}
+
+/** Aggregate outcome of a batch create. */
+export interface CreateProviderAccountBatchResult {
+  readonly created: number;
+  readonly failed: number;
+  readonly results: readonly CreateProviderAccountBatchItemResult[];
+}
+
 /** Patch accepted when editing or revoking an existing account. */
 export interface UpdateProviderAccountRequest {
   label?: string;
@@ -640,6 +677,18 @@ export interface ProviderCatalogStore {
     providerId: string,
     request: CreateProviderAccountRequest,
   ): Promise<ProviderAccountResponse>;
+  /**
+   * Creates many accounts in one transaction, reporting a per-item outcome.
+   *
+   * A batch is not an optimisation layered on top of N single creates: it is
+   * one connection checkout, so a 40-credential paste is a single round-trip
+   * instead of 40 sequential ones.
+   */
+  createAccountBatch(
+    tenantId: string,
+    providerId: string,
+    requests: readonly CreateProviderAccountRequest[],
+  ): Promise<CreateProviderAccountBatchResult>;
   updateAccount(
     tenantId: string,
     providerId: string,

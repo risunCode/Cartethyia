@@ -214,6 +214,22 @@ export const providerAccounts = pgTable("provider_accounts", {
    * failure, because there is no refresh to run.
    */
   staticToken: boolean("static_token").notNull().default(false),
+  /**
+   * When this account's credential was last read for its own identity (email,
+   * display name). Null means never read.
+   *
+   * This is the convergence stamp for the enrichment sweep, and the reason an
+   * import can be instant: the batch path persists the credential without
+   * parsing it, and the sweep fills the identity in afterwards. An account is
+   * only listed while this is null, so a completed pass never re-decrypts a
+   * credential it already read.
+   */
+  identityCheckedAt: timestamp("identity_checked_at", { withTimezone: true }),
+  /**
+   * Email read out of the account's own JWT claims. Cosmetic: it names the
+   * account in the console and is never used to authenticate or route.
+   */
+  accountEmail: text("account_email"),
 
   },
   (table) => [

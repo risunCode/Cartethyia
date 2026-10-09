@@ -17,6 +17,7 @@ import { createDefaultProviderRegistry } from "../providers/default-registry";
 import { OAuthRefreshService, loadDueOAuthAccounts, reconcileStaticTokenAccounts } from "../providers/authentication/oauth-refresh-service";
 import type { OAuthTokenRefresher } from "../providers/authentication/oauth-refresh-service";
 import { oauthRefreshSweep } from "../workers/oauth-refresh-worker";
+import { accountEnrichmentSweep } from "../workers/account-enrichment-worker";
 import { pushStructuredConsoleLog } from "../observability/log-ring";
 import { seedBundledModels } from "../providers/operations/provider-catalog-seeder";
 import { createDatabaseSnapshotBuilder } from "../transport/routing/route-catalog";
@@ -294,6 +295,15 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   // account whose stored access token is still usable becomes a static token
   // (and returns to rotation) instead of staying disabled for re-auth.
   await reconcileStaticTokenAccounts(db);
+  // Fills in the identity a batch import deliberately skipped, so a paste of
+  // many credentials is one instant write and the email/label arrive shortly
+  // after rather than blocking the import. Purely CPU on an already-stored
+  // credential — no upstream call — so it runs often and cheaply.
+  scheduledTasks.register({
+    name: "account-enrichment-sweep",
+    intervalMs: 30_000,
+    run: () => accountEnrichmentSweep({ db }),
+  });
   scheduledTasks.register({
     name: "oauth-refresh-sweep",
     intervalMs: 60_000,

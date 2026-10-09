@@ -17,7 +17,7 @@ import { invalidateCredentialCache } from "../../../providers/operations/provide
 import { encryptCredential, hashSecret } from "../../../security/crypto";
 import type { TelemetryBatchBuffer } from "../../../observability/telemetry-buffer";
 import type { BundledProviderCatalog } from "../../../providers/operations/provider-catalog-service";
-import type { AccountInflightReading, ByokConnectionTestRequest, ByokConnectionTestResult, CreateProviderAccountRequest, CredentialMode, ModelCatalogEntry, ProbeAllAccountsResult, ProbeAllModelsResult, ProbeModelRequest, ProbeModelResult, ProviderAccountResponse, ProviderAccountTokenUsage, ProviderCatalogStore, ProviderRecord, SetModelEnabledRequest, UpdateProviderAccountRequest } from "./contracts";
+import type { AccountInflightReading, ByokConnectionTestRequest, ByokConnectionTestResult, CreateProviderAccountBatchItemResult, CreateProviderAccountBatchResult, CreateProviderAccountRequest, CredentialMode, ModelCatalogEntry, ProbeAllAccountsResult, ProbeAllModelsResult, ProbeModelRequest, ProbeModelResult, ProviderAccountResponse, ProviderAccountTokenUsage, ProviderCatalogStore, ProviderRecord, SetModelEnabledRequest, UpdateProviderAccountRequest } from "./contracts";
 import { isServiceKind, validateCompatibilityProfile } from "./contracts";
 import { ProviderProbingService, type ProbeOutboundResolver } from "../../../providers/discovery/probing-service";
 import { resolveManualModelMetadata } from "../../../providers/model-definition";
@@ -897,10 +897,14 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     tenantId: string,
     providerId: string,
     request: CreateProviderAccountRequest,
+    existingTx?: Parameters<Parameters<CartethyiaDatabase["transaction"]>[0]>[0],
   ): Promise<ProviderAccountResponse> {
-    try {
-      return await this.db.transaction(async (tx) => {
-        let effectiveSecret = request.secret;
+    // Callers inside an existing transaction pass it in so the account lands in
+    // that unit of work (the batch path); otherwise this opens its own.
+    const run = async (
+      tx: Parameters<Parameters<CartethyiaDatabase["transaction"]>[0]>[0],
+    ): Promise<ProviderAccountResponse> => {
+    let effectiveSecret = request.secret;
         let effectiveCredentialKind = request.credentialKind;
         const requestedCredentialMode: CredentialMode = request.credentialMode ?? "auto";
         let effectiveCredentialMode: CredentialMode = requestedCredentialMode;
@@ -1038,7 +1042,13 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         const [account] = await this.accountsWithUsage(tenantId, [row]);
         if (!account) throw new Error("created provider account could not be mapped");
         return account;
-      });
+    };
+
+    try {
+      if (existingTx !== undefined) {
+        return await run(existingTx);
+      }
+      return await this.db.transaction(run);
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new ConsoleDomainError(
@@ -1049,6 +1059,58 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       }
       throw error;
     }
+  }
+
+  /**
+   * Creates many accounts in one round-trip.
+   *
+   * The whole batch shares one transaction, so a paste of 40 credentials costs
+   * one connection checkout rather than 40. Each item is created through the
+   * same `createAccount` path the single route uses — there is no second
+   * implementation of credential detection to drift.
+   *
+   * Items are created sequentially inside that transaction: the unique
+   * credential fingerprint makes two identical pastes collide, and a nested
+   * transaction per item keeps that collision from aborting the whole batch.
+   * Outcomes are reported per index, so a partial paste still lands the
+   * accounts that were fine — an operator fixing one bad line should not have
+   * to re-import 39.
+   */
+  async createAccountBatch(
+    tenantId: string,
+    providerId: string,
+    requests: readonly CreateProviderAccountRequest[],
+  ): Promise<CreateProviderAccountBatchResult> {
+    if (requests.length === 0) {
+      return { created: 0, failed: 0, results: [] };
+    }
+    const results: CreateProviderAccountBatchItemResult[] = [];
+    let created = 0;
+    let failed = 0;
+
+    await this.db.transaction(async (tx) => {
+      for (const [index, request] of requests.entries()) {
+        try {
+          // A nested transaction acts as a savepoint: a duplicate-fingerprint
+          // violation rolls back only this item, not the accounts before it.
+          const account = await tx.transaction(async (inner) =>
+            this.createAccount(tenantId, providerId, request, inner),
+          );
+          created += 1;
+          results.push({ index, ok: true, ...(account ? { account } : {}) });
+        } catch (error) {
+          failed += 1;
+          results.push({
+            index,
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+            code: error instanceof ConsoleDomainError ? error.code : "create_failed",
+          });
+        }
+      }
+    });
+
+    return { created, failed, results };
   }
 
   async updateAccount(

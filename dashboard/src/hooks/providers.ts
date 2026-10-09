@@ -1,7 +1,7 @@
 import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 // Console-owned device-poll DTO; token material remains provider-internal.
-import type { AccountHealthEventRecord, ByokConnectionTestRequest, ByokConnectionTestResult, CreateProviderAccountRequest, CreateProviderRequest, OAuthDevicePollResponse as OAuthDevicePollResult, ProbeAllAccountsResult, ProbeModelRequest, ProbeModelResult, ProviderAccountResponse, ProviderAccountsExportResponse, ProviderResponse, SetModelEnabledRequest, UpdateProviderAccountRequest, UpdateProviderRequest } from "../data/contracts";
+import type { AccountHealthEventRecord, ByokConnectionTestRequest, ByokConnectionTestResult, CreateProviderAccountBatchResult, CreateProviderAccountRequest, CreateProviderRequest, OAuthDevicePollResponse as OAuthDevicePollResult, ProbeAllAccountsResult, ProbeModelRequest, ProbeModelResult, ProviderAccountResponse, ProviderAccountsExportResponse, ProviderResponse, SetModelEnabledRequest, UpdateProviderAccountRequest, UpdateProviderRequest } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
 import { assertModels, assertProviders, querySignal } from "../lib/api/validators";
 import { DASHBOARD_QUERY_OPTIONS, POLL } from "../data/query-policy";
@@ -218,6 +218,35 @@ export function useCreateProviderAccount() {
       consoleRequest<ProviderAccountResponse>(
         `/providers/${encodeURIComponent(providerId)}/accounts`,
         { method: "POST", body: JSON.stringify(request) },
+      ),
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.accounts(variables.providerId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.providers.all }),
+      ]);
+    },
+  });
+}
+
+/**
+ * Creates many accounts in one request.
+ *
+ * The server returns a per-item outcome, so a partial paste still lands the
+ * accounts that were fine. Invalidation happens once, after the whole batch —
+ * the old client-side loop invalidated per account, which is what made a large
+ * paste re-fetch the account list dozens of times.
+ */
+export function useCreateProviderAccountsBatch() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    CreateProviderAccountBatchResult,
+    ApiErrorShape,
+    { providerId: string; accounts: readonly CreateProviderAccountRequest[] }
+  >({
+    mutationFn: ({ providerId, accounts }) =>
+      consoleRequest<CreateProviderAccountBatchResult>(
+        `/providers/${encodeURIComponent(providerId)}/accounts/batch`,
+        { method: "POST", body: JSON.stringify({ accounts }) },
       ),
     onSuccess: async (_result, variables) => {
       await Promise.all([

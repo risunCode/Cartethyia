@@ -66,6 +66,7 @@ export type {
   ProviderRoutingResponse,
   UpdateProviderRoutingRequest,
   CreateProviderAccountRequest,
+  CreateProviderAccountBatchResult,
   CredentialKind,
   CredentialMode,
   UpdateProviderAccountRequest,

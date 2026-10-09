@@ -73,6 +73,20 @@ const createAccountBody = t.Object({
   secret: t.String(),
   authState: t.Optional(t.Record(t.String(), t.Unknown())),
 });
+/**
+ * Batch create body.
+ *
+ * The cap is the same bound the proxy batch probe uses: a paste is bounded so
+ * one request cannot open an unbounded transaction. It is a validation limit,
+ * not a throughput one — the route stays a single round-trip either way.
+ */
+const MAX_BATCH_CREATE_ACCOUNTS = 100;
+const createAccountBatchBody = t.Object({
+  accounts: t.Array(createAccountBody, {
+    minItems: 1,
+    maxItems: MAX_BATCH_CREATE_ACCOUNTS,
+  }),
+});
 const updateAccountBody = t.Object({
   label: t.Optional(t.String()),
   secret: t.Optional(t.String()),
@@ -267,6 +281,17 @@ export function createProviderCatalogRoutes(config: ProviderCatalogConfig): Elys
         );
         return created;
 },
+    )
+    .post(
+      "/:providerId/accounts/batch",
+      { body: createAccountBatchBody },
+      async ({ request, params, body }) => {
+        return await factory.createAccountBatch(
+          config.accessResolver(request),
+          params.providerId,
+          body.accounts as CreateProviderAccountRequest[],
+        );
+      },
     )
     .patch(
       "/:providerId/accounts/:accountId",
