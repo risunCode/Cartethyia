@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Inbox, Loader2, TriangleAlert } from "lucide-react";
+import { cn } from "../../lib/cn";
 import { Button } from "./button";
 
 /**
@@ -9,7 +10,10 @@ import { Button } from "./button";
  * semantics with the floor removed.
  */
 function viewportClass(compact: boolean | undefined): string {
-  return compact === true ? "state-viewport state-viewport-compact" : "state-viewport";
+  return cn(
+    "state-viewport flex-1 min-h-[220px] flex items-center justify-center w-full",
+    compact === true && "state-viewport-compact min-h-0 py-[4px] px-0 [&_.state-box]:gap-[6px] [&_.state-box]:py-[8px] [&_.state-box-icon]:size-[30px]",
+  );
 }
 
 export function EmptyState({
@@ -34,7 +38,7 @@ export function EmptyState({
         </div>
         <h3>{title}</h3>
         <p>{message}</p>
-        {action ? <div style={{ marginTop: "8px" }}>{action}</div> : null}
+        {action ? <div className="mt-[8px]">{action}</div> : null}
       </div>
     </div>
   );
@@ -76,16 +80,16 @@ export function ErrorState({
         <div className="state-box-icon state-box-icon-danger" aria-hidden="true">
           <TriangleAlert size={20} />
         </div>
-        <h3 style={{ color: "var(--red)" }}>{title}</h3>
+        <h3 className="!text-red">{title}</h3>
         <p role="alert">{message}</p>
-        {action ? <div style={{ marginTop: "8px" }}>{action}</div> : null}
+        {action ? <div className="mt-[8px]">{action}</div> : null}
         {onRetry ? (
           <Button
             variant="secondary"
             size="sm"
             onClick={onRetry}
             disabled={retrying}
-            style={{ marginTop: "6px" }}
+            className="mt-[6px]"
           >
             {retrying ? "Retrying…" : "Retry"}
           </Button>
@@ -112,19 +116,37 @@ export function StatePanel({
   padding?: "sm" | "md";
   fill?: boolean;
 }) {
-  const style = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: fill ? "0" : undefined,
-    flex: fill ? 1 : undefined,
-    padding: padding === "sm" ? "20px" : "32px",
-  };
+  const host = cn(
+    "flex items-center justify-center",
+    fill && "min-h-0 flex-1",
+    padding === "sm" ? "p-[20px]" : "p-[32px]",
+    className,
+  );
   if (kind === "loading") {
-    return <div className={className} style={style}><LoadingState label={description || title || "Loading…"} /></div>;
+    return (
+      <div className={host}>
+        <LoadingState label={description || title || "Loading…"} />
+      </div>
+    );
   }
   if (kind === "error") {
-    return <div className={className} style={style}><ErrorState title={title || "Unable to load data"} message={description || "Check the console session and retry."} action={action} /></div>;
+    return (
+      <div className={host}>
+        <ErrorState
+          title={title || "Unable to load data"}
+          message={description || "Check the console session and retry."}
+          action={action}
+        />
+      </div>
+    );
   }
-  return <div className={className} style={style}><EmptyState title={title || "Nothing here yet"} message={description || "There is no data to show."} action={action} /></div>;
+  return (
+    <div className={host}>
+      <EmptyState
+        title={title || "Nothing here yet"}
+        message={description || "There is no data to show."}
+        action={action}
+      />
+    </div>
+  );
 }

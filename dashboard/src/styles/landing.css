@@ -133,9 +133,6 @@ html[data-app="landing"] #root {
 .story-signal svg { flex: 0 0 auto; color: var(--story-accent); }
 .story-signal span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .story-signal strong { margin-left: auto; color: white; font-weight: 500; }
-.story-chapter-nav button.is-active { color: var(--story-accent); }
-.story-chapter-nav button.is-active::after { content: none; }
-.story-chapter-nav button.is-active em { display: block; }
 @media (max-width: 700px) {
   .story { min-height: calc(100svh * 7); }
   .story-shell { width: min(calc(100% - 2rem), 1280px); }

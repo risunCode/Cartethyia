@@ -327,18 +327,18 @@ export function LandingPage(): ReactElement {
       </header>
 
       {showAll ? (
-        <main className="mx-auto w-[min(100%-2rem,1280px)] pb-10 pt-[88px] sm:w-[min(100%-3rem,1280px)]">
-          <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <main className="mx-auto w-[min(100%-2rem,1280px)] pb-17.5 pt-[88px] sm:w-[min(100%-3rem,1280px)]">
+          <div className="mb-10.5 flex flex-wrap items-end justify-between gap-5.25">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/50">All chapters · 7 stories</p>
-              <h2 className="mt-2 font-serif text-[28px] font-normal leading-none tracking-tight text-white">Everything at a glance</h2>
-              <p className="mt-2 max-w-[60ch] text-[13px] leading-5 text-white/65">Hover a card to lift it — click to jump to its story. All 7 visuals, captions and signals visible without scrolling forever.</p>
+              <h2 className="mt-3.5 font-serif text-[28px] font-normal leading-none tracking-tight text-white">Everything at a glance</h2>
+              <p className="mt-3.5 max-w-[60ch] text-[13px] leading-5 text-white/65">Hover a card to lift it — click to jump to its story. All 7 visuals, captions and signals visible without scrolling forever.</p>
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-white/50">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" aria-hidden={true} /> Stylish overview
+            <div className="flex items-center gap-3.5 text-[11px] text-white/50">
+              <span className="h-[5.25px] w-[5.25px] rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" aria-hidden={true} /> Stylish overview
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
             {CHAPTERS.map((entry, idx) => (
               <article
                 key={entry.id}
@@ -361,23 +361,23 @@ export function LandingPage(): ReactElement {
                 <div className="relative h-[190px] overflow-hidden">
                   <img src={entry.image} alt={entry.imageAlt} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]" loading="lazy" decoding="async" />
                   <div className="absolute inset-0 bg-gradient-to-t from-[#05070d]/85 via-[#05070d]/10 to-transparent" />
-                  <div className="absolute left-3 top-3 flex items-center gap-1.5">
-                    <span className="rounded-full bg-white px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-[0.08em] text-[#05070d]">{entry.number}</span>
-                    <span className="rounded-full border border-white/20 bg-black/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">{entry.theme}</span>
+                  <div className="absolute left-3 top-3 flex items-center gap-[5.25px]">
+                    <span className="rounded-full bg-white px-[5.25px] py-[1.75px] font-mono text-[10px] font-bold tracking-[0.08em] text-[#05070d]">{entry.number}</span>
+                    <span className="rounded-full border border-white/20 bg-black/25 px-3.5 py-[1.75px] text-[10px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">{entry.theme}</span>
                   </div>
                   <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.14em] text-white/75">
                     <span className="truncate">{entry.location}</span>
                     <ArrowUpRight size={12} aria-hidden={true} className="opacity-60 group-hover:opacity-100" />
                   </div>
                 </div>
-                <div className="flex flex-1 flex-col gap-2 p-4">
+                <div className="flex flex-1 flex-col gap-3.5 p-7">
                   <h3 className="font-serif text-[18px] font-normal leading-tight tracking-tight text-white">{entry.title}</h3>
                   <p className="line-clamp-2 text-[12.5px] leading-5 text-white/65">{entry.description}</p>
-                  <div className="mt-1 flex flex-wrap gap-1.5">
+                  <div className="mt-1.75 flex flex-wrap gap-[5.25px]">
                     {entry.signals.map((s) => {
                       const Icon = signalIcons[s.icon];
                       return (
-                        <span key={`${entry.id}-${s.label}`} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/75">
+                        <span key={`${entry.id}-${s.label}`} className="inline-flex items-center gap-1.75 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/75">
                           <Icon size={11} aria-hidden={true} className="text-[var(--story-accent)]" />
                           {s.label}
                           <strong className="font-bold text-white">{s.value}</strong>

@@ -336,7 +336,7 @@ function QuotaCard({
     <div className="card-glass" style={{ overflow: "hidden" }} aria-busy={busy}>
       {/* Header: icon + provider name + plan + account hint + actions */}
       <div
-        className="flex flex-wrap items-center gap-2.5 px-3.5 py-2"
+        className="flex flex-wrap items-center gap-[8.75px] px-[12.25px] py-3.5"
         style={{
           display: "flex",
           alignItems: "center",
@@ -348,7 +348,7 @@ function QuotaCard({
         <ProviderIcon icon={account.providerIcon} name={account.providerName} size={32} />
         <div className="min-w-0 flex-1" style={{ minWidth: "160px", flex: "1 1 160px" }}>
           <div
-            className="flex min-w-0 items-center gap-2"
+            className="flex min-w-0 items-center gap-3.5"
             style={{ display: "flex", alignItems: "center", gap: "8px" }}
           >
             <div
@@ -363,7 +363,7 @@ function QuotaCard({
             </div>
             {quota?.plan && (
               <span
-                className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]"
+                className="shrink-0 rounded-full bg-[var(--accent-soft)] px-3.5 py-[1.75px] text-[10px] font-semibold text-[var(--accent)]"
                 style={{
                   padding: "2px 8px",
                   borderRadius: "9999px",
@@ -467,7 +467,7 @@ function QuotaCard({
           )}
         </div>
         <div
-          className="flex items-center gap-1"
+          className="flex items-center gap-1.75"
           style={{
             display: "flex",
             alignItems: "center",
@@ -479,7 +479,7 @@ function QuotaCard({
             <Button
               variant="ghost"
               size="icon"
-              className="size-8"
+              className="size-14"
               title={
                 resets.isPending
                   ? "Checking saved rate-limit resets…"
@@ -499,7 +499,7 @@ function QuotaCard({
             <Button
               variant="ghost"
               size="icon"
-              className="size-8"
+              className="size-14"
               title={`Daily growth pass (check-in + activity report) — ${statusHint}`}
               aria-label={`Run daily growth pass for ${account.name}`}
               disabled={busy}
@@ -576,7 +576,7 @@ function QuotaCard({
 
       {cardError && (
         <div
-          className="flex items-center justify-center gap-2 border-t border-[var(--inner-border)] px-4 py-3 text-center text-[11px] text-[var(--red)]"
+          className="flex items-center justify-center gap-3.5 border-t border-[var(--inner-border)] px-7 py-5.25 text-center text-[11px] text-[var(--red)]"
           style={{
             display: "flex",
             alignItems: "center",
@@ -756,7 +756,7 @@ function QuotaCard({
         </div>
       ) : !cardError ? (
         <div
-          className="border-t border-[var(--inner-border)] py-4 text-center text-[11px] text-[var(--text-tertiary)]"
+          className="border-t border-[var(--inner-border)] py-7 text-center text-[11px] text-[var(--text-tertiary)]"
           style={{
             borderTop: "1px solid var(--inner-border)",
             padding: "18px 14px",
@@ -924,7 +924,7 @@ export default function QuotaPage(): ReactNode {
           Turn on Available
         </Button>
         <span
-          className="ml-auto flex items-center gap-1 text-[10px] text-[var(--text-tertiary)]"
+          className="ml-auto flex items-center gap-1.75 text-[10px] text-[var(--text-tertiary)]"
           style={{
             marginLeft: "auto",
             display: "flex",
@@ -942,7 +942,7 @@ export default function QuotaPage(): ReactNode {
         <Button
           variant="ghost"
           size="icon"
-          className="size-8"
+          className="size-14"
           title="Queue quota refresh"
           aria-label="Queue quota refresh"
           disabled={isFetching || refreshAll.isPending || accounts.length === 0}

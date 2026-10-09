@@ -343,7 +343,7 @@ function CliToolDetailBody({
 
             {status?.settingsPath ? (
               <div
-                className="mono-text" style={{ marginTop: "10px",
+                className="font-mono tabular-nums" style={{ marginTop: "10px",
                   padding: "8px 12px",
                   borderRadius: "8px",
                   background: "var(--surface-2)",
@@ -572,7 +572,7 @@ function CliToolDetailBody({
                         setPickerFor(model.alias);
                         setPickerMode("slot");
                       }}
-                      className="mono-text" style={{ display: "flex",
+                      className="font-mono tabular-nums" style={{ display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
                         gap: "8px",

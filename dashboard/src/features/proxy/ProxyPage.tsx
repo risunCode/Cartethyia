@@ -241,7 +241,7 @@ function PoolEditForm({
           label="Endpoint"
           value={endpoint}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndpoint(e.target.value)}
-          className="mono-text" style={{ ...inputStyle }}
+          className="font-mono tabular-nums" style={{ ...inputStyle }}
         />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
@@ -840,7 +840,7 @@ function PoolAddressBlock({
     <>
       {pool.egressIp ? (
         <span
-          className="mono-text" style={{ display: "block",
+          className="font-mono tabular-nums" style={{ display: "block",
             fontSize: "11.5px",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -922,7 +922,7 @@ function PoolUsageBars({
           />
         </div>
         <span
-          className="mono-text" style={{ fontSize: "10.5px",
+          className="font-mono tabular-nums" style={{ fontSize: "10.5px",
             color: "var(--text-secondary)",
             whiteSpace: "nowrap" }}
         >
@@ -956,7 +956,7 @@ function PoolUsageBars({
           />
         </div>
         <span
-          className="mono-text" style={{ fontSize: "10.5px",
+          className="font-mono tabular-nums" style={{ fontSize: "10.5px",
             color: over ? "var(--red)" : "var(--text-secondary)",
             whiteSpace: "nowrap" }}
         >
@@ -1730,7 +1730,7 @@ export default function Proxy(): ReactNode {
           }
         />
         <CardBody
-          style={pools.length === 0 && !isPending && !isError ? { flex: 1, display: "flex", flexDirection: "column" } : undefined}
+          style={pools.length === 0 && !isPending && !isError ? { flex: 1, display: "flex", flexDirection: "column", gap: "16px" } : undefined}
         >
           <ProxySummaryTiles pools={pools} />
 

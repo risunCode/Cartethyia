@@ -42,6 +42,7 @@ chunks:
 | `/model-lab` | `Studio` | `console/studio` |
 | `/cli-tools`, `/cli-tools/:toolId` | `CliTools`, `CliToolDetail` | `console/cli-tools` |
 | `/console-log` | `features/logs/ConsoleLogPage` | `console/observability` and SSE |
+| `/customization` | `features/customization/CustomizationPage` | browser only — `localStorage` settings and an IndexedDB background blob, no backend |
 | `/settings` | `Settings` | `console/settings` |
 | Overview `API Credentials` row → share | `ShareManagementDialog` | `console/api-keys` and `console/share` |
 | Overview `API Credentials` header → `Banned Users` (platform admin only) | `ModelBansDialog` | `console/admin/model-abuse` |

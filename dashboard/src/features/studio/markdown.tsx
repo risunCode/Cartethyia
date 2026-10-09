@@ -63,7 +63,7 @@ export function Markdown({ text }: { text: string }): ReactNode {
         code: ({ children, className }) => {
           const source = String(children).replace(/\n$/, "");
           const content = className?.includes("language-mermaid") ? mermaidToAscii(source) : source;
-          return <code className="mono-text" style={{ fontSize: "11.5px" }}>{content}</code>;
+          return <code className="font-mono tabular-nums" style={{ fontSize: "11.5px" }}>{content}</code>;
         },
         p: ({ children }) => <p style={{ margin: "0 0 8px", lineHeight: 1.65 }}>{children}</p>,
         h1: ({ children }) => <h1 style={{ fontSize: "17px", fontWeight: 700, margin: "12px 0 6px" }}>{children}</h1>,

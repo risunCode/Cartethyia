@@ -93,13 +93,21 @@
   --z-toast: 9999;
 
   /*
-   * Spacing is deliberately absent here. Tailwind's default step is
-   * `0.25rem`, which the 14px root font turns into 3.5px, and the landing
-   * overview grid (`apps/landing/page.tsx`) was written against that step —
-   * `gap-4` there means 14px, `py-3` means 10.5px. Changing the step without
-   * renumbering those utilities moves real pixels, so the switch to a 2px step
-   * lands together with the conversion of the block that depends on it.
+   * Spacing is pinned in the plain `@theme` block below, not here: `inline`
+   * wraps values in `var()`, and Tailwind consumes spacing arithmetically.
    */
+}
+
+/*
+ * The 2px step. Tailwind's default is `0.25rem`, which the 14px root font
+ * turns into 3.5px, so `gap-4` meant 14px while reading as four of anything.
+ * Pinning the step makes `gap-7` mean 14px and every spacing utility a
+ * multiple of two. Two blocks were written against the old step and were
+ * renumbered in the same change: `apps/landing/page.tsx` and
+ * `features/quota/QuotaPage.tsx` (each `N` became `N × 1.75`).
+ */
+@theme {
+  --spacing: 2px;
 }
 
 /* Shared Tailwind layer, theme tokens, resets, and base elements. */
@@ -400,57 +408,109 @@ html[data-glass-depth="2"] {
 }
 
 /* Shared card surfaces and component header/body frames. */
-.card-solid,
-.card-glass,
-.card-muted {
-  border: 1px solid var(--inner-border);
-  border-radius: var(--radius-card);
-}
-
-.card-solid,
-.card-glass {
-  box-shadow: var(--shadow-card);
-}
-
-/* The auth card sits over key art, where the colored card glow reads as a
-   halo. It keeps a flat shadow of its own. */
-.auth-window.card-solid {
-  box-shadow: none;
-}
-
-.card-solid {
-  background: var(--surface-1);
-}
-
-.card-glass {
-  background: var(--glass-bg);
-}
-
-.card-muted {
-  background: var(--surface-2);
-}
+/*
+ * Card surfaces own their border, radius, and shadow as utilities in
+ * `ui/card.tsx`. What stays here is the glass treatment: it is driven by
+ * `--card-glass-depth` inside `backdrop-filter: blur(calc(10px + depth*4px))`,
+ * which has no utility equivalent, and the `[data-depth]` ladder that sets it.
+ */
 
 .glass,
 .card-glass,
 html[data-glass-enabled="true"] .card-solid {
   --card-glass-depth: var(--glass-depth, 1);
-  background: var(--glass-bg);
+  background: var(--glass-bg) !important;
   backdrop-filter: blur(calc(10px + (var(--card-glass-depth) * 4px)));
   -webkit-backdrop-filter: blur(calc(10px + (var(--card-glass-depth) * 4px)));
   border: 1px solid var(--inner-border);
   box-shadow: var(--shadow-card);
 }
 
-.card-elevation-none {
-  box-shadow: none;
+
+/*
+ * Blur styles, chosen per surface on the Customization page and published as
+ * `data-blur-*` on `<html>`. `frosted` is the plain blur this console shipped
+ * with; `vibrancy` adds saturation so colour behind the surface stays alive
+ * (the macOS look); `heavy` is the same treatment with a deeper blur for a
+ * busy background. `none` is opaque on purpose — a transparent surface with no
+ * blur is unreadable copy, not a style.
+ *
+ * Dialogs are deliberately absent. A modal must stay legible no matter what
+ * the page behind it looks like, so `.dialog-panel` keeps its own solid
+ * surface and never picks up these attributes.
+ */
+html[data-blur-cards="none"] .card-solid,
+html[data-blur-cards="none"] .card-glass {
+  background: var(--surface-1) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
-.card-elevation-card {
-  box-shadow: var(--shadow-card);
+html[data-blur-tiles="none"] .stat-card {
+  background: var(--surface-1) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
-.card-elevation-popout {
-  box-shadow: var(--shadow-popout);
+html[data-blur-chrome="none"] .app-sidebar,
+html[data-blur-chrome="none"] .app-topbar {
+  background: var(--surface-1) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-blur-cards="vibrancy"] .card-solid,
+html[data-blur-cards="vibrancy"] .card-glass {
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+}
+
+html[data-blur-tiles="vibrancy"] .stat-card {
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+}
+
+html[data-blur-chrome="vibrancy"] .app-sidebar,
+html[data-blur-chrome="vibrancy"] .app-topbar {
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+}
+
+html[data-blur-cards="heavy"] .card-solid,
+html[data-blur-cards="heavy"] .card-glass {
+  background: color-mix(in srgb, var(--glass-bg) 70%, transparent) !important;
+  backdrop-filter: blur(34px) saturate(1.8);
+  -webkit-backdrop-filter: blur(34px) saturate(1.8);
+}
+
+html[data-blur-tiles="heavy"] .stat-card {
+  background: color-mix(in srgb, var(--surface-muted) 70%, transparent) !important;
+  backdrop-filter: blur(34px) saturate(1.8);
+  -webkit-backdrop-filter: blur(34px) saturate(1.8);
+}
+
+html[data-blur-chrome="heavy"] .app-sidebar,
+html[data-blur-chrome="heavy"] .app-topbar {
+  background: color-mix(in srgb, var(--glass-bg) 70%, transparent);
+  backdrop-filter: blur(32px) saturate(1.8);
+  -webkit-backdrop-filter: blur(32px) saturate(1.8);
+}
+
+/* A narrow viewport pays for every blur. Cap it; the look survives, the frame rate does not otherwise. */
+@media (max-width: 767px) {
+  html[data-blur-cards="vibrancy"] .card-solid,
+  html[data-blur-cards="vibrancy"] .card-glass,
+  html[data-blur-cards="heavy"] .card-solid,
+  html[data-blur-cards="heavy"] .card-glass,
+  html[data-blur-tiles="vibrancy"] .stat-card,
+  html[data-blur-tiles="heavy"] .stat-card,
+  html[data-blur-chrome="vibrancy"] .app-sidebar,
+  html[data-blur-chrome="vibrancy"] .app-topbar,
+  html[data-blur-chrome="heavy"] .app-sidebar,
+  html[data-blur-chrome="heavy"] .app-topbar {
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  }
 }
 
 .card-solid[data-depth="1"],
@@ -577,104 +637,14 @@ html[data-glass-enabled="true"] .card-solid {
 }
 
 /* Shared controls: buttons, forms, inputs, switches, tables, and badges. */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border-radius: var(--radius-control);
-  font-weight: 600;
-  font-size: 12.5px;
-  padding: 8px 14px;
-  transition: all var(--dur-micro) var(--ease-spring);
-}
-
-.btn:active {
-  transform: scale(0.97);
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: var(--accent-foreground);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--accent) 25%, transparent);
-}
-
-.btn-primary:hover {
-  background: var(--accent-hover);
-}
-
-.btn-secondary {
-  border: 1px solid var(--inner-border);
-  background: var(--hover);
-  color: var(--text-primary);
-}
-
-.btn-secondary:hover {
-  background: var(--active-pill);
-  border-color: var(--border-strong);
-}
-
-.btn-ghost {
-  color: var(--text-secondary);
-}
-
-.btn-ghost:hover {
-  background: var(--hover);
-  color: var(--text-primary);
-}
-
-.btn-danger {
-  background: var(--red);
-  color: #ffffff;
-}
-
-.btn-danger:hover {
-  opacity: 0.9;
-}
-
-.btn-sm {
-  height: 30px;
-  padding: 0 10px;
-  font-size: 11.5px;
-}
-
-.btn-icon {
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-}
-.btn-icon svg {
-  width: 15px;
-  height: 15px;
-}
-/* Toolbar and row actions sit inside a labeled button; one size, not the
-   caller's. A spinning loader is the same glyph, so it follows too. */
-.btn-sm svg,
-.btn-labeled svg {
-  width: 13px;
-  height: 13px;
-}
-
 /*
- * Labeled icon button: renders as an icon + text pill while its container has
- * room, then collapses to a square icon button once it does not. Driven by
- * container queries rather than a viewport breakpoint so the collapse tracks
- * the actual row width (the sidebar and page padding are not part of it).
- * The label is decorative — `aria-label` on the button stays authoritative.
+ * Button surfaces, tones, and sizes are emitted as utilities by
+ * `ui/button.tsx`. The two rules below are the ones a utility cannot express:
+ * `.btn-label` is a descendant of the button, so the component cannot class it
+ * without leaking `twMerge` semantics into the caller's tree, and the collapse
+ * is a container query on the *caller's* container (`rule-row`, declared in
+ * console.css), which no utility can express.
  */
-.btn-labeled {
-  height: 30px;
-  padding: 0 10px;
-  gap: 6px;
-  font-size: 11.5px;
-}
-
-.btn-labeled .btn-icon-wrapper {
-  display: inline-flex;
-  align-items: center;
-}
 
 .btn-labeled .btn-label {
   white-space: nowrap;
@@ -693,50 +663,8 @@ html[data-glass-enabled="true"] .card-solid {
   }
 }
 
-/* Badges */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border-radius: 6px;
-  padding: 3px 9px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.badge-default {
-  background: var(--hover);
-  color: var(--text-secondary);
-  border: 1px solid var(--inner-border);
-}
-
-.badge-ok,
-.badge-active {
-  background: var(--green-soft);
-  color: var(--green);
-}
-
-.badge-err,
-.badge-disabled {
-  background: var(--red-soft);
-  color: var(--red);
-}
-
-.badge-warn {
-  background: var(--orange-soft);
-  color: var(--orange);
-}
-
-.badge-info {
-  background: var(--teal-soft);
-  color: var(--teal);
-}
-
-.badge-accent {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
+/* Badges are emitted as utilities by `ui/badge.tsx`; the tone pairs and the
+ * base chip live there so callers can override them through `cn()`. */
 
 /* Model catalog cards */
 .model-card {
@@ -781,26 +709,9 @@ html[data-glass-enabled="true"] .card-solid {
   margin-top: 4px;
 }
 
-.form-input,
-.form-textarea {
-  width: 100%;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--inner-border);
-  background: var(--surface-2);
-  color: var(--text-primary);
-  padding: 8px 12px;
-  font-size: 13px;
-  outline: none;
-  transition:
-    border-color var(--dur-micro) var(--ease-spring),
-    box-shadow var(--dur-micro) var(--ease-spring);
-}
-
-.form-input:focus,
-.form-textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
-}
+/* `.form-input` / `.form-textarea` are emitted as utilities by `ui/input.tsx`
+ * (the shared `FIELD` string); the tokens stay for descendant overrides such
+ * as `.data-table .form-input`. */
 
 /* Switches */
 .switch-container {
@@ -924,17 +835,10 @@ html[data-glass-enabled="true"] .card-solid {
 
 /* Shared empty, loading, error, authentication, and API-key states. */
 
-/* The centering host. `flex: 1` lets it claim the leftover height of whatever
-   column it sits in, and `min-height` keeps it from collapsing to nothing when
-   that column has no free space (a state nested mid-card). */
-.state-viewport {
-  flex: 1 1 auto;
-  min-height: 220px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-}
+/* The centering host emits utilities from `ui/state.tsx`
+ * (`flex-1 min-h-[220px] flex items-center justify-center w-full`). What stays
+ * is every value derived from the viewport or from an ancestor relationship,
+ * which no utility can express. */
 
 /* A route-level state is the page's whole body, so it centers in the visible
    content area rather than in its own content height.
@@ -959,28 +863,17 @@ main > .state-viewport {
   min-height: clamp(240px, calc(100dvh - 200px), 1200px);
 }
 
-/* A state inside a dialog or card has no route to center in, so it drops the
-   floor and the oversized padding and reads as an inline message. */
-.state-viewport-compact {
-  min-height: 0;
-  padding: 4px 0;
-}
+/* The compact floor and the compact `.state-box` / `.state-box-icon` sizing
+ * emit utilities from `ui/state.tsx` (via `[&_.state-box]` variants). The
+ * `.state-box*` rules below stay: the component renders those elements as bare
+ * children, so it cannot class them without reaching into the caller's tree. */
 
-/* A state that is the whole card body fills it, instead of reading as a
-   short message floating at the top of an otherwise empty panel. */
+/* A state that is the whole card body fills it, instead of reading as a short
+ * message floating at the top of an otherwise empty panel. An ancestor
+ * combinator, so it stays in CSS. */
 .card-body-content > .state-viewport {
   flex: 1 1 auto;
   min-height: 0;
-}
-
-.state-viewport-compact .state-box {
-  gap: 6px;
-  padding: 8px;
-}
-
-.state-viewport-compact .state-box-icon {
-  width: 30px;
-  height: 30px;
 }
 
 .state-box {
@@ -1049,6 +942,12 @@ main > .state-viewport {
   background-attachment: fixed, fixed;
 }
 
+/* The error boundary renders inside the console, so it must not carry the
+   login key art. The shell already has its own background behind it. */
+.app-shell-root .auth-viewport {
+  background: none;
+}
+
 [data-theme="dark"] .auth-viewport {
   --auth-backdrop-veil: 0.5;
 }
@@ -1094,10 +993,6 @@ main > .state-viewport {
   font-size: 12.5px;
   color: var(--text-secondary);
   margin-top: 4px;
-}
-
-.quota-controls .form-label {
-  grid-column: 1 / -1;
 }
 
 /* GitHub repo link with live star/fork badges. Shared by the landing page and

@@ -92,7 +92,7 @@ export function ToolChips({ message }: { message: StudioMessage }): ReactNode {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="mono-text" style={{ display: "inline-flex",
+        className="font-mono tabular-nums" style={{ display: "inline-flex",
           alignItems: "center",
           gap: "6px",
           border: "1px solid var(--inner-border)",
@@ -112,7 +112,7 @@ export function ToolChips({ message }: { message: StudioMessage }): ReactNode {
           {calls.map((call, index) => (
             <div
               key={`${call.name}-${index}`}
-              className="mono-text" style={{ border: "1px solid var(--inner-border)",
+              className="font-mono tabular-nums" style={{ border: "1px solid var(--inner-border)",
                 borderRadius: "8px",
                 background: "var(--code-surface)",
                 padding: "8px 10px",
@@ -144,7 +144,7 @@ export function MessageMeta({ message }: { message: StudioMessage }): ReactNode 
   return (
     <div
       title={detail}
-      className="mono-text" style={{ marginTop: "6px",
+      className="font-mono tabular-nums" style={{ marginTop: "6px",
         fontSize: "10px",
         color: "var(--text-tertiary)" }}
     >

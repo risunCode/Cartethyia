@@ -40,7 +40,7 @@ function ApiEndpointCard() {
       <CardBody>
         <Stack gap="10px">
           <div
-            className="mono-text" style={{ padding: "10px 14px",
+            className="font-mono tabular-nums" style={{ padding: "10px 14px",
               borderRadius: "10px",
               border: "1px solid var(--inner-border)",
               background: "var(--code-surface)",

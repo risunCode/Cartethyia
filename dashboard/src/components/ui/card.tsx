@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { cn } from "../../lib/cn";
 
 export type CardDensity = "default" | "compact";
 export type CardSurface = "solid" | "glass" | "muted";
@@ -20,10 +21,27 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   elevation?: CardElevation;
 }
 
+/*
+ * The `card-*` tokens are kept as markers: the glass treatment keys off them
+ * (`html[data-glass-enabled="true"] .card-solid`, `.card-glass`) and the
+ * `[data-depth]` ladder sets `--card-glass-depth`, which drives a
+ * `backdrop-filter: blur(calc(...))` that no utility can express because the
+ * depth is a custom property multiplied inside `calc()`.
+ */
+const SURFACE: Record<CardSurface, string> = {
+  solid: "card-solid bg-surface-1",
+  glass: "card-glass bg-glass-bg",
+  muted: "card-muted bg-surface-2",
+};
+
+const ELEVATION: Record<CardElevation, string> = {
+  none: "card-elevation-none shadow-none",
+  card: "card-elevation-card shadow-card",
+  popout: "card-elevation-popout shadow-popout",
+};
+
 function surfaceClass({ glass = false, surface = "solid" }: CardProps): string {
-  if (glass || surface === "glass") return "card-glass";
-  if (surface === "muted") return "card-muted";
-  return "card-solid";
+  return glass ? SURFACE.glass : SURFACE[surface];
 }
 
 export function Card({
@@ -37,22 +55,24 @@ export function Card({
   children,
   ...props
 }: CardProps) {
-  const classes = [
-    surfaceClass({ glass, surface }),
-    ...(density === "compact" ? ["card-compact"] : []),
-    ...(interactive ? ["card-interactive"] : []),
-    ...(elevation ? [`card-elevation-${elevation}`] : []),
-    className,
-  ]
-    .filter(Boolean)
-    .join(" ");
   return (
-    <div className={classes} data-depth={depth} {...props}>
+    <div
+      className={cn(
+        "border border-inner-border rounded-card leading-normal",
+        surfaceClass({ glass, surface }),
+        "shadow-card",
+        density === "compact" && "card-compact leading-[1.35]",
+        interactive && "card-interactive",
+        elevation !== undefined && ELEVATION[elevation],
+        className,
+      )}
+      data-depth={depth}
+      {...props}
+    >
       {children}
     </div>
   );
 }
-
 
 export interface CardHeaderProps {
   title: string;
@@ -79,7 +99,7 @@ export function CardHeader({
   className = "",
 }: CardHeaderProps): ReactNode {
   return (
-    <div className={`card-header-bar ${className}`.trim()}>
+    <div className={cn("card-header-bar", className)}>
       <div className="card-header-left">
         {leading ? <div className="card-header-leading">{leading}</div> : null}
         {icon ? <div className="card-header-icon">{icon}</div> : null}
@@ -100,7 +120,7 @@ export function CardHeader({
 
 export function CardBody({ className = "", children, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={`card-body-content ${className}`.trim()} {...props}>
+    <div className={cn("card-body-content", className)} {...props}>
       {children}
     </div>
   );

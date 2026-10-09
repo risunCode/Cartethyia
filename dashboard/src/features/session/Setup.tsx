@@ -1,5 +1,6 @@
 import { UserPlus } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { DataTable } from "../../components/ui/layout";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -515,30 +516,21 @@ function BackupSummary({ preview }: { readonly preview: BackupPreview }): ReactN
         <p className="setup-note">This backup is empty.</p>
       ) : (
         <div className="setup-preview-scroll">
-          <table className="setup-table">
-            <thead>
-              <tr>
-                <th>Table</th>
-                <th>Section</th>
-                <th className="setup-col-count">Rows</th>
+          <DataTable headers={["Table", "Section", "Rows"]} dense>
+            {[...supported, ...unsupported].map((row) => (
+              <tr key={`${row.section}/${row.table}`}>
+                <td>{row.table}</td>
+                <td>{row.section}</td>
+                <td className="setup-col-count">
+                  {row.supported ? (
+                    row.count
+                  ) : (
+                    <span className="setup-badge setup-badge-warn">unsupported</span>
+                  )}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {[...supported, ...unsupported].map((row) => (
-                <tr key={`${row.section}/${row.table}`}>
-                  <td>{row.table}</td>
-                  <td>{row.section}</td>
-                  <td className="setup-col-count">
-                    {row.supported ? (
-                      row.count
-                    ) : (
-                      <span className="setup-badge setup-badge-warn">unsupported</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </DataTable>
         </div>
       )}
     </div>

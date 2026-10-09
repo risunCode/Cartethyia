@@ -522,7 +522,7 @@ function AuditRow({ entry }: { entry: AuditEntry }): ReactNode {
         <div style={{ fontSize: "12.5px", fontWeight: 600 }}>{entry.actorName ?? entry.actor}</div>
         {entry.actorName ? (
           <div
-            className="truncate mono-text"
+            className="truncate font-mono tabular-nums"
             title={entry.actor}
              style={{ fontSize: "10.5px", color: "var(--text-tertiary)" }}
           >
@@ -539,14 +539,14 @@ function AuditRow({ entry }: { entry: AuditEntry }): ReactNode {
         </Badge>
       </td>
       <td
-        className="truncate mono-text"
+        className="truncate font-mono tabular-nums"
         title={entry.target}
          style={{ fontSize: "11.5px", maxWidth: "220px" }}
       >
         {entry.target}
       </td>
       <td
-        className="mono-text" style={{ fontSize: "11px",
+        className="font-mono tabular-nums" style={{ fontSize: "11px",
           maxWidth: "320px",
           overflow: "hidden",
           textOverflow: "ellipsis" }}

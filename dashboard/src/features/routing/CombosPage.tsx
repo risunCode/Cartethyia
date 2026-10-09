@@ -140,7 +140,6 @@ function AliasesSection(): ReactNode {
           <ErrorState message="Failed to load aliases" onRetry={() => aliasesQuery.refetch()} />
         ) : aliases.length === 0 ? (
           <EmptyState
-            compact
             title="No aliases defined"
             message="Create an alias to route short or friendly names to real provider model IDs."
           />
@@ -475,7 +474,6 @@ function CombosSection(): ReactNode {
           <ErrorState message="Failed to load combos" onRetry={() => combosQuery.refetch()} />
         ) : combos.length === 0 ? (
           <EmptyState
-            compact
             title="No combos defined"
             message="Create a model combo to distribute requests across multiple models."
           />
@@ -555,7 +553,7 @@ function CombosSection(): ReactNode {
                   ))}
                   {c.members.length > COMBO_MEMBER_CHIP_MAX ? (
                     <span
-                      className="mono-text" style={{ fontSize: "11px",
+                      className="font-mono tabular-nums" style={{ fontSize: "11px",
                         color: "var(--text-tertiary)",
                         alignSelf: "center" }}
                       title={c.members.slice(COMBO_MEMBER_CHIP_MAX).join(", ")}

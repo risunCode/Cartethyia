@@ -199,7 +199,7 @@ export function ModelPickerModal({
             {selected.map((s) => (
               <span
                 key={s}
-                className="mono-text" style={{ display: "inline-flex",
+                className="font-mono tabular-nums" style={{ display: "inline-flex",
                   alignItems: "center",
                   gap: "4px",
                   fontSize: "11px",
@@ -352,7 +352,7 @@ export function ModelPickerModal({
                         )}
                         <span
                           title={e.qualified}
-                          className="mono-text" style={{ fontSize: "11px",
+                          className="font-mono tabular-nums" style={{ fontSize: "11px",
                             fontWeight: 600,
                             color: sel ? "var(--accent)" : "var(--text-primary)",
                             overflow: "hidden",
@@ -388,7 +388,7 @@ export function ModelPickerModal({
                         </span>
                         <span
                           title={e.qualified}
-                          className="mono-text" style={{ fontSize: "10px",
+                          className="font-mono tabular-nums" style={{ fontSize: "10px",
                             color: "var(--text-tertiary)",
                             overflow: "hidden",
                             textOverflow: "ellipsis",

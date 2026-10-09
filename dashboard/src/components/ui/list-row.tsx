@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { cn } from "../../lib/cn";
 
 export interface ListRowProps extends HTMLAttributes<HTMLDivElement> {
   readonly children?: ReactNode;
@@ -28,12 +29,20 @@ export function ListRow({
 }: ListRowProps): ReactNode {
   return (
     <div
-      className={`list-row${density === "compact" ? " list-row-compact" : ""} ${className}`.trim()}
+      className={cn(
+        "list-row flex items-center gap-[12px] rounded-[10px] border border-inner-border bg-surface-2 min-w-0 px-[14px] py-[10px]",
+        density === "compact" && "list-row-compact px-[10px] py-[6px] rounded-[8px] gap-[8px]",
+        className,
+      )}
       {...props}
     >
-      {leading ? <div className="list-row-leading">{leading}</div> : null}
-      <div className="list-row-body">{children}</div>
-      {actions ? <div className="list-row-actions">{actions}</div> : null}
+      {leading ? <div className="list-row-leading shrink-0">{leading}</div> : null}
+      <div className="list-row-body flex-1 min-w-0 flex flex-col gap-[4px]">{children}</div>
+      {actions ? (
+        <div className="list-row-actions flex items-center gap-[4px] shrink-0 flex-wrap">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }

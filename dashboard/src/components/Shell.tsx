@@ -19,12 +19,15 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { Palette } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { usePresence } from "../hooks/use-presence";
 import { useModalFocus } from "../hooks/use-modal-focus";
 import { applyConsoleTheme, isDarkEffective, readConsoleTheme, writeConsoleTheme } from "../lib/theme";
+import { BackgroundLayer } from "../features/customization/BackgroundLayer";
+import { applyCustomization, readCustomizationSettings } from "../features/customization/settings";
 import { consoleRequest } from "../data/api";
 import { queryClient } from "../data/query-client";
 import { prefetchRouteIntent } from "../data/route-prefetch";
@@ -69,6 +72,7 @@ export const navigationGroups: readonly NavGroupDef[] = [
   {
     label: "System",
     items: [
+      { label: "Customization", path: "/customization", icon: Palette },
       { label: "Console Log", path: "/console-log", icon: ScrollText },
       { label: "Settings", path: "/settings", icon: SettingsIcon },
     ],
@@ -91,8 +95,8 @@ const titlesMap: Record<string, { title: string; sub: string; icon: LucideIcon }
     sub: "Network pools, SOCKS5/HTTP egress, and dispatch",
     icon: Network,
   },
+  "/customization": { title: "Customization", sub: "Background, transparency, and blur", icon: Palette },
   "/console-log": { title: "Console Log", sub: "Live server logs and audit trail" , icon: ScrollText },
-  "/model-lab": { title: "Model Lab", sub: "Live model playground — chat, thinking, and image generation" , icon: FlaskConical },
   "/cli-tools": {
     title: "CLI Tools",
     sub: "Claude Code CLI, OpenCode, and local developer tool integrations",
@@ -680,6 +684,7 @@ export function DashboardShell({
 
   useEffect(() => {
     document.documentElement.dataset.glassEnabled = "true";
+    applyCustomization(readCustomizationSettings());
     return () => {
       delete document.documentElement.dataset.glassEnabled;
     };
@@ -693,6 +698,7 @@ export function DashboardShell({
       <div className="app-bg" aria-hidden="true" />
       <div className="app-shell-frame">
       <div className="app-shell-root" data-drawer={drawerOpen ? "open" : undefined} onClick={(event) => { if (drawerOpen && (event.target as HTMLElement).closest(".app-main-column")) setDrawerOpen(false); }}>
+        <BackgroundLayer />
         <aside
           className={`glass app-sidebar ${drawerOpen ? "is-open" : ""}`}
           aria-label="Dashboard navigation"

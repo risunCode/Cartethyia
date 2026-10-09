@@ -1180,7 +1180,7 @@ export default function ModelLab(): ReactNode {
                                   ) : (
                                     <span
                                       key={`${attachment.name}-${attachmentIndex}`}
-                                      className="mono-text" style={{ display: "inline-flex",
+                                      className="font-mono tabular-nums" style={{ display: "inline-flex",
                                         alignItems: "center",
                                         gap: "6px",
                                         background: "var(--surface-muted)",
@@ -1325,7 +1325,7 @@ export default function ModelLab(): ReactNode {
                   ) : null}
                   {toolStatus ? (
                     <div
-                      className="mono-text" style={{ display: "inline-flex",
+                      className="font-mono tabular-nums" style={{ display: "inline-flex",
                         alignItems: "center",
                         gap: "8px",
                         fontSize: "11px",
@@ -1575,7 +1575,7 @@ export default function ModelLab(): ReactNode {
                     size="sm"
                     onClick={openPicker}
                     title={model || "Pick model"}
-                    className="mono-text" style={{ maxWidth: "220px",
+                    className="font-mono tabular-nums" style={{ maxWidth: "220px",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
@@ -1872,7 +1872,7 @@ export default function ModelLab(): ReactNode {
                                     placeholder="temp"
                                     aria-label="Temperature"
                                     disabled={!temperatureOn}
-                                    className="mono-text" style={{ fontSize: "11px" }}
+                                    className="font-mono tabular-nums" style={{ fontSize: "11px" }}
                                   />
                                   <input
                                     type="checkbox"
@@ -1886,7 +1886,7 @@ export default function ModelLab(): ReactNode {
                                     placeholder="max toks"
                                     aria-label="Max tokens"
                                     disabled={!maxTokensOn}
-                                    className="mono-text" style={{ fontSize: "11px" }}
+                                    className="font-mono tabular-nums" style={{ fontSize: "11px" }}
                                   />
                                 </div>
                                 <span style={{ fontSize: "11px", color: "var(--text-tertiary)", lineHeight: 1.4 }}>
@@ -1908,7 +1908,7 @@ export default function ModelLab(): ReactNode {
                                     placeholder="top-p (0-1)"
                                     aria-label="Top P"
                                     disabled={!topPOn}
-                                    className="mono-text" style={{ fontSize: "11px" }}
+                                    className="font-mono tabular-nums" style={{ fontSize: "11px" }}
                                   />
                                   <input
                                     type="checkbox"
@@ -1922,7 +1922,7 @@ export default function ModelLab(): ReactNode {
                                     placeholder="top logprobs (0-20)"
                                     aria-label="Top logprobs"
                                     disabled={!logprobsOn}
-                                    className="mono-text" style={{ fontSize: "11px" }}
+                                    className="font-mono tabular-nums" style={{ fontSize: "11px" }}
                                   />
                                 </div>
                                 <span style={{ fontSize: "11px", color: "var(--text-tertiary)", lineHeight: 1.4 }}>

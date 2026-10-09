@@ -5,11 +5,11 @@
 @keyframes motion-route-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    translate: 0 6px;
   }
   to {
     opacity: 1;
-    transform: none;
+    translate: 0 0;
   }
 }
 
@@ -135,7 +135,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 16px;
   padding: 24px;
   border: 1px dashed var(--inner-border);
   border-radius: var(--radius-card);
@@ -536,14 +535,12 @@
   outline-offset: 1px;
 }
 
-.modal-form-section-wide,
 .modal-form-actions {
   grid-column: 1 / -1;
 }
 
 @media (max-width: 640px) {
 
-  .modal-form-section-wide,
   .modal-form-actions {
     grid-column: auto;
   }
@@ -673,92 +670,13 @@
 }
 
 /* ===== shared list row ===== */
-/* One row of a managed list (credential, alias, combo, account). Owns the
-   row card that pages previously re-declared inline: surface, border,
-   radius, padding. */
-.list-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--inner-border);
-  background: var(--surface-2);
-  min-width: 0;
-}
-
-.list-row-compact {
-  padding: 6px 10px;
-  border-radius: 8px;
-  gap: 8px;
-}
-
-.list-row-leading {
-  flex-shrink: 0;
-}
-
-.list-row-body {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.list-row-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
-/* ===== shared code chip ===== */
-/* A monospaced value chip (model id, alias, member). One class owns the
-   mono font/size that pages re-declared inline as
-   fontFamily: "var(--font-mono)". */
-.code-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 100%;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
+/* `.list-row*` and `.code-chip*` now emit utilities from `ui/list-row.tsx`
+ * and `ui/code-chip.tsx`. The class tokens stay as DOM hooks —
+ * `list-primitives.test.tsx` pins them — but the visual rules are gone,
+ * except this one: `font: inherit` has no Tailwind equivalent, and the chip
+ * must take its mono font from the parent rather than the UA `code` default. */
 .code-chip-value {
   font: inherit;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.code-chip-plain .code-chip-value {
-  color: var(--text-secondary);
-}
-
-.code-chip-muted {
-  color: var(--text-secondary);
-  background: var(--surface-3);
-  border: 1px solid var(--inner-border);
-  padding: 2px 8px;
-  border-radius: 6px;
-}
-
-.code-chip-accent {
-  color: var(--accent);
-  background: var(--accent-soft);
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-weight: 700;
-}
-
-.code-chip-action {
-  display: inline-flex;
-  flex-shrink: 0;
 }
 
 /* ===== data-table cell conventions ===== */
@@ -784,13 +702,6 @@
   font-size: 11px;
   color: var(--text-tertiary);
   margin-top: 1px;
-}
-
-/* A bare monospaced value that is not a chip — ids, addresses, counts inside
-   a row or cell. The chip variants live on .code-chip. */
-.mono-text {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ===== inline status callout ===== */
@@ -1039,25 +950,26 @@
   overflow: auto;
 }
 
-.setup-table {
-  width: 100%;
-  border-collapse: collapse;
+/* The dense variant is what `.setup-table` used to be: tighter cells for the
+ * setup backup preview. It rides on `.data-table` instead of being a fourth
+ * table implementation. */
+.data-table-dense {
   font-size: 12px;
 }
 
-.setup-table th,
-.setup-table td {
+.data-table-dense th,
+.data-table-dense td {
   padding: 5px 8px;
-  text-align: left;
-  border-bottom: 1px solid var(--inner-border);
 }
 
-.setup-table th {
+.data-table-dense th {
   color: var(--text-secondary);
   font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
-.setup-table td {
+.data-table-dense td {
   font-variant-numeric: tabular-nums;
 }
 
@@ -1132,7 +1044,6 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .api-key-form-field-wide,
   .api-key-form-section-wide,
   .modal-form-actions {
     grid-column: auto;
@@ -1253,6 +1164,38 @@
   pointer-events: none;
   background: var(--page-bg);
 }
+
+/* Custom background, rendered by `BackgroundLayer` and framed by the variables
+   the Customization page writes onto `<html>`. Fixed, behind everything, and
+   inert — it must never catch a click meant for the shell.
+
+   The media is oversized by the zoom and anchored with the offsets, then the
+   layer clips it. That is what makes "taller" and "shift left" real instead of
+   letterboxing. `contain` keeps the blur and the video decode off the rest of
+   the page's paint. */
+.custom-background {
+  contain: strict;
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: var(--bg-opacity, 0.4);
+}
+
+.custom-background-media {
+  position: absolute;
+  top: calc(50% + var(--bg-y, 0%));
+  left: calc(50% + var(--bg-x, 0%));
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: translate(-50%, -50%) scale(var(--bg-scale, 1));
+  filter: blur(var(--bg-blur, 0px));
+}
+
+/* A phone decodes a full-viewport video badly. The component pauses playback;
+   the first frame still fills the screen. */
 
 
 @media (prefers-reduced-motion: reduce) {
@@ -1498,6 +1441,20 @@ main.route-enter {
   display: flex;
   flex-direction: column;
 }
+/* A page root is only as tall as its content, so a short page (overview,
+   combos, proxy) stopped above the viewport bottom even though `main` itself
+   reaches it. Grow the root to fill `main`; a page taller than the floor
+   keeps its own height and scrolls as before. */
+main.route-enter > :only-child {
+  flex: 1 1 auto;
+}
+/* The last card of a page grows to fill whatever the page root has left, so
+   every page ends on a card edge at the viewport bottom instead of empty
+   space. A page taller than the viewport is unaffected: there is no free
+   space left to grow into. */
+main.route-enter > :only-child > .card-solid:last-child {
+  flex: 1 1 auto;
+}
 main.route-enter .card-body-content {
   flex: 1 1 auto;
   min-height: 0;
@@ -1714,16 +1671,7 @@ main.route-enter .state-viewport {
   min-width: 0;
 }
 
-.stat-card {
-  padding: 10px 12px;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--inner-border);
-  background: var(--surface-2);
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
+/* `.stat-card` emits utilities from `ui/layout.tsx`. */
 /* Named container for the proxy table: the labeled action buttons in
  * `base.css` collapse to square icon buttons against this width, so a narrow
  * row degrades gracefully instead of overflowing the Actions column.
@@ -1753,12 +1701,13 @@ main.route-enter .state-viewport {
 }
 
 .stat-card-detail {
-  /* Details can name a pool; a long label must not stretch the card or wrap
-   * onto a second line and change the row height. */
-  display: block;
+  /* Details can name a pool or a live count. Wrap rather than clip, and cap
+   * at two lines so one long label cannot stretch the row. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 
@@ -1908,13 +1857,9 @@ main.route-enter .state-viewport {
 }
 
 /* Section Header */
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 4px;
-}
+/* `.section-header`'s flex layout emits utilities from `ui/layout.tsx`. The
+ * heading typography below stays: `SectionHeading` renders the `h1`/`h2` and
+ * `p` internally, so the component cannot reach them with utilities. */
 
 .section-header-text h1,
 .section-header-text h2 {

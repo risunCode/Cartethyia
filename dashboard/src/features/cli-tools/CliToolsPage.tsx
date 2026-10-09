@@ -133,7 +133,7 @@ export default function CliTools(): ReactNode {
                       }}
                     >
                       <span
-                        className="mono-text" style={{ fontSize: "10px",
+                        className="font-mono tabular-nums" style={{ fontSize: "10px",
                           fontWeight: 600,
                           background: "var(--kbd-bg)",
                           padding: "1px 5px",
@@ -208,7 +208,7 @@ export default function CliTools(): ReactNode {
                     }}
                   >
                     <span
-                      className="mono-text" style={{ fontSize: "10px",
+                      className="font-mono tabular-nums" style={{ fontSize: "10px",
                         fontWeight: 600,
                         background: "var(--kbd-bg)",
                         padding: "1px 5px",

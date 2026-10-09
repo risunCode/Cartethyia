@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { cn } from "../../lib/cn";
 
 export type CodeChipTone = "plain" | "muted" | "accent";
 
@@ -15,8 +16,11 @@ export interface CodeChipProps extends HTMLAttributes<HTMLElement> {
 
 const toneClass: Record<CodeChipTone, string> = {
   plain: "code-chip-plain",
-  muted: "code-chip-muted",
-  accent: "code-chip-accent",
+  // `--surface-3` is not a defined token — only share.css referenced it, and
+  // nothing defined it — so the soft chip uses the real `surface-muted` token.
+  muted:
+    "code-chip-muted text-text-secondary bg-surface-muted border border-inner-border px-[8px] py-[2px] rounded-[6px]",
+  accent: "code-chip-accent text-accent bg-accent-soft px-[8px] py-[3px] rounded-[6px] font-bold",
 };
 
 /**
@@ -35,11 +39,21 @@ export function CodeChip({
   ...props
 }: CodeChipProps): ReactNode {
   return (
-    <span className={`code-chip ${toneClass[tone]} ${className}`.trim()} {...props}>
-      <code className="code-chip-value" title={props.title ?? value}>
+    <span
+      className={cn(
+        "code-chip inline-flex items-center gap-[6px] min-w-0 max-w-full font-mono text-[12px] tabular-nums",
+        toneClass[tone],
+        className,
+      )}
+      {...props}
+    >
+      <code
+        className="code-chip-value min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+        title={props.title ?? value}
+      >
         {value}
       </code>
-      {action ? <span className="code-chip-action">{action}</span> : null}
+      {action ? <span className="code-chip-action inline-flex shrink-0">{action}</span> : null}
       {children}
     </span>
   );

@@ -50,6 +50,7 @@ const Settings = lazyWithRetry(() => import("./features/settings/SettingsPage"),
 const CliTools = lazyWithRetry(() => import("./features/cli-tools/CliToolsPage"), "cli-tools");
 const CliToolDetail = lazyWithRetry(() => import("./features/cli-tools/CliToolDetailPage"), "cli-tool-detail");
 const ConsoleLogPage = lazyWithRetry(() => import("./features/logs/ConsoleLogPage"), "console-log");
+const Customization = lazyWithRetry(() => import("./features/customization/CustomizationPage"), "customization");
 const Studio = lazyWithRetry(() => import("./features/studio/StudioPage"), "studio");
 
 /**
@@ -181,6 +182,7 @@ function ProtectedRoutes(): ReactNode {
           <Route path="/quota" element={<Quota />} />
           <Route path="/proxy" element={<Proxy />} />
           <Route path="/console-log" element={<ConsoleLogPage />} />
+          <Route path="/customization" element={<Customization />} />
           <Route path="/model-lab" element={<Studio />} />
           <Route path="/cli-tools" element={<CliTools />} />
           <Route path="/cli-tools/:toolId" element={<CliToolDetail />} />

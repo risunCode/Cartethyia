@@ -1,5 +1,6 @@
 import { ChevronDown, Eye, EyeOff, Plus, Server, Trash2 } from "lucide-react";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { cn } from "../../lib/cn";
 import { Link } from "react-router-dom";
 import {
   HeaderPairsEditor,
@@ -21,6 +22,15 @@ import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state"
 import { Switch } from "../../components/ui/switch";
 import { Inline } from "../../components/ui/inline";
 import { Stack } from "../../components/ui/stack";
+const CARD_SHELL = cn(
+  "provider-card relative flex flex-col border border-inner-border rounded-[12px]",
+  "transition-[transform,border-color,box-shadow]",
+);
+
+const CARD_LINK = cn("block flex-1 p-[12px] no-underline text-inherit");
+
+const CARD_NAME = cn("text-[13px] font-semibold overflow-hidden text-ellipsis whitespace-nowrap");
+
 import type {
   CreateProviderRequest,
   ProviderAccountResponse,
@@ -195,8 +205,8 @@ function AddCompatibleModal({
       onClose={onClose}
       title={isAnthropic ? "Add Custom Anthropic Provider" : "Add Custom OpenAI Provider"}
     >
-      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-        {error ? <div style={{ color: "var(--red)", fontSize: "12px" }}>{error}</div> : null}
+      <form onSubmit={submit} className="flex flex-col gap-[12px]">
+        {error ? <div className="text-red text-[12px]">{error}</div> : null}
         <Input
           label="Display Name"
           hint="Required. A friendly label for this node."
@@ -220,7 +230,7 @@ function AddCompatibleModal({
             <span>Base URL</span>
           </label>
           <Inline gap="8px">
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex-1 min-w-0">
               <Input
                 id="compat-url"
                 value={baseUrl}
@@ -256,7 +266,7 @@ function AddCompatibleModal({
             </span>
           </label>
           <Inline gap="8px">
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex-1 min-w-0">
               <Input
                 id="compat-credential"
                 type="password"
@@ -279,31 +289,28 @@ function AddCompatibleModal({
           </Inline>
           {testResult ? (
             <div
-              style={{
-                marginTop: "6px",
-                fontSize: "12px",
-                lineHeight: "1.4",
-                color: testResult.ok ? "var(--green, #2f9e44)" : "var(--red)",
-                wordBreak: "break-word",
-              }}
+              className={cn(
+                "mt-[6px] text-[12px] leading-[1.4] break-words",
+                testResult.ok ? "text-green" : "text-red",
+              )}
             >
               {testResult.ok ? "✓ " : "✗ "}
               {testResult.message}
             </div>
           ) : null}
         </div>
-        <ListRow style={{ justifyContent: "space-between" }}>
+        <ListRow className="justify-between">
           <div>
-            <div style={{ fontSize: "13px", fontWeight: 600 }}>Auto-fetch models</div>
+            <div className="text-[13px] font-semibold">Auto-fetch models</div>
             <div className="form-section-caption">
               Discover this provider's model list automatically after creation
             </div>
           </div>
           <Switch checked={autoFetchModels} onChange={setAutoFetchModels} id="compat-autofetch" />
         </ListRow>
-        <ListRow style={{ justifyContent: "space-between" }}>
+        <ListRow className="justify-between">
           <div>
-            <div style={{ fontSize: "13px", fontWeight: 600 }}>
+            <div className="text-[13px] font-semibold">
               {isAnthropic ? "Send request as Claude CLI" : "Send request as Codex CLI"}
             </div>
             <div className="form-section-caption">
@@ -315,7 +322,7 @@ function AddCompatibleModal({
           <Switch checked={sendCliIdentity} onChange={setSendCliIdentity} id="compat-cli-identity" />
         </ListRow>
         <HeaderPairsEditor pairs={headerPairs} onChange={setHeaderPairs} />
-        <Inline justify="flex-end" gap="8px" style={{ marginTop: "8px" }}>
+        <Inline justify="flex-end" gap="8px" className="mt-[8px]">
           <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
           </Button>
@@ -346,31 +353,14 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
   // only shows when every account is active and healthy.
   return (
     <Card
-      className="provider-card provider-card-custom"
-      style={{
-        position: "relative",
-        display: "flex",
-        flexDirection: "column",
-        border: "1px solid var(--inner-border)",
-        borderRadius: "12px",
-        transition:
-          "transform var(--dur-micro) var(--ease-spring), border-color var(--dur-micro) var(--ease-spring), box-shadow var(--dur-micro) var(--ease-spring)",
-      }}
+      className={CARD_SHELL}
     >
       <ProviderVersionBadge clientVersion={customProvider.clientVersion} />
       <Link
         to={`/providers/${encodeURIComponent(customProvider.providerId)}`}
-        style={{
-          textDecoration: "none",
-          color: "inherit",
-          // See the builtin card: `flex: 1` keeps the clickable area as tall as
-          // the stretched card instead of only as tall as the content.
-          display: "block",
-          flex: 1,
-          padding: "12px",
-          paddingRight: "40px",
-          minHeight: "76px",
-        }}
+        // See the builtin card: `flex: 1` keeps the clickable area as tall as
+        // the stretched card instead of only as tall as the content.
+        className={cn(CARD_LINK, "pr-[40px] min-h-[76px]")}
       >
         <Inline gap="10px">
           <ProviderIcon
@@ -378,19 +368,13 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
             name={customProvider.label || customProvider.providerId}
             size={32}
           />
-          <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="min-w-0 flex-1">
             <div
-              style={{
-                fontSize: "13px",
-                fontWeight: 600,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
+              className={CARD_NAME}
             >
               {customProvider.label || customProvider.providerId}
             </div>
-            <div style={{ marginTop: "3px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
+            <div className="mt-[3px] flex flex-wrap gap-[4px]">
               {accounts === undefined ? (
                 <SecondaryQueryBadge
                   kind="accounts"
@@ -415,21 +399,10 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
           </div>
 
           <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-              gap: "3px",
-              flexShrink: 0,
-            }}
+            className="flex flex-col items-end gap-[3px] shrink-0"
           >
             <span
-              className="mono-text" style={{ fontSize: "10px",
-                fontWeight: 600,
-                background: "var(--kbd-bg)",
-                padding: "1px 5px",
-                borderRadius: "4px",
-                color: "var(--text-secondary)" }}
+              className="font-mono tabular-nums text-[10px] font-semibold bg-kbd-bg px-[5px] py-[1px] rounded-[4px] text-text-secondary"
             >
               {customProvider.providerId}/
             </span>
@@ -462,25 +435,19 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
         size="sm"
         icon={<Trash2 size={12} />}
         onClick={() => setDeleteOpen(true)}
-        style={{
-          position: "absolute",
-          top: "4px",
-          right: "4px",
-          color: "var(--text-tertiary)",
-          padding: "4px",
-        }}
+        className="absolute top-[4px] right-[4px] p-[4px] text-text-tertiary"
         title={`Delete ${customProvider.label || customProvider.providerId}`}
       />
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete Custom Provider">
         <Stack gap="12px">
-          <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+          <p className="text-[13px] text-text-secondary">
             Are you sure you want to delete custom provider{" "}
             <strong>{customProvider.label || customProvider.providerId}</strong>? Its models,
             accounts, and routing preferences are deleted together, and requests to this
             provider will no longer route.
           </p>
           {deleteMutation.isError ? (
-            <p style={{ fontSize: "12px", color: "var(--red)" }}>
+            <p className="text-[12px] text-red">
               {getErrorMessage(deleteMutation.error, "Delete failed")}
             </p>
           ) : null}
@@ -537,42 +504,24 @@ function CustomProvidersSection({
   }
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+    <section className="flex flex-col gap-[10px]">
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: "8px",
-        }}
+        className="flex items-center justify-between flex-wrap gap-[8px]"
       >
         <button
           type="button"
           onClick={toggleHidden}
           aria-expanded={!hidden}
           title={hidden ? "Show custom providers" : "Hide custom providers"}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            background: "none",
-            border: "none",
-            padding: 0,
-            cursor: "pointer",
-            color: "inherit",
-          }}
+          className="inline-flex items-center gap-[6px] bg-transparent border-none p-0 cursor-pointer text-inherit"
         >
-          <h2 style={{ fontSize: "14px", fontWeight: 700, letterSpacing: "-0.01em" }}>
+          <h2 className="text-[14px] font-bold tracking-[-0.01em]">
             Custom Providers{customProviders.length > 0 ? ` (${customProviders.length})` : ""}
           </h2>
           <ChevronDown
             size={14}
-            style={{
-              transform: hidden ? "rotate(-90deg)" : undefined,
-              transition: "transform var(--dur-micro) var(--ease-spring)",
-              color: "var(--text-tertiary)",
-            }}
+            className="text-text-tertiary transition-transform"
+            style={{ transform: hidden ? "rotate(-90deg)" : undefined }}
           />
         </button>
         <Inline gap="8px">
@@ -607,17 +556,12 @@ function CustomProvidersSection({
       {hidden ? null : customProviders.length === 0 ? (
         <Card>
           <CardBody
-            style={{
-              textAlign: "center",
-              padding: "20px 14px",
-              border: "1px dashed var(--inner-border)",
-              borderRadius: "12px",
-            }}
+            className="text-center px-[14px] py-[20px] border border-dashed border-inner-border rounded-[12px]"
           >
-            <p style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
+            <p className="text-[13px] font-semibold text-text-primary">
               No custom providers yet
             </p>
-            <p style={{ fontSize: "11.5px", color: "var(--text-tertiary)", marginTop: "2px" }}>
+            <p className="text-[11.5px] text-text-tertiary mt-[2px]">
               Add an OpenAI- or Anthropic-compatible endpoint with the buttons above.
             </p>
           </CardBody>
@@ -792,50 +736,21 @@ const ProviderCard = memo(function ProviderCard({
 
   return (
     <Card
-      className="provider-card"
-      style={{
-        position: "relative",
-        display: "flex",
-        flexDirection: "column",
-        border: "1px solid var(--inner-border)",
-        borderRadius: "12px",
-        transition: "transform var(--dur-micro) var(--ease-spring), border-color var(--dur-micro) var(--ease-spring), box-shadow var(--dur-micro) var(--ease-spring)",
-      }}
+      className={CARD_SHELL}
     >
       <ProviderVersionBadge clientVersion={provider.clientVersion} />
       {isFounding ? (
         <span
           aria-label="Friend sponsor"
           title="Friend sponsor"
-          style={{
-            position: "absolute",
-            top: 0,
-            right: 0,
-            zIndex: 2,
-            width: "72px",
-            height: "72px",
-            overflow: "hidden",
-            pointerEvents: "none",
-          }}
+          className="absolute top-0 right-0 z-2 w-[72px] h-[72px] overflow-hidden pointer-events-none"
         >
           <span
-            style={{
-              position: "absolute",
-              top: "18px",
-              right: "-22px",
-              width: "76px",
-              padding: "2px 0",
-              transform: "rotate(45deg)",
-              background: "var(--accent-soft)",
-              color: "var(--accent)",
-              fontSize: "9px",
-              fontWeight: 800,
-              letterSpacing: "0.04em",
-              lineHeight: 1.05,
-              textAlign: "center",
-              textTransform: "uppercase",
-              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.12)",
-            }}
+            className={cn(
+              "absolute top-[18px] right-[-22px] w-[76px] py-[2px] rotate-45 bg-accent-soft",
+              "text-accent text-[9px] font-extrabold tracking-[0.04em] leading-[1.05]",
+              "text-center uppercase shadow-[0_1px_3px_rgba(0,0,0,0.12)]",
+            )}
           >
             Friend
           </span>
@@ -846,33 +761,21 @@ const ProviderCard = memo(function ProviderCard({
         to={`/providers/${encodeURIComponent(provider.providerId)}${
           serviceKind === undefined ? "" : `?service=${serviceKind}`
         }`}
-        style={{
-          textDecoration: "none",
-          color: "inherit",
-          // `flex: 1` is what makes the whole card clickable. Grid rows stretch
-          // every card to the tallest one, so a card whose content is shorter
-          // than its row left a dead strip below the link — a click there hit
-          // the card, not the link, and did nothing.
-          display: "block",
-          flex: 1,
-          padding: "12px",
-        }}
+        // `flex: 1` is what makes the whole card clickable. Grid rows stretch
+        // every card to the tallest one, so a card whose content is shorter
+        // than its row left a dead strip below the link — a click there hit
+        // the card, not the link, and did nothing.
+        className={CARD_LINK}
       >
         <Inline gap="10px">
           <ProviderIcon icon={provider.providerId} name={displayName} size={32} />
-          <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="min-w-0 flex-1">
             <div
-              style={{
-                fontSize: "13px",
-                fontWeight: 600,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
+              className={CARD_NAME}
             >
               {displayName}
             </div>
-            <div style={{ marginTop: "3px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
+            <div className="mt-[3px] flex flex-wrap gap-[4px]">
               {accounts === undefined ? (
                 <SecondaryQueryBadge
                   kind="accounts"
@@ -896,21 +799,10 @@ const ProviderCard = memo(function ProviderCard({
           </div>
 
           <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-end",
-              gap: "3px",
-              flexShrink: 0,
-            }}
+            className="flex flex-col items-end gap-[3px] shrink-0"
           >
             <span
-              className="mono-text" style={{ fontSize: "10px",
-                fontWeight: 600,
-                background: "var(--kbd-bg)",
-                padding: "1px 5px",
-                borderRadius: "4px",
-                color: "var(--text-secondary)" }}
+              className="font-mono tabular-nums text-[10px] font-semibold bg-kbd-bg px-[5px] py-[1px] rounded-[4px] text-text-secondary"
             >
               {provider.providerId}/
             </span>
@@ -1055,7 +947,7 @@ export default function Providers(): ReactNode {
     return (
       <Card>
         <CardHeader title="Providers" icon={<Server size={16} />} />
-        <CardBody style={{ display: "flex", flex: 1 }}>{state}</CardBody>
+        <CardBody className="flex flex-1">{state}</CardBody>
       </Card>
     );
   }
@@ -1064,23 +956,19 @@ export default function Providers(): ReactNode {
     <Stack gap="24px">
       <Card>
         <CardHeader title="Providers" subtitle="Connected pinned first · A–Z" icon={<Server size={16} />} />
-        <CardBody style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: "4px" }}>
+        <CardBody className="flex flex-col gap-[16px]">
+      <div className="flex items-center gap-[8px] flex-wrap">
+        <div className="flex gap-[4px]">
           {(["llm", "search"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              style={{
-                padding: "6px 12px",
-                borderRadius: "8px",
-                fontSize: "12px",
-                fontWeight: 600,
-                border: tab === t ? "1px solid var(--accent)" : "1px solid var(--inner-border)",
-                background: tab === t ? "var(--accent-soft)" : "var(--surface-1)",
-                color: tab === t ? "var(--accent)" : "var(--text-secondary)",
-                cursor: "pointer",
-              }}
+              className={cn(
+                "px-[12px] py-[6px] rounded-[8px] text-[12px] font-semibold border cursor-pointer",
+                tab === t
+                  ? "border-accent bg-accent-soft text-accent"
+                  : "border-inner-border bg-surface-1 text-text-secondary",
+              )}
             >
               {t === "llm" ? "LLM" : "Search"}
               {t === "search" ? ` (${searchProviders.length})` : ` (${llmProviders.length})`}
@@ -1088,11 +976,7 @@ export default function Providers(): ReactNode {
           ))}
         </div>
         <span
-          style={{
-            marginLeft: "auto",
-            fontSize: "10.5px",
-            color: "var(--text-tertiary)",
-          }}
+          className="ml-auto text-[10.5px] text-text-tertiary"
         >
           {tab === "search" ? "Automatic order: Exa → Gemini → Codex" : "Connected pinned first · A–Z"}
         </span>
@@ -1112,10 +996,10 @@ export default function Providers(): ReactNode {
         sections.map((section) => (
           <section
             key={section.title}
-            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+            className="flex flex-col gap-[12px]"
           >
             <Stack gap="1px">
-              <h2 style={{ fontSize: "13.5px", fontWeight: 700, letterSpacing: "-0.01em" }}>
+              <h2 className="text-[13.5px] font-bold tracking-[-0.01em]">
                 {section.title} ({section.providers.length})
               </h2>
               {section.subtitle ? (

@@ -1,3 +1,4 @@
+import { cn } from "../../lib/cn";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -7,6 +8,7 @@ import {
   ArrowUpFromLine,
   Check,
   CheckCircle2,
+  ChevronDown,
   Coins,
   Copy,
   Database,
@@ -335,7 +337,7 @@ function StatusCodeWithExplainer({
   const code = statusCode(status, httpStatus);
   const explainer = statusExplainer(status, errorKind, httpStatus);
   return (
-    <span style={{ position: "relative", display: "inline-block" }}>
+    <span className="relative inline-block">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -344,40 +346,18 @@ function StatusCodeWithExplainer({
         aria-expanded={open}
         aria-label={explainer}
         title={explainer}
-        className="mono-text" style={{ fontWeight: 700,
-          fontVariantNumeric: "tabular-nums",
-          color: STATUS_TONE_COLOR[code.tone],
-          background: "none",
-          border: "1px solid transparent",
-          borderRadius: "6px",
-          padding: "0 4px",
-          cursor: "pointer",
-          fontSize: "inherit" }}
+        className={cn(
+          "font-mono font-bold tabular-nums bg-transparent border border-transparent",
+          "rounded-[6px] cursor-pointer px-[4px] py-0 text-[inherit]",
+        )}
+        style={{ color: STATUS_TONE_COLOR[code.tone] }}
       >
         {code.code}
       </button>
       {open ? (
         <span
           role="status"
-          style={{
-            position: "absolute",
-            zIndex: 30,
-            top: "calc(100% + 6px)",
-            left: 0,
-            whiteSpace: "normal",
-            minWidth: "220px",
-            maxWidth: "280px",
-            border: "1px solid var(--inner-border)",
-            borderRadius: "10px",
-            background: "var(--popover-bg)",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.16)",
-            padding: "8px 10px",
-            fontFamily: "var(--font-sans, system-ui)",
-            fontWeight: 400,
-            fontSize: "11px",
-            lineHeight: 1.5,
-            color: "var(--text-secondary)",
-          }}
+          className="absolute z-30 top-[calc(100%+6px)] left-0 whitespace-normal min-w-[220px] max-w-[280px] border border-inner-border rounded-[10px] bg-popover-bg shadow-[0_12px_32px_rgba(0,0,0,0.16)] px-[10px] py-[8px] font-sans font-normal text-[11px] leading-[1.5] text-text-secondary"
         >
           {explainer}
         </span>
@@ -488,7 +468,7 @@ function PillTabs<T extends string>({
     <div
       role="tablist"
       aria-label={ariaLabel}
-      style={{ display: "flex", flexWrap: "wrap", gap: "4px", minWidth: 0 }}
+      className="flex flex-wrap gap-[4px] min-w-0"
     >
       {options.map((option) => (
         <Button
@@ -538,6 +518,129 @@ function PanelWidthToggle({
   );
 }
 
+/** Statuses pinned as chips; everything else folds into the "More" menu. */
+const PINNED_STATUS = 200;
+
+function StatusFilterButton({
+  status,
+  count,
+  pressed,
+  onToggle,
+}: {
+  readonly status: number;
+  readonly count: number;
+  readonly pressed: boolean;
+  readonly onToggle: (status: number) => void;
+}): ReactNode {
+  const label = httpStatusLabel(status);
+  return (
+    <button
+      type="button"
+      className="usage-status-filter"
+      data-tone={httpStatusTone(status)}
+      aria-pressed={pressed}
+      aria-label={`Filter ${label}: ${formatNumber(count)} requests`}
+      title={`Show ${formatNumber(count)} requests with HTTP ${label}`}
+      onClick={() => onToggle(status)}
+    >
+      <span>{label}</span>
+      <span className="usage-status-filter-count">{formatNumber(count)}</span>
+    </button>
+  );
+}
+
+/**
+ * HTTP status filters for the Requests table. `200 OK` stays a chip; the rest
+ * live in a menu so a period full of errors does not flood the header.
+ */
+function StatusFilters({
+  counts,
+  active,
+  onToggle,
+}: {
+  readonly counts: readonly { readonly status: number; readonly count: number }[];
+  readonly active: number | null;
+  readonly onToggle: (status: number) => void;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const present = counts.filter((entry) => entry.count > 0);
+  const pinned = present.filter((entry) => entry.status === PINNED_STATUS);
+  const rest = present.filter((entry) => entry.status !== PINNED_STATUS);
+  const restTotal = rest.reduce((sum, entry) => sum + entry.count, 0);
+  const restActive = rest.some((entry) => entry.status === active);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  if (present.length === 0) return null;
+  return (
+    <div className="usage-status-filters" role="group" aria-label="Filter requests by HTTP status">
+      {pinned.map((entry) => (
+        <StatusFilterButton
+          key={entry.status}
+          status={entry.status}
+          count={entry.count}
+          pressed={active === entry.status}
+          onToggle={onToggle}
+        />
+      ))}
+      {rest.length > 0 ? (
+        <div ref={rootRef} className="relative">
+          <button
+            type="button"
+            className="usage-status-filter"
+            data-tone={restActive ? httpStatusTone(active ?? 0) : undefined}
+            aria-pressed={restActive}
+            aria-expanded={open}
+            aria-haspopup="menu"
+            aria-label={`More statuses: ${formatNumber(restTotal)} requests across ${rest.length}`}
+            onClick={() => setOpen((value) => !value)}
+          >
+            <span>More</span>
+            <span className="usage-status-filter-count">{formatNumber(restTotal)}</span>
+            <ChevronDown size={10} aria-hidden="true" className={cn("transition-transform", open && "rotate-180")} />
+          </button>
+          {open ? (
+            <div
+              role="menu"
+              aria-label="Other HTTP statuses"
+              className="absolute z-[50] top-[calc(100%+4px)] right-0 min-w-[180px] flex flex-col gap-[2px] border border-inner-border rounded-[10px] bg-popover-bg shadow-popout p-[4px]"
+            >
+              {rest.map((entry) => (
+                <div key={entry.status} role="none" className="[&>button]:w-full [&>button]:justify-between">
+                  <StatusFilterButton
+                    status={entry.status}
+                    count={entry.count}
+                    pressed={active === entry.status}
+                    onToggle={(status) => {
+                      onToggle(status);
+                      setOpen(false);
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ChartPanel({ period, metric }: { readonly period: Period; readonly metric: Metric }): ReactNode {
   const chartQuery = useUsageChart(period);
   const reducedMotion = useReducedMotion();
@@ -546,17 +649,21 @@ function ChartPanel({ period, metric }: { readonly period: Period; readonly metr
     [chartQuery.data],
   );
   const dataKey = metric === "requests" ? "requests" : metric === "cached" ? "cached" : "total";
-  if (chartQuery.isPending && buckets.length === 0) {
+  // The backend fills every bucket of the window, so an idle period arrives as
+  // a full series of zeroes rather than an empty array. A chart of that draws
+  // nothing — a blank strip — so it reads as empty instead.
+  const hasTraffic = buckets.some((bucket) => bucket[dataKey] > 0);
+  if (chartQuery.isPending && !hasTraffic) {
     return <LoadingState label="Loading chart…" />;
   }
-  if (chartQuery.isError && buckets.length === 0) {
+  if (chartQuery.isError && !hasTraffic) {
     return <ErrorState message="Failed to load chart data." onRetry={() => void chartQuery.refetch()} />;
   }
-  if (buckets.length === 0) {
+  if (!hasTraffic) {
     return (
       <EmptyState
-        title="No traffic in this window"
-        message="Route requests through the gateway to populate the chart."
+        title="No usage for this period"
+        message="Route requests to populate the usage."
       />
     );
   }
@@ -671,25 +778,15 @@ function BreakdownSnapshot({
       />
       <CardBody>
         {byQuery.isPending && rows.length === 0 ? (
-          <div className="usage-panel-body">
-            <LoadingState compact label="Loading breakdown…" />
-          </div>
+          <LoadingState label="Loading breakdown…" />
         ) : byQuery.isError && rows.length === 0 ? (
           <ErrorState message="Failed to load breakdown." onRetry={() => void byQuery.refetch()} />
         ) : rows.length === 0 ? (
-          <div className="usage-panel-body">
-            <EmptyState compact title="No usage for this period" message="Route requests to populate the breakdown." />
-          </div>
+          <EmptyState title="No usage for this period" message="Route requests to populate the breakdown." />
         ) : (
           <div
-            className="scroll-region"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "8px",
-              maxHeight: `${BREAKDOWN_VISIBLE_ROWS * BREAKDOWN_ROW_HEIGHT}px`,
-              paddingRight: "2px",
-            }}
+            className="scroll-region flex flex-col gap-[8px] pr-[2px]"
+            style={{ maxHeight: `${BREAKDOWN_VISIBLE_ROWS * BREAKDOWN_ROW_HEIGHT}px` }}
           >
             {rows.map((row) => {
               const pct = maxTotal > 0 ? Math.max(2, (row.total / maxTotal) * 100) : 2;
@@ -704,54 +801,29 @@ function BreakdownSnapshot({
                 <div
                   key={row.name}
                   title={`${displayName} · ${formatNumber(row.requests)} hits · ${formatNumber(okCount)} ok · ${formatNumber(row.total)} tokens · ${formatUsd(row.costUsd)}`}
-                  style={{
-                    position: "relative",
-                    flexShrink: 0,
-                    overflow: "hidden",
-                    borderRadius: "10px",
-                    border: "1px solid var(--inner-border)",
-                    background: "var(--surface-2)",
-                  }}
+                  className="relative shrink-0 overflow-hidden rounded-[10px] border border-inner-border bg-surface-2"
                 >
                   <div
                     aria-hidden="true"
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      width: `${pct}%`,
-                      background:
-                        "linear-gradient(to right, color-mix(in srgb, var(--accent) 20%, transparent), transparent)",
-                    }}
+                    className="absolute inset-0 bg-[linear-gradient(to_right,color-mix(in_srgb,var(--accent)_20%,transparent),transparent)]"
+                    style={{ width: `${pct}%` }}
                   />
                   <div
-                    style={{
-                      position: "relative",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "8px",
-                      padding: "10px 12px",
-                    }}
+                    className="relative flex items-center justify-between gap-[8px] px-[12px] py-[10px]"
                   >
                     <span
-                      className="truncate mono-text"
-                       style={{ minWidth: 0, flex: 1, fontSize: "11px", fontWeight: 600 }}
+                      className="truncate font-mono tabular-nums min-w-0 flex-1 text-[11px] font-semibold"
                     >
                       {displayName}
                     </span>                    <span
-                      style={{
-                        flexShrink: 0,
-                        fontSize: "10px",
-                        color: "var(--text-secondary)",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
+                      className="font-mono tabular-nums shrink-0 text-[10px] text-text-secondary"
                     >
                       {formatNumber(row.requests)} hit · {formatNumber(okCount)} ok
                     </span>
-                    <span style={{ flexShrink: 0, fontSize: "11px", fontWeight: 700, color: "var(--orange)" }}>
+                    <span className="shrink-0 text-[11px] font-bold text-orange">
                       {formatUsd(row.costUsd)}
                     </span>
-                    <span style={{ flexShrink: 0, fontSize: "11px", fontWeight: 700, color: "var(--purple)" }}>
+                    <span className="shrink-0 text-[11px] font-bold text-purple">
                       {formatTokens(row.total)}
                     </span>
                   </div>
@@ -782,16 +854,12 @@ function FlowNode({
   readonly last?: boolean;
 }): ReactNode {
   return (
-    <div style={{ display: "flex", gap: "10px", minWidth: 0 }}>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+    <div className="flex gap-[10px] min-w-0">
+      <div className="flex flex-col items-center shrink-0">
         <span
           aria-hidden="true"
+          className="grid place-items-center w-[22px] h-[22px] rounded-[999px]"
           style={{
-            display: "grid",
-            placeItems: "center",
-            width: "22px",
-            height: "22px",
-            borderRadius: "999px",
             color: tone ?? "var(--accent)",
             background: `color-mix(in srgb, ${tone ?? "var(--accent)"} 16%, var(--surface-2))`,
           }}
@@ -799,14 +867,13 @@ function FlowNode({
           {icon}
         </span>
         {last ? null : (
-          <span aria-hidden="true" style={{ width: "2px", flex: 1, minHeight: "14px", background: "var(--inner-border)" }} />
+          <span aria-hidden="true" className="w-[2px] flex-1 min-h-[14px] bg-inner-border" />
         )}
       </div>
-      <div style={{ minWidth: 0, flex: 1, paddingBottom: last ? 0 : "12px" }}>
-        <div style={{ fontSize: "12px", fontWeight: 700 }}>{title}</div>
+      <div className="min-w-0 flex-1" style={{ paddingBottom: last ? 0 : "12px" }}>
+        <div className="text-[12px] font-bold">{title}</div>
         <div
-          className="select-text"
-          style={{ marginTop: "2px", whiteSpace: "pre-line", fontSize: "11px", color: "var(--text-secondary)", overflowWrap: "anywhere", wordBreak: "break-word" }}
+          className="select-text mt-[2px] whitespace-pre-line text-[11px] text-text-secondary [overflow-wrap:anywhere] break-words"
         >
           {meta}
         </div>
@@ -869,23 +936,18 @@ function RequestDetailDrawer({
     <Drawer open={requestId !== null} onClose={onClose} title="Request Detail">
       {detailQuery.isPending ? (
         <Stack gap="12px">
-          <div className="animate-pulse" style={{ height: "24px", width: "66%", borderRadius: "8px", background: "var(--surface-2)" }} />
-          <div className="animate-pulse" style={{ height: "96px", borderRadius: "10px", background: "var(--surface-2)" }} />
-          <div className="animate-pulse" style={{ height: "96px", borderRadius: "10px", background: "var(--surface-2)" }} />
+          <div className="animate-pulse h-[24px] w-[66%] rounded-[8px] bg-surface-2" />
+          <div className="animate-pulse h-[96px] rounded-[10px] bg-surface-2" />
+          <div className="animate-pulse h-[96px] rounded-[10px] bg-surface-2" />
         </Stack>
       ) : detailQuery.isError || !detail ? (
         <ErrorState message="Failed to load request detail." onRetry={() => void detailQuery.refetch()} />
       ) : (
         <Stack gap="12px">
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", borderRadius: "10px", border: "1px solid var(--inner-border)", background: "var(--surface-2)", padding: "8px 12px", minWidth: 0 }}>
+          <div className="flex items-center gap-[8px] rounded-[10px] border border-inner-border bg-surface-2 px-[12px] py-[8px] min-w-0">
             <span
-              className="select-text mono-text"
+              className="select-text font-mono tabular-nums min-w-0 flex-1 [overflow-wrap:anywhere] break-words text-[11.5px]"
               title={detail.requestId}
-              style={{ minWidth: 0,
-                flex: 1,
-                overflowWrap: "anywhere",
-                wordBreak: "break-word",
-                fontSize: "11.5px" }}
             >
               request_id {detail.requestId}
             </span>
@@ -896,26 +958,26 @@ function RequestDetailDrawer({
               aria-label="Copy request ID"
               title="Copy request ID"
               onClick={copyRequestId}
-              style={{ flexShrink: 0, padding: "3px" }}
+              className="shrink-0 p-[3px]"
             />
           </div>
 
 
           {detail.errorKind ? (
-            <div role="alert" className="status-callout" data-tone="err" style={{ display: "flex", flexDirection: "column", gap: "4px", overflowWrap: "anywhere", wordBreak: "break-word" }}>
-              <strong style={{ fontSize: "12px" }}>
+            <div role="alert" className="status-callout flex flex-col gap-[4px] [overflow-wrap:anywhere] break-words" data-tone="err">
+              <strong className="text-[12px]">
                 {errorLabel(detail.status, detail.errorKind, detail.errorOrigin, detail.httpStatus)}
               </strong>
-              <span className="mono-text" style={{ color: "var(--text-tertiary)", fontSize: "10px", overflowWrap: "anywhere" }}>
+              <span className="font-mono tabular-nums text-text-tertiary text-[10px] [overflow-wrap:anywhere]">
                 {detail.errorKind}
               </span>
             </div>
           ) : null}
-          <section style={{ border: "1px solid var(--inner-border)", borderRadius: "10px", overflow: "hidden" }}>
-            <div style={{ borderBottom: "1px solid var(--inner-border)", padding: "10px 12px", fontSize: "12.5px", fontWeight: 700 }}>
+          <section className="border border-inner-border rounded-[10px] overflow-hidden">
+            <div className="border-b border-inner-border px-[12px] py-[10px] text-[12.5px] font-bold">
               Flow and Detail
             </div>
-            <div style={{ display: "flex", flexDirection: "column", padding: "12px" }}>
+            <div className="flex flex-col p-[12px]">
               <FlowNode
                 icon={<LogIn size={13} />}
                 title="Client request in"
@@ -950,30 +1012,16 @@ function RequestDetailDrawer({
             return (
               <section
                 aria-label="Session signals"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-                  gap: "8px",
-                  border: "1px solid var(--inner-border)",
-                  borderRadius: "10px",
-                  padding: "10px",
-                  background: "var(--surface-2)",
-                }}
+                className="grid grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-[8px] border border-inner-border rounded-[10px] p-[10px] bg-surface-2"
               >
                 {signalItems.map(({ label, value, icon: Icon }) => (
                   <div
                     key={label}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "7px",
-                      minWidth: 0,
-                      color: "var(--text-secondary)",
-                    }}
+                    className="flex items-center gap-[7px] min-w-0 text-text-secondary"
                   >
-                    <Icon size={14} aria-hidden="true" style={{ flexShrink: 0, color: "var(--accent)" }} />
-                    <span style={{ minWidth: 0, overflowWrap: "anywhere", fontSize: "11px" }}>
-                      {label}: <strong style={{ color: "var(--text-primary)" }}>{value}</strong>
+                    <Icon size={14} aria-hidden="true" className="shrink-0 text-accent" />
+                    <span className="min-w-0 [overflow-wrap:anywhere] text-[11px]">
+                      {label}: <strong className="text-text-primary">{value}</strong>
                     </span>
                   </div>
                 ))}
@@ -992,55 +1040,34 @@ function RequestDetailDrawer({
           ).map(([kind, label, payload, Icon]) => (
             <details
               key={kind}
-              style={{
-                borderRadius: "10px",
-                border: "1px solid var(--inner-border)",
-                background: "var(--surface-2)",
-                overflow: "hidden",
-              }}
+              className="rounded-[10px] border border-inner-border bg-surface-2 overflow-hidden"
             >
               <summary
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "8px",
-                  cursor: "pointer",
-                  padding: "10px 12px",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                }}
+                className="flex items-center justify-between gap-[8px] cursor-pointer px-[12px] py-[10px] text-[12px] font-bold"
               >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
-                  <Icon size={14} style={{ flexShrink: 0, color: kind === "request" ? "var(--accent)" : "var(--green)" }} />
-                  <span style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>{label}</span>
+                <span className="inline-flex items-center gap-[7px] min-w-0">
+                  <Icon size={14} className={cn("shrink-0", kind === "request" ? "text-accent" : "text-green")} />
+                  <span className="[overflow-wrap:anywhere] break-words">{label}</span>
                 </span>
-                <span className="mono-text" style={{ flexShrink: 0, color: "var(--text-tertiary)", fontSize: "10px", fontWeight: 500 }}>
+                <span className="font-mono tabular-nums shrink-0 text-text-tertiary text-[10px] font-medium">
                   {formatBytes(payloadView(kind).bytes)}
                 </span>
               </summary>
               {payload === undefined ? (
                 <div
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "10px",
-                    borderTop: "1px solid var(--inner-border)",
-                    background: "var(--surface-1)",
-                    padding: "14px 12px",
-                  }}
+                  className="flex items-start gap-[10px] border-t border-inner-border bg-surface-1 px-[12px] py-[14px]"
                 >
-                  <Database size={15} style={{ flexShrink: 0, color: "var(--text-tertiary)", marginTop: "1px" }} />
-                  <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: "3px" }}>
-                    <strong style={{ fontSize: "12px", color: "var(--text-secondary)" }}>No payload captured</strong>
-                    <span style={{ fontSize: "11px", color: "var(--text-tertiary)", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+                  <Database size={15} className="shrink-0 text-text-tertiary mt-[1px]" />
+                  <div className="min-w-0 flex flex-col gap-[3px]">
+                    <strong className="text-[12px] text-text-secondary">No payload captured</strong>
+                    <span className="text-[11px] text-text-tertiary [overflow-wrap:anywhere] break-words">
                       {label} is unavailable for this request.
                     </span>
                   </div>
                 </div>
               ) : (
                 <>
-                  <div style={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid var(--inner-border)", padding: "5px 8px 0" }}>
+                  <div className="flex justify-end border-t border-inner-border pt-[5px] px-[8px]">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1048,21 +1075,11 @@ function RequestDetailDrawer({
                       aria-label={`Copy ${label}`}
                       title={`Copy ${label}`}
                       onClick={() => copyPayload(kind, payload)}
-                      style={{ padding: "2px" }}
+                      className="p-[2px]"
                     />
                   </div>
                   <pre
-                    className="select-text mono-text"
-                     style={{ maxHeight: "256px",
-                      overflow: "auto",
-                      whiteSpace: "pre-wrap",
-                      overflowWrap: "break-word",
-                      wordBreak: "break-word",
-                      margin: 0,
-                      borderTop: "1px solid var(--inner-border)",
-                      padding: "8px 12px 12px",
-                      fontSize: "10px",
-                      color: "var(--text-secondary)" }}
+                    className="select-text font-mono tabular-nums max-h-[256px] overflow-auto whitespace-pre-wrap [overflow-wrap:break-word] break-words m-0 border-t border-inner-border pt-[8px] px-[12px] pb-[12px] text-[10px] text-text-secondary"
                   >
                     {payloadView(kind).text}
                   </pre>
@@ -1103,27 +1120,17 @@ function InFlightPill({
           ? `${active} ${requestWord} executing right now from ${ips} unique client ${ipWord} — all clients combined, not a summary of the table below`
           : "Live feed disconnected — last seen value"
       }
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "6px",
-        fontSize: "11px",
-        color: "var(--text-secondary)",
-        whiteSpace: "nowrap",
-      }}
+      className="inline-flex items-center gap-[6px] text-[11px] text-text-secondary whitespace-nowrap"
     >
       <span
         aria-hidden="true"
+        className="w-[7px] h-[7px] rounded-[50%] shrink-0"
         style={{
-          width: "7px",
-          height: "7px",
-          borderRadius: "50%",
           background: live ? "var(--success)" : "var(--text-tertiary)",
           boxShadow: live ? "0 0 6px var(--success)" : "none",
-          flexShrink: 0,
         }}
       />
-      <span className="mono-text" style={{ fontWeight: 700, color: "var(--text-primary)" }}>
+      <span className="font-mono tabular-nums font-bold text-text-primary">
         {active} in flight · {ips} {ipWord}
       </span>
     </span>
@@ -1228,19 +1235,7 @@ function TokenScaleSwitch({
       aria-label={`${label}: currently ${currentName}, switch to ${nextName}`}
       title={`Show ${nextName}`}
       onClick={() => onChange(next)}
-      className="mono-text" style={{ display: "inline-flex",
-        alignItems: "center",
-        gap: "4px",
-        padding: "3px 7px",
-        border: "1px solid var(--inner-border)",
-        borderRadius: "999px",
-        background: "var(--surface-2)",
-        color: "var(--text-secondary)",
-        cursor: "pointer",
-        fontSize: "10px",
-        fontWeight: 700,
-        letterSpacing: "0.04em",
-        lineHeight: 1 }}
+      className="font-mono tabular-nums inline-flex items-center gap-[4px] px-[7px] py-[3px] border border-inner-border rounded-[999px] bg-surface-2 text-text-secondary cursor-pointer text-[10px] font-bold tracking-[0.04em] leading-[1]"
     >
       <Scaling size={11} aria-hidden="true" />
       {currentName}
@@ -1444,8 +1439,8 @@ export default function Usage(): ReactNode {
           subtitle={usageHeadline(period, summaryQuery.isPending, summary)}
           icon={<Activity size={16} />}
         />
-        <CardBody style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      <div className="metric-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
+        <CardBody className="flex flex-col gap-[16px]">
+      <div className="metric-grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
         <RequestsStatCard
           pending={summaryQuery.isPending}
           requests={summary?.requests}
@@ -1534,7 +1529,7 @@ export default function Usage(): ReactNode {
               />
             }
             action={
-              <Inline gap="6px" style={{ flexWrap: "wrap" }}>
+              <Inline gap="6px" className="flex-wrap">
                 <PillTabs
                   ariaLabel="Traffic metric"
                   value={metric}
@@ -1549,7 +1544,7 @@ export default function Usage(): ReactNode {
                   aria-label="Period"
                   value={period}
                   size="sm"
-                  style={{ width: "auto", minWidth: "92px", flex: "0 0 auto" }}
+                  className="w-auto min-w-[92px] shrink-0 grow-0 basis-auto"
                   onValueChange={(value) => setParam("period", value)}
                   options={PERIOD_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                 />
@@ -1562,46 +1557,30 @@ export default function Usage(): ReactNode {
         </Card>
       </div>
 
+        </CardBody>
+      </Card>
+
       <Card>
         <CardHeader
           title="Requests"
           subtitle={`Most recent first · ${requestItems.length} entries · open a row to inspect`}
           subtitleAddon={
-            <div className="usage-status-filters" role="group" aria-label="Filter requests by HTTP status">
-              {(summary?.statusCounts ?? [])
-                .filter((entry) => entry.count > 0)
-                .map((entry) => {
-                  const label = httpStatusLabel(entry.status);
-                  return (
-                    <button
-                      key={entry.status}
-                      type="button"
-                      className="usage-status-filter"
-                      data-tone={httpStatusTone(entry.status)}
-                      aria-pressed={requestStatusFilter === entry.status}
-                      aria-label={`Filter ${label}: ${formatNumber(entry.count)} requests`}
-                      title={`Show ${formatNumber(entry.count)} requests with HTTP ${label}`}
-                      onClick={() => toggleRequestStatus(entry.status)}
-                    >
-                      <span>{label}</span>
-                      <span className="usage-status-filter-count">
-                        {formatNumber(entry.count)}
-                      </span>
-                    </button>
-                  );
-                })}
-            </div>
+            <StatusFilters
+              counts={summary?.statusCounts ?? []}
+              active={requestStatusFilter}
+              onToggle={toggleRequestStatus}
+            />
           }
           icon={<Activity size={16} />}
           action={
-            <Inline gap="12px" align="center" style={{ flexWrap: "wrap" }}>
+            <Inline gap="12px" align="center" className="flex-wrap">
               <Button
                 variant="ghost"
                 size="sm"
                 icon={hideProviderName ? <EyeOff size={13} /> : <Eye size={13} />}
                 onClick={toggleHideProviderName}
                 title={hideProviderName ? "Show real provider names" : "Mask provider names as Mysterious"}
-                style={{ fontSize: "11px", height: "26px", padding: "0 8px", color: "var(--text-secondary)" }}
+                className="text-[11px] h-[26px] px-[8px] py-0 text-text-secondary"
               >
                 {hideProviderName ? "Provider masked" : "Mask provider"}
               </Button>
@@ -1609,17 +1588,17 @@ export default function Usage(): ReactNode {
             </Inline>
           }
         />
-        <CardBody style={{ padding: 0 }}>
+        <CardBody className="p-0">
           {requestsQuery.isPending && requestItems.length === 0 ? (
-            <div style={{ padding: "20px" }}>
+            <div className="p-[20px]">
               <LoadingState label="Loading requests…" />
             </div>
           ) : requestsQuery.isError && requestItems.length === 0 ? (
-            <div style={{ padding: "20px" }}>
+            <div className="p-[20px]">
               <ErrorState message="Could not load recent requests." onRetry={() => void requestsQuery.refetch()} />
             </div>
           ) : requestItems.length === 0 ? (
-            <div style={{ padding: "20px" }}>
+            <div className="p-[20px]">
               <EmptyState
                 title="No requests recorded for this period"
                 message="Route requests through the gateway to populate the table."
@@ -1627,7 +1606,7 @@ export default function Usage(): ReactNode {
               />
             </div>
           ) : (
-            <div style={{ borderRadius: "10px", border: "1px solid var(--inner-border)" }}>
+            <div className="rounded-[10px] border border-inner-border">
               <DataTable
                 maxHeight={445}
                 onScroll={handleTableScroll}
@@ -1656,22 +1635,20 @@ export default function Usage(): ReactNode {
                     <tr
                       key={row.requestId}
                       onClick={() => setSelectedId(row.requestId)}
+                      className="cursor-pointer transition-colors"
                       style={{
-                        cursor: "pointer",
                         background: isNew ? "color-mix(in srgb, var(--accent) 14%, transparent)" : undefined,
-                        transition: "background-color var(--dur-macro) var(--ease-spring)",
                       }}
                     >
-                    <td style={{ fontSize: "11.5px", color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>
+                    <td className="text-[11.5px] text-text-tertiary whitespace-nowrap">
                       <div>{formatTime(row.startedAt)}</div>
-                      <div style={{ fontSize: "10.5px", marginTop: "1px" }}>{formatAgo(row.startedAt)}</div>
+                      <div className="text-[10.5px] mt-[1px]">{formatAgo(row.startedAt)}</div>
                     </td>
-                    <td style={{ maxWidth: "210px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+                    <td className="max-w-[210px]">
+                      <div className="flex items-center gap-[6px] min-w-0">
                         <span
-                          className="truncate"
+                          className="truncate text-[12px] font-semibold"
                           title={rowProviderId ?? "—"}
-                          style={{ fontSize: "12px", fontWeight: 600 }}
                         >
                           {hideProviderName ? "Mysterious" : rowProviderId ? (providerNames.get(rowProviderId) ?? rowProviderId) : "—"}
                         </span>
@@ -1682,11 +1659,10 @@ export default function Usage(): ReactNode {
                           : row.model ?? "—"}
                       </div>
                     </td>
-                    <td style={{ maxWidth: "140px" }}>
+                    <td className="max-w-[140px]">
                       <div
-                        className="truncate"
+                        className="truncate text-[12px] font-semibold"
                         title={usageApiKeyLabel(row)}
-                        style={{ fontSize: "12px", fontWeight: 600 }}
                       >
                         {usageApiKeyLabel(row)}
                       </div>
@@ -1694,12 +1670,10 @@ export default function Usage(): ReactNode {
                         {usageClientLabel(row)}
                       </div>
                     </td>
-                    <td style={{ whiteSpace: "nowrap", fontSize: "11px" }}>
+                    <td className="whitespace-nowrap text-[11px]">
                       <div>
                         <span
-                          className="mono-text" style={{ display: "inline-block",
-                            minWidth: "13ch",
-                            color: "var(--text-secondary)" }}
+                          className="font-mono tabular-nums inline-block min-w-[13ch] text-text-secondary"
                         >
                           {row.mode === "stream" ? "streaming" : "non-streaming"}
                         </span>
@@ -1710,32 +1684,32 @@ export default function Usage(): ReactNode {
                           httpStatus={row.httpStatus}
                         />
                       </div>
-                      <div className="truncate subline" title={surfaceFamilyLabel(row.surface)} style={{ maxWidth: "220px" }}>
+                      <div className="truncate subline max-w-[220px]" title={surfaceFamilyLabel(row.surface)}>
                         {surfaceFamilyLabel(row.surface)}
                       </div>
                     </td>
                     <td className="mono">
-                      <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--text-secondary)" }}>
+                      <div className="flex gap-[12px] justify-end">
+                        <span className="inline-flex items-center gap-[4px] text-text-secondary">
                           <ArrowUp size={10} aria-label="Input tokens" /> IN {formatNumber(row.inputTokens)}
                         </span>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", color: "var(--text-secondary)" }}>
+                        <span className="inline-flex items-center gap-[4px] text-text-secondary">
                           <ArrowDown size={10} aria-label="Output tokens" /> OUT {formatNumber(row.outputTokens)}
                         </span>
                       </div>
                       <div
-                        style={{ display: "flex", gap: "12px", justifyContent: "flex-end", marginTop: "1px", color: "var(--text-tertiary)" }}
+                        className="flex gap-[12px] justify-end mt-[1px] text-text-tertiary"
                         title={row.estimatedCost === undefined ? "Unpriced model — no catalog rate" : undefined}
                       >
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <span className="inline-flex items-center gap-[4px]">
                           <Database size={10} aria-label="Cached tokens" /> CACHED {formatNumber(row.cachedTokens ?? 0)}
                         </span>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <span className="inline-flex items-center gap-[4px]">
                           <DollarSign size={10} aria-label="Estimated cost" /> COST {costText}
                         </span>
                         {row.creditUsed !== undefined ? (
                           <span
-                            style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                            className="inline-flex items-center gap-[4px]"
                             title="Provider-billed credits for this turn"
                           >
                             <Coins size={10} aria-label="Credits used" /> {formatCredit(row.creditUsed)}
@@ -1743,14 +1717,14 @@ export default function Usage(): ReactNode {
                         ) : null}
                       </div>
                     </td>
-                    <td className="num" style={{ whiteSpace: "nowrap" }}>
+                    <td className="num whitespace-nowrap">
                       {formatSpeed(row.tokensPerSec)}
                     </td>
                     <td className="num">
                       <div>{formatDuration(row.ttfbMs)}</div>
                       {row.resolveMs !== undefined ? (
                         <div
-                          style={{ fontSize: "10.5px", marginTop: "1px", color: "var(--text-tertiary)" }}
+                          className="text-[10.5px] mt-[1px] text-text-tertiary"
                           title="Gateway-side time before the upstream dispatch began"
                         >
                           ({formatDuration(row.resolveMs)})
@@ -1769,8 +1743,6 @@ export default function Usage(): ReactNode {
         </CardBody>
       </Card>
 
-        </CardBody>
-      </Card>
       <RequestDetailDrawer requestId={selectedId} onClose={() => setSelectedId(null)} />
       </Stack>
     </InFlightProvider>

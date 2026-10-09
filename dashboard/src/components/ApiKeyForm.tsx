@@ -815,7 +815,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
               models.map((m) => (
                 <span
                   key={m}
-                  className="mono-text" style={{ display: "inline-flex",
+                  className="font-mono tabular-nums" style={{ display: "inline-flex",
                     alignItems: "center",
                     gap: "4px",
                     fontSize: "11px",

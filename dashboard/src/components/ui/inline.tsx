@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { cn } from "../../lib/cn";
 
 export interface InlineProps {
   readonly children: ReactNode;
@@ -9,6 +10,27 @@ export interface InlineProps {
   readonly style?: CSSProperties;
   readonly className?: string;
 }
+
+const ALIGN: Record<string, string> = {
+  center: "items-center",
+  start: "items-start",
+  end: "items-end",
+  "flex-start": "items-start",
+  "flex-end": "items-end",
+  baseline: "items-baseline",
+  stretch: "items-stretch",
+};
+
+const JUSTIFY: Record<string, string> = {
+  center: "justify-center",
+  start: "justify-start",
+  end: "justify-end",
+  "flex-start": "justify-start",
+  "flex-end": "justify-end",
+  "space-between": "justify-between",
+  "space-around": "justify-around",
+  "space-evenly": "justify-evenly",
+};
 
 export function Inline({
   children,
@@ -21,16 +43,14 @@ export function Inline({
 }: InlineProps): ReactNode {
   return (
     <div
-      className={className}
-      style={{
-        display: "flex",
-        flexDirection: "row",
-        gap,
-        alignItems: align,
-        justifyContent: justify,
-        flexWrap: wrap ? "wrap" : undefined,
-        ...style,
-      }}
+      className={cn(
+        "flex flex-row",
+        ALIGN[align ?? ""] ?? "",
+        JUSTIFY[justify ?? ""] ?? "",
+        wrap && "flex-wrap",
+        className,
+      )}
+      style={{ gap, ...style }}
     >
       {children}
     </div>
