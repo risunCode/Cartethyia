@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Switch } from "./ui/switch";
@@ -306,6 +306,8 @@ interface KeyFormProps {
   busy: boolean;
   onDone: (input: KeyFormInput) => void;
   onClose: () => void;
+  /** Receives the action row so the dialog can pin it below the scrolling body. */
+  actionsRef?: (actions: ReactNode) => void;
 }
 export function keyCredentialFields(
   keyMode: ApiKeyResponse["keyMode"],
@@ -322,7 +324,7 @@ export function keyCredentialFields(
 export function oneTimeSecretForMode(keyMode: ApiKeyResponse["keyMode"], secret: string | undefined): string | null {
   return keyMode === "personal" ? secret ?? null : null;
 }
-export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps): ReactNode {
+export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: KeyFormProps): ReactNode {
   const [label, setLabel] = useState(record?.label ?? "");
   const [prefix, setPrefix] = useState(record?.keyPrefix ?? "");
   const [customKey, setCustomKey] = useState("");
@@ -433,6 +435,16 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
       sharePopupBody: sharePopupBody.trim(),
     });
   };
+  useEffect(() => {
+    actionsRef?.(
+      <>
+        <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button variant="primary" size="sm" disabled={busy || (mode === "create" && !label.trim())} onClick={submit}>
+          {busy ? "Saving…" : mode === "create" ? "Create API key" : "Save changes"}
+        </Button>
+      </>
+    );
+  });
   return (
     <div className="api-key-form-layout">
       <section className="api-key-form-section api-key-form-section-wide">
@@ -1004,23 +1016,6 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose }: KeyFormProps
         </section>
         </div>
       </section>
-      <div
-        className="modal-form-actions"
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: "8px",
-          borderTop: "1px solid var(--inner-border)",
-          paddingTop: "12px",
-        }}
-      >
-        <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>
-          Cancel
-        </Button>
-        <Button variant="primary" size="sm" disabled={busy || (mode === "create" && !label.trim())} onClick={submit}>
-          {busy ? "Saving…" : mode === "create" ? "Create API key" : "Save changes"}
-        </Button>
-      </div>
     </div>
   );
 }

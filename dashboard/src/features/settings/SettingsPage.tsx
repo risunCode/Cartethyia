@@ -5,7 +5,6 @@ import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { ErrorState, LoadingState } from "../../components/ui/state";
-import { Inline } from "../../components/ui/inline";
 import { Stack } from "../../components/ui/stack";
 import { BackupPanel } from "../../components/BackupPanel";
 import { toast } from "../../lib/toast";
@@ -30,121 +29,90 @@ function PrivacyPanel(): ReactNode {
 
 
   return (
-      <Card>
-        <CardHeader
-          title="Privacy"
-          subtitle="Control what request telemetry stores and shows"
-          icon={<Eye size={16} />}
-        />
-        <CardBody>
-          <Stack gap="14px">
-            <div>
+    <Card className="h-full">
+      <CardHeader
+        title="Privacy"
+        subtitle="What request telemetry stores, and how client addresses are shown"
+        icon={<Eye size={16} />}
+      />
+      <CardBody>
+        <Stack gap="16px">
+          <div className="settings-field">
+            <Select
+              label="Telemetry payloads"
+              id="privacy-payloads"
+              value={settings.telemetryPayloads}
+              onValueChange={(value) =>
+                mutation.mutate(
+                  { telemetryPayloads: value === "full" || value === "metadata" ? value : "none" },
+                  {
+                    onSuccess: () => toast.success("Payload capture updated"),
+                    onError: (error) => toast.error(getErrorMessage(error, "Could not update payload capture.")),
+                  },
+                )
+              }
+              options={[
+                { value: "none", label: "Off — no payload capture" },
+                { value: "metadata", label: "Metadata — method and headers, 15 minutes" },
+                { value: "full", label: "Full — redacted bodies, 15 minutes" },
+              ]}
+            />
+            <p className="form-section-caption">
+              Request metadata is always kept. Bodies stay off until you turn them on, and anything captured is redacted and deleted after 15 minutes.
+            </p>
+          </div>
+          {settings.telemetryPayloads === "full" ? (
+            <div className="settings-field">
               <Select
-                label="Telemetry payloads"
-                id="privacy-payloads"
-                value={settings.telemetryPayloads}
+                label="Capture depth"
+                id="privacy-payload-depth"
+                value={settings.telemetryPayloadDepth}
                 onValueChange={(value) =>
                   mutation.mutate(
+                    { telemetryPayloadDepth: value === "moderate" || value === "maximum" ? value : "minimum" },
                     {
-                      telemetryPayloads:
-                        value === "full" || value === "metadata" ? value : "none",
-                    },
-                    {
-                      onSuccess: () => toast.success("Payload capture updated"),
-                      onError: (error) =>
-                        toast.error(getErrorMessage(error, "Could not update payload capture.")),
+                      onSuccess: () => toast.success("Capture depth updated"),
+                      onError: (error) => toast.error(getErrorMessage(error, "Could not update capture depth.")),
                     },
                   )
                 }
                 options={[
-                  { value: "none", label: "Off — no payload capture (default)" },
-                  {
-                    value: "metadata",
-                    label: "Metadata — Proxy→Provider method + headers, pruned after 15 minutes",
-                  },
-                  {
-                    value: "full",
-                    label: "Full — redacted bodies at the depth below, pruned after 15 minutes",
-                  },
+                  { value: "minimum", label: "Minimum — 1 MiB cap" },
+                  { value: "moderate", label: "Moderate — 8 MiB cap" },
+                  { value: "maximum", label: "Maximum — 16 MiB cap" },
                 ]}
               />
-              {settings.telemetryPayloads === "full" ? (
-                <div style={{ marginTop: "8px" }}>
-                  <Select
-                    label="Capture depth"
-                    id="privacy-payload-depth"
-                    value={settings.telemetryPayloadDepth}
-                    onValueChange={(value) =>
-                      mutation.mutate(
-                        {
-                          telemetryPayloadDepth:
-                            value === "moderate" || value === "maximum" ? value : "minimum",
-                        },
-                        {
-                          onSuccess: () => toast.success("Capture depth updated"),
-                          onError: (error) =>
-                            toast.error(getErrorMessage(error, "Could not update capture depth.")),
-                        },
-                      )
-                    }
-                    options={[
-                      {
-                        value: "minimum",
-                        label: "Minimum — all four panels, 1 MiB cap (default)",
-                      },
-                      {
-                        value: "moderate",
-                        label: "Moderate — all four panels, 8 MiB cap",
-                      },
-                      {
-                        value: "maximum",
-                        label: "Maximum — all four panels, 16 MiB cap",
-                      },
-                    ]}
-                  />
+              {settings.telemetryPayloadDepth !== "minimum" ? (
+                <div role="note" className="status-callout" data-tone="warn">
+                  <strong>High CPU and memory while this is on.</strong> Use it to debug, then switch back to Metadata or Minimum.
                 </div>
               ) : null}
-              {settings.telemetryPayloads === "full" &&
-              settings.telemetryPayloadDepth !== "minimum" ? (
-                <div role="note" className="status-callout" data-tone="warn" style={{ marginTop: "8px" }}>
-                  <strong style={{ color: "var(--amber)" }}>
-                    High CPU and memory spike while active.
-                  </strong>{" "}
-                  Use it only while debugging, then switch back to Metadata or Minimum.
-                </div>
-              ) : null}
-              <p style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                Request-event metadata is always retained. Payload capture is off until turned on
-                here. Bodies stay opt-in, redacted, and deleted automatically after 15 minutes.
-              </p>
             </div>
-            <div>
-              <Select
-                label="Client IP display"
-                id="privacy-ip"
-                value={settings.privacyMode}
-                onValueChange={(value) =>
-                  mutation.mutate(
-                    { privacyMode: value === "full" ? "full" : "masked" },
-                    {
-                      onSuccess: () => toast.success("IP display updated"),
-                      onError: (error) =>
-                        toast.error(getErrorMessage(error, "Could not update IP display.")),
-                    },
-                  )
-                }
-                options={[
-                  { value: "masked", label: "Masked — recommended" },
-                  { value: "full", label: "Show full IP" },
-                ]}
-              />
-              <p style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
-                Raw addresses stay in storage; only the presentation changes.
-              </p>
-            </div>
-          </Stack>
-        </CardBody>
-      </Card>
+          ) : null}
+          <div className="settings-field">
+            <Select
+              label="Client IP display"
+              id="privacy-ip"
+              value={settings.privacyMode}
+              onValueChange={(value) =>
+                mutation.mutate(
+                  { privacyMode: value === "full" ? "full" : "masked" },
+                  {
+                    onSuccess: () => toast.success("IP display updated"),
+                    onError: (error) => toast.error(getErrorMessage(error, "Could not update IP display.")),
+                  },
+                )
+              }
+              options={[
+                { value: "masked", label: "Masked — recommended" },
+                { value: "full", label: "Show full IP" },
+              ]}
+            />
+            <p className="form-section-caption">Raw addresses stay stored. This only changes how they are shown.</p>
+          </div>
+        </Stack>
+      </CardBody>
+    </Card>
   );
 }
 
@@ -182,71 +150,54 @@ function PasswordChangeForm(): ReactNode {
   };
 
   return (
-    <Stack gap="10px">
-      <Input
-        id="current-password"
-        label="Current password"
-        type="password"
-        value={currentPassword}
-        onChange={(e) => setCurrentPassword(e.target.value)}
-        autoComplete="current-password"
-      />
-      <Input
-        id="new-password"
-        label="New password (min 8 characters)"
-        type="password"
-        value={newPassword}
-        onChange={(e) => setNewPassword(e.target.value)}
-        autoComplete="new-password"
-      />
-      <Input
-        id="confirm-password"
-        label="Confirm new password"
-        type="password"
-        value={confirmPassword}
-        onChange={(e) => setConfirmPassword(e.target.value)}
-        autoComplete="new-password"
-      />
-      {formError ? <p style={{ fontSize: "12px", color: "var(--red)" }}>{formError}</p> : null}
-      {success ? (
-        <p style={{ fontSize: "12px", color: "var(--green)" }}>Password updated successfully.</p>
-      ) : null}
-      <Inline justify="flex-end" style={{ marginTop: "4px" }}>
+    <Stack gap="12px" className="flex-1">
+      <Input id="current-password" label="Current password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" />
+      <div className="settings-pair settings-pair-tight">
+        <Input id="new-password" label="New password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" />
+        <Input id="confirm-password" label="Confirm new password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" />
+      </div>
+      {formError ? <p role="alert" className="settings-feedback" data-tone="err">{formError}</p> : null}
+      {success ? <p role="status" className="settings-feedback" data-tone="ok">Password updated.</p> : null}
+      <div className="mt-auto flex justify-end">
         <Button
           variant="primary"
           size="sm"
           onClick={submit}
-          disabled={
-            changePassword.isPending || !currentPassword || !newPassword || !confirmPassword
-          }
+          disabled={changePassword.isPending || !currentPassword || !newPassword || !confirmPassword}
         >
-          {changePassword.isPending ? "Updating…" : "Update Password"}
+          {changePassword.isPending ? "Updating…" : "Update password"}
         </Button>
-      </Inline>
+      </div>
     </Stack>
   );
 }
 
 export default function Settings(): ReactNode {
   return (
-    <div className="settings-column">
-      {/* Security Controls / Password Change */}
-      <Card>
-        <CardHeader
-          title="Security Controls"
-          subtitle="Manage console account credentials"
-          icon={<Shield size={16} />}
-        />
-        <CardBody>
-          <PasswordChangeForm />
-        </CardBody>
-      </Card>
-
-      {/* Privacy */}
-      <PrivacyPanel />
-
-      {/* Backup & Restore */}
-      <BackupPanel />
-    </div>
+    <Card>
+      <CardHeader
+        title="Settings"
+        subtitle="Account security, privacy, and tenant data"
+        icon={<Shield size={16} />}
+      />
+      <CardBody className="flex flex-col gap-[20px]">
+        <section className="flex flex-col gap-[10px]">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Account</h2>
+          <div className="two-column-grid">
+            <Card className="h-full">
+              <CardHeader title="Security" subtitle="Change the password used to sign in to this console" icon={<Shield size={16} />} />
+              <CardBody className="flex flex-1 flex-col">
+                <PasswordChangeForm />
+              </CardBody>
+            </Card>
+            <PrivacyPanel />
+          </div>
+        </section>
+        <section className="flex flex-col gap-[10px]">
+          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Data</h2>
+          <BackupPanel />
+        </section>
+      </CardBody>
+    </Card>
   );
 }

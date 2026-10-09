@@ -13,6 +13,17 @@ No overengineering unless the task explicitly asks for it. Prefer the smallest
 complete change that fixes the owning layer, migrates its callers, and proves the
 acceptance criteria.
 
+
+## Exact labels
+
+Copy a user-facing name character for character. Do not abbreviate, expand,
+restyle, or "correct" it.
+
+The required Client identity label is the backtick-wrapped string `[CC]`.
+`CC` is wrong. Wrapping those letters in square brackets is also wrong. The
+previous failure was substituting one of those forms and then treating a
+screenshot of the wrong form as acceptable. When the user corrects a label,
+change that label before investigating the renderer.
 ## Pick the skill first
 
 Most tasks belong to one skill in `.skills/`. Read its `SKILL.md` before
@@ -23,6 +34,7 @@ starting — it holds the procedure, the pitfalls, and the owner of the layer.
 | A failing request to attribute to a field; payload/wire bytes; remote debugging | `cartethyia-trace-replay` |
 | Schema change, migration, new usage/telemetry field | `cartethyia-schema-telemetry` |
 | Add/remove/authenticate a provider; catalog, `/v1/models`, capabilities | `cartethyia-provider-catalog` |
+| Remove a bundled provider and its leftover global row | `cartethyia-provider-removal` |
 | Account health, cooldown class, pool selection, retries, leases | `cartethyia-health-routing` |
 | Add/change a `src/console/` domain; contract→store→dashboard mirror | `cartethyia-console-api` |
 | `dashboard/` React, layout, social metadata, browser verification | `cartethyia-dashboard` |

@@ -323,7 +323,6 @@ export function assertProviderRouting(value: unknown): ProviderRoutingResponse {
     (value.usageFloorUnit !== undefined && value.usageFloorUnit !== "credit" && value.usageFloorUnit !== "percent") ||
     typeof value.bypassProxy !== "boolean" ||
     typeof value.userAgent !== "string" ||
-    value.userAgent.length === 0 ||
     value.userAgent.length > 4096
   ) {
     throw invalidResponse("Invalid provider routing response");

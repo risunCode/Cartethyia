@@ -67,8 +67,8 @@ export function Select({
         }}
         data-state={open ? "open" : "closed"}
       >
-        <RadixSelect.Value placeholder={placeholder}>
-          {selectedLabel ?? placeholder}
+        <RadixSelect.Value placeholder={placeholder} asChild>
+          <span>{selectedLabel ?? placeholder}</span>
         </RadixSelect.Value>
         <RadixSelect.Icon asChild>
           <ChevronDown size={14} />
@@ -88,8 +88,9 @@ export function Select({
                 value={option.value}
                 disabled={option.disabled}
                 className="radix-select-item"
+                textValue={option.label}
               >
-                <RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
+                <span>{option.label}</span>
                 <RadixSelect.ItemIndicator className="radix-select-indicator">
                   <Check size={14} />
                 </RadixSelect.ItemIndicator>

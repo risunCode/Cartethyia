@@ -150,7 +150,8 @@ export function resolveRouteUserAgent(
   globalUserAgent: string | undefined,
 ): string | undefined {
   if (!isBundledProviderId(providerId) || providerHasAdapterUserAgent(providerId)) return undefined;
-  return resolveTenantOverride(tenantUserAgent, globalUserAgent, DEFAULT_PROVIDER_USER_AGENT);
+  const selected = resolveTenantOverride(tenantUserAgent, globalUserAgent, DEFAULT_PROVIDER_USER_AGENT);
+  return selected.trim() === "" ? undefined : selected;
 }
 
 /** One persisted model row ready for candidate construction. */

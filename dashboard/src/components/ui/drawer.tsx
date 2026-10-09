@@ -21,13 +21,13 @@ export interface DrawerProps {
  */
 export function Drawer({ open, onClose, title, children }: DrawerProps): ReactNode {
   const panelRef = useRef<HTMLElement>(null);
-  const { mounted, closing } = usePresence(open);
+  const { mounted, closing } = usePresence(open, 220);
   useModalFocus({ open, mounted, panelRef, onClose });
 
   if (!mounted) return null;
 
   return createPortal(
-    <div className="drawer-overlay" data-state={closing ? "closing" : "open"}>
+    <div className={closing ? "drawer-overlay closing" : "drawer-overlay"} data-state={closing ? "closing" : "open"}>
       <button
         type="button"
         aria-label="Close drawer"
@@ -41,7 +41,7 @@ export function Drawer({ open, onClose, title, children }: DrawerProps): ReactNo
         aria-labelledby="dashboard-drawer-title"
         tabIndex={-1}
         data-state={closing ? "closing" : "open"}
-        className="drawer-panel"
+        className={closing ? "drawer-panel closing" : "drawer-panel"}
       >
         <div className="drawer-header">
           <h2 id="dashboard-drawer-title" className="drawer-title">

@@ -57,11 +57,9 @@ registration, discovery, or connection-test paths.
 
 ## Remove a provider
 
-Search registry, adapters, routes, auth, catalog, migrations, dashboard,
-scripts, and docs. Remove the canonical definition and migrate callers in one
-clean cutover — no aliases or dead compatibility paths. Check persisted data
-before deleting rows; never delete shared models by `model_id` alone, and
-preserve telemetry history.
+Use `cartethyia-provider-removal`. It owns the cutover and the persisted-row
+cleanup. Deleting metadata alone leaves a global `providers` row that the
+dashboard lists as custom and the tenant delete cannot reach.
 
 ## Verify
 

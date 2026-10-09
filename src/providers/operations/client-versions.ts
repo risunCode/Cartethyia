@@ -381,6 +381,14 @@ export function getProviderClientVersion(providerId: string): ClientVersionSnaps
   return PROVIDER_VERSION_RESOLVERS[providerId.trim().toLowerCase()]?.snapshot();
 }
 
+/** Live Codex and Claude CLI versions for route-identity choices. */
+export function getRouteIdentityVersions(): {
+  readonly codex: string;
+  readonly claude: string;
+} {
+  return { codex: getCodexVersion(), claude: getClaudeCliVersion() };
+}
+
 /** Refreshes every provider version resolver in parallel; failures keep fallbacks. */
 export async function refreshProviderClientVersions(): Promise<void> {
   const resolversToRefresh = [...new Set(Object.values(PROVIDER_VERSION_RESOLVERS))];

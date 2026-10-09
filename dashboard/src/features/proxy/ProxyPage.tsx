@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { createContext, memo, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Badge, type BadgeTone } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
@@ -158,9 +158,11 @@ function parseQuotaGb(value: string): number | null {
 function PoolEditForm({
   pool,
   onClose,
+  actionsRef,
 }: {
   readonly pool: NetworkPoolResponse;
   readonly onClose: () => void;
+  readonly actionsRef?: (actions: ReactNode) => void;
 }): ReactNode {
   const updatePool = useUpdateNetworkPool();
   const healthCheck = useHealthCheckNetworkPool();
@@ -218,6 +220,15 @@ function PoolEditForm({
 
   const inputStyle = { width: "100%" };
 
+
+  useEffect(() => {
+    actionsRef?.(
+      <>
+        <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" size="sm" disabled={updatePool.isPending || !endpoint.trim()} onClick={() => void save()}>Save</Button>
+      </>
+    );
+  });
   return (
     <Stack gap="12px">
       <div>
@@ -288,38 +299,16 @@ function PoolEditForm({
           {testResult.message}
         </div>
       )}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "10px",
-        }}
-      >
+      <div>
         <Button
           variant="secondary"
           size="sm"
           disabled={testing}
-          icon={
-            testing ? <Loader2 size={13} className="animate-spin" /> : <FlaskConical size={13} />
-          }
+          icon={testing ? <Loader2 size={13} className="animate-spin" /> : <FlaskConical size={13} />}
           onClick={() => void runAdhocTest()}
         >
           {testing ? "Testing…" : "Test connection"}
         </Button>
-        <Inline gap="8px">
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={updatePool.isPending || !endpoint.trim()}
-            onClick={() => void save()}
-          >
-            Save
-          </Button>
-        </Inline>
       </div>
     </Stack>
   );
@@ -332,7 +321,7 @@ function detectProxyKind(line: string): TransportKind {
   return "http";
 }
 
-function ProxyBulkForm({ onClose }: { readonly onClose: () => void }): ReactNode {
+function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; readonly actionsRef?: (actions: ReactNode) => void }): ReactNode {
   const createPool = useCreateNetworkPool();
   const probeBatch = useProbeNetworkPoolBatch();
   const [text, setText] = useState("");
@@ -412,8 +401,18 @@ function ProxyBulkForm({ onClose }: { readonly onClose: () => void }): ReactNode
     }
   };
 
+  useEffect(() => {
+    actionsRef?.(
+      <>
+        <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" type="submit" form="add-proxy-form" disabled={createPool.isPending || lines.length === 0}>
+          {createPool.isPending ? "Adding…" : `Add ${lines.length || ""} Proxy`}
+        </Button>
+      </>
+    );
+  });
   return (
-    <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+    <form id="add-proxy-form" onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
           Paste one per line · http / https / socks5
@@ -509,27 +508,10 @@ function ProxyBulkForm({ onClose }: { readonly onClose: () => void }): ReactNode
           {log.join("\n")}
         </div>
       )}
-      <div style={{ display: "flex", gap: "10px", justifyContent: "space-between", marginTop: "4px" }}>
-        <Button
-          variant="secondary"
-          type="button"
-          onClick={() => void runTest()}
-          disabled={probeBatch.isPending || lines.length === 0 || overCap}
-        >
+      <div>
+        <Button variant="secondary" type="button" onClick={() => void runTest()} disabled={probeBatch.isPending || lines.length === 0 || overCap}>
           {probeBatch.isPending ? "Testing…" : "Test proxies"}
         </Button>
-        <div style={{ display: "flex", gap: "10px" }}>
-          <Button variant="secondary" type="button" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={createPool.isPending || lines.length === 0}
-          >
-            {createPool.isPending ? "Adding…" : `Add ${lines.length || ""} Proxy`}
-          </Button>
-        </div>
       </div>
     </form>
   );
@@ -818,14 +800,12 @@ function PoolTitleBlock({
 function PoolAddressBlock({
   pool,
   view,
-  maskValues,
   speedResult,
   isSpeedTesting,
   maskIp,
 }: {
   readonly pool: NetworkPoolResponse;
   readonly view: PoolView;
-  readonly maskValues: boolean;
   readonly speedResult?: StoredSpeedResult;
   readonly isSpeedTesting: boolean;
   readonly maskIp: boolean;
@@ -1128,7 +1108,6 @@ const PoolRow = memo(function PoolRow({
         <PoolAddressBlock
           pool={pool}
           view={view}
-          maskValues={maskValues}
           speedResult={speedResult}
           isSpeedTesting={isSpeedTesting}
           maskIp={maskIp}
@@ -1208,7 +1187,6 @@ const PoolCard = memo(function PoolCard({
         <PoolAddressBlock
           pool={pool}
           view={view}
-          maskValues={maskValues}
           speedResult={speedResult}
           isSpeedTesting={isSpeedTesting}
           maskIp={maskIp}
@@ -1395,6 +1373,8 @@ export default function Proxy(): ReactNode {
   const updatePool = useUpdateNetworkPool();
   const healthCheck = useHealthCheckNetworkPool();
   const [showProxyForm, setShowProxyForm] = useState(false);
+  const [addProxyActions, setAddProxyActions] = useState<ReactNode>(null);
+  const [editProxyActions, setEditProxyActions] = useState<ReactNode>(null);
   const [showRelayDeploy, setShowRelayDeploy] = useState(false);
   const [editingPool, setEditingPool] = useState<NetworkPoolResponse | null>(null);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
@@ -1634,30 +1614,28 @@ export default function Proxy(): ReactNode {
         open={showProxyForm}
         onClose={() => setShowProxyForm(false)}
         title="Add Proxy"
+        footer={addProxyActions}
       >
-        <ProxyBulkForm onClose={() => setShowProxyForm(false)} />
+        <ProxyBulkForm onClose={() => setShowProxyForm(false)} actionsRef={setAddProxyActions} />
       </Dialog>
-
 
       <Dialog
         open={editingPool !== null}
         onClose={() => setEditingPool(null)}
         title="Edit pool"
+        footer={editProxyActions}
       >
         {editingPool && (
           <PoolEditForm
             key={editingPool.id}
             pool={editingPool}
             onClose={() => setEditingPool(null)}
+            actionsRef={setEditProxyActions}
           />
         )}
       </Dialog>
 
-
       <Card
-        // Keep the card tall enough to reach the footer even with nothing in
-        // it, so the empty state is a full panel rather than a short strip
-        // floating under the summary tiles.
         style={pools.length === 0 && !isPending && !isError ? { minHeight: "min(78dvh, calc(100dvh - 160px))", display: "flex", flexDirection: "column" } : undefined}
       >
         <CardHeader

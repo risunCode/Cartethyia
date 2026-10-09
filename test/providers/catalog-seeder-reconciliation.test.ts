@@ -17,6 +17,10 @@ import {
 } from "../../src/persistence/db-sqlite";
 import { models, providers, tenants } from "../../src/persistence/schema";
 import { retireUnbundledProviders } from "../../src/providers/operations/provider-catalog-service";
+import { BUNDLED_PROVIDER_MODULES } from "../../src/providers/default-registry";
+import { DrizzleProviderCatalogStore } from "../../src/console/providers/catalog/store";
+import { createProviderCatalogOperations } from "../../src/console/providers/catalog/provider-operations";
+import { ProviderRegistry } from "../../src/providers/registry";
 
 function removeDir(dir: string): void {
   try {
@@ -73,6 +77,57 @@ test("boot retirement drops a removed provider and cascades its model rows", asy
       .select({ providerId: models.providerId, modelId: models.modelId })
       .from(models);
     expect(modelRows).toEqual([{ providerId: "operator-byok", modelId: "byok-model" }]);
+  } finally {
+    sqlite.close();
+    removeDir(dir);
+  }
+});
+
+test("a retired global provider is hidden from the tenant list and deletable", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cartethyia-retire-list-"));
+  const sqlite = createSqliteDatabase(join(dir, "cartethyia.sqlite"));
+  try {
+    await applySqliteMigrations(sqlite);
+    const db = buildSqliteHandle(sqlite).db;
+    const tenantId = randomUUID();
+    await db.insert(tenants).values({ id: tenantId, name: "Operator", status: "active" });
+    await db.insert(providers).values([
+      { id: "removed-builtin" },
+      { id: "operator-byok", tenantId },
+    ]);
+
+    const store = new DrizzleProviderCatalogStore(db, {
+      telemetryBuffer: { enqueue() {} } as never,
+      bundledModelCatalog: { modelsByProvider: new Map() },
+      providerRegistry: new ProviderRegistry(),
+      outboundFetchFor: () => fetch,
+      snapshotInvalidator: { invalidate() {} },
+    });
+    const listed = await store.list(tenantId);
+    expect(listed.map((row) => row.providerId)).toEqual(["operator-byok"]);
+
+    const access = {
+      id: "operator",
+      tenantId,
+      scopes: ["providers:write"] as const,
+      admissionIdentity: "operator",
+    };
+    const operations = createProviderCatalogOperations({
+      store,
+      accessResolver: { resolve: async () => access } as never,
+      providerRegistry: new ProviderRegistry(),
+    });
+    await operations.deleteProvider(access, "removed-builtin");
+    const remaining = await db.select({ id: providers.id }).from(providers);
+    expect(remaining.map((row) => row.id)).toEqual(["operator-byok"]);
+
+    const bundledId = BUNDLED_PROVIDER_MODULES[0]?.id;
+    if (!bundledId) throw new Error("bundle is empty");
+    await db.insert(providers).values({ id: bundledId });
+    await expect(operations.deleteProvider(access, bundledId)).rejects.toMatchObject({
+      code: "provider_is_builtin",
+      status: 403,
+    });
   } finally {
     sqlite.close();
     removeDir(dir);

@@ -1,4 +1,4 @@
-import { Cable, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
+import { Cable, ChevronDown, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card, CardBody, CardHeader } from "../../../components/ui/card";
 import { Inline } from "../../../components/ui/inline";
@@ -7,6 +7,7 @@ import { Select } from "../../../components/ui/select";
 import { ErrorState, LoadingState } from "../../../components/ui/state";
 import { Switch } from "../../../components/ui/switch";
 import { toast } from "../../../lib/toast";
+import { DASHBOARD_VERSION } from "../../../lib/version";
 import {
   PROXY_UNSUPPORTED_HINT_PROVIDERS,
   ROUTING_ACTIVE_LABEL,
@@ -17,32 +18,43 @@ import {
 const SLIDER_MAX = 50;
 /** A typed number may go past the slider, but not past this. */
 const MANUAL_MAX = 100;
-const USER_AGENT_PRESETS = [
-  { value: "codex_cli_rs/0.156.1", label: "Codex" },
-  { value: "claude-cli/2.1.280 (external, cli)", label: "Claude Code" },
-] as const;
+function userAgentPresets(cartethyiaVersion: string, codexVersion: string, claudeVersion: string) {
+  return [
+    { value: "", label: "None" },
+    { value: `Cartethyia/${cartethyiaVersion}`, label: `Cartethyia ${cartethyiaVersion}` },
+    { value: `codex_cli_rs/${codexVersion}`, label: "Codex" },
+    { value: `claude-cli/${claudeVersion} (external, cli)`, label: "Claude Code" },
+  ] as const;
+}
 
 /** Shared shell for the grouped settings rows. */
-function Row({ children }: { readonly children: ReactNode }): ReactNode {
-  return <ListRow style={{ justifyContent: "space-between" }}>{children}</ListRow>;
+function Row({ children, action }: { readonly children: ReactNode; readonly action: ReactNode }): ReactNode {
+  return <ListRow actions={action}>{children}</ListRow>;
 }
 
 export function RoutingStrategyCard({
   providerId,
   clientVersion,
+  routeIdentityVersions,
   userAgentEditable,
 }: {
   readonly providerId: string;
   /** The provider's own discovered client, shown when its identity is fixed. */
   readonly clientVersion?: { readonly client: string; readonly version: string };
+  readonly routeIdentityVersions: { readonly codex: string; readonly claude: string };
   /** False when the provider stamps its own identity, so the shown value cannot be changed. */
   readonly userAgentEditable: boolean;
 }): ReactNode {
   const routing = useRoutingStrategy(providerId, userAgentEditable);
   const showUnsupportedHint = PROXY_UNSUPPORTED_HINT_PROVIDERS.has(providerId);
-  const userAgentOptions = USER_AGENT_PRESETS.some((option) => option.value === routing.userAgent)
-    ? USER_AGENT_PRESETS
-    : [...USER_AGENT_PRESETS, { value: routing.userAgent, label: "Custom" }];
+  const presets = userAgentPresets(
+    DASHBOARD_VERSION,
+    routeIdentityVersions.codex,
+    routeIdentityVersions.claude,
+  );
+  const userAgentOptions = presets.some((option) => option.value === routing.userAgent)
+    ? presets
+    : [...presets, { value: routing.userAgent, label: "Custom" }];
 
   if (routing.isLoading) return <LoadingState label="Loading routing..." />;
   if (routing.isError)
@@ -73,7 +85,15 @@ export function RoutingStrategyCard({
       <CardHeader title="Routing Strategy" subtitle={subtitle} icon={<Layers size={16} />} />
       <CardBody>
         <div style={{ display: "grid", gap: "10px", width: "100%", minWidth: 0 }}>
-          <Row>
+          <Row
+            action={
+              <Switch
+                checked={routing.roundRobinEnabled}
+                onChange={routing.setRoundRobinEnabled}
+                id="routing-round-robin"
+              />
+            }
+          >
             <div style={{ minWidth: 0 }}>
               <label htmlFor="routing-round-robin">
                 <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
@@ -93,15 +113,27 @@ export function RoutingStrategyCard({
                 requests across this provider's accounts.
               </div>
             </div>
-            <Switch
-              checked={routing.roundRobinEnabled}
-              onChange={routing.setRoundRobinEnabled}
-              id="routing-round-robin"
-            />
           </Row>
 
           {routing.roundRobinEnabled ? (
-            <Row>
+            <Row
+              action={
+                <input
+                  id="routing-rotate-count"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={routing.rotateCount}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    if (Number.isFinite(value))
+                      routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
+                  }}
+                  className="form-input"
+                  style={{ width: "72px", flexShrink: 0, textAlign: "center", padding: "6px 8px" }}
+                />
+              }
+            >
               <div style={{ minWidth: 0 }}>
                 <label htmlFor="routing-rotate-count">
                   <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
@@ -117,24 +149,18 @@ export function RoutingStrategyCard({
                   Requests served before the rotation advances
                 </div>
               </div>
-              <input
-                id="routing-rotate-count"
-                type="number"
-                min={1}
-                max={1000}
-                value={routing.rotateCount}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (Number.isFinite(value))
-                    routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
-                }}
-                className="form-input"
-                style={{ width: "72px", flexShrink: 0, textAlign: "center", padding: "6px 8px" }}
-              />
             </Row>
           ) : null}
 
-          <Row>
+          <Row
+            action={
+              <Switch
+                checked={routing.bypassProxy}
+                onChange={routing.setBypassProxy}
+                id="routing-bypass-proxy"
+              />
+            }
+          >
             <div style={{ minWidth: 0 }}>
               <label htmlFor="routing-bypass-proxy">
                 <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
@@ -153,11 +179,6 @@ export function RoutingStrategyCard({
                 Bypass automatic proxy-pool routing for this provider and always dial direct
               </div>
             </div>
-            <Switch
-              checked={routing.bypassProxy}
-              onChange={routing.setBypassProxy}
-              id="routing-bypass-proxy"
-            />
           </Row>
 
           <div
@@ -193,10 +214,13 @@ export function RoutingStrategyCard({
                   onValueChange={handleUserAgentChange}
                 />
               ) : (
-                <div aria-label="Client identity" className="form-input" aria-disabled="true">
-                  {clientVersion
-                    ? `${clientVersion.client} ${clientVersion.version}`
-                    : "Provider default"}
+                <div aria-label="Client identity" className="radix-select-trigger" aria-disabled="true">
+                  <span>
+                    {clientVersion
+                      ? `${clientVersion.client} ${clientVersion.version}`
+                      : "Provider default"}
+                  </span>
+                  <ChevronDown size={14} aria-hidden="true" />
                 </div>
               )}
               <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>

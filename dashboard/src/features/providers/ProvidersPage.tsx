@@ -203,9 +203,17 @@ function AddCompatibleModal({
     <Dialog
       open={open}
       onClose={onClose}
-      title={isAnthropic ? "Add Custom Anthropic Provider" : "Add Custom OpenAI Provider"}
+      title={isAnthropic ? "Add Custom Anthropic Provider" : "Add Custom [OI] Provider"}
+      footer={
+        <>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="add-compatible-provider" disabled={submitting}>
+            {submitting ? "Creating..." : "Add Provider"}
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={submit} className="flex flex-col gap-[12px]">
+      <form id="add-compatible-provider" onSubmit={submit} className="flex flex-col gap-[12px]">
         {error ? <div className="text-red text-[12px]">{error}</div> : null}
         <Input
           label="Display Name"
@@ -322,14 +330,6 @@ function AddCompatibleModal({
           <Switch checked={sendCliIdentity} onChange={setSendCliIdentity} id="compat-cli-identity" />
         </ListRow>
         <HeaderPairsEditor pairs={headerPairs} onChange={setHeaderPairs} />
-        <Inline justify="flex-end" gap="8px" className="mt-[8px]">
-          <Button variant="secondary" type="button" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" type="submit" disabled={submitting}>
-            {submitting ? "Creating..." : "Add Provider"}
-          </Button>
-        </Inline>
       </form>
     </Dialog>
   );

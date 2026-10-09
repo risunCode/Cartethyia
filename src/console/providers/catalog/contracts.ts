@@ -491,6 +491,11 @@ export interface ProviderClientVersion {
   readonly source: "latest" | "fallback";
 }
 
+export interface RouteIdentityVersions {
+  readonly codex: string;
+  readonly claude: string;
+}
+
 export interface ProviderResponse {
   providerId: string;
   /** Executable service surfaces; missing legacy declarations mean LLM only. */
@@ -527,6 +532,8 @@ export interface ProviderResponse {
   updatedAt?: string;
   /** Latest known client version; `fallback` means upstream discovery has not succeeded. */
   clientVersion?: ProviderClientVersion;
+  /** Live Codex and Claude versions offered by the route-identity control. */
+  routeIdentityVersions: RouteIdentityVersions;
   oauthFlows?: {
     readonly browser: boolean;
     readonly device: boolean;
@@ -552,7 +559,7 @@ export interface ProviderResponse {
    * declares nothing and the caller's own choice stands. */
   supportedWireFamilies?: readonly WireFamily[];
 }
-export interface ProviderRecord extends Omit<ProviderResponse, "hasAdapterUserAgent"> {
+export interface ProviderRecord extends Omit<ProviderResponse, "hasAdapterUserAgent" | "routeIdentityVersions"> {
   tenantId: string | null;
 }
 

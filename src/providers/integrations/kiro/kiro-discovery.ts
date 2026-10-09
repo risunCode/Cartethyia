@@ -19,6 +19,7 @@ import {
 } from "../../operations/client-versions";
 import { machineIdForAuthState } from "./kiro-machine-id";
 import { resolveKiroProfileArn } from "./kiro-profile";
+import { KIRO_MODELS } from "./kiro-catalog";
 
 /** AWS region shape, checked before a region is interpolated into a URL. */
 const AWS_REGION_PATTERN = /^[a-z]{2}-[a-z]+-\d{1,2}$/;
@@ -29,9 +30,21 @@ const MAX_DISCOVERED_MODELS = 500;
 /** Effort tiers the models that accept an effort field advertise. */
 const KIRO_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 
+/**
+ * Ids the seed catalog deliberately no longer carries.
+ *
+ * Discovery adds every id the upstream lists, so without this a retired row
+ * comes back the moment an account fetches its models. The seed is the owner
+ * of these ids; the upstream listing is not.
+ */
+const RETIRED_KIRO_MODEL_IDS: ReadonlySet<string> = new Set([
+  "deepseek-3.2",
+  "MiniMax-M2.5",
+  "qwen3-coder-next",
+]);
+
 /** Path the adapter dispatches to; recorded on every discovered row. */
 const KIRO_GENERATE_PATH = "/generateAssistantResponse";
-
 /** Options for one discovery run. */
 export interface KiroModelDiscoveryOptions {
   readonly credential: string;
@@ -116,8 +129,16 @@ export async function fetchKiroModels(
     const record = entry as Record<string, unknown>;
     const rawId = record["modelId"] ?? record["id"];
     const modelId = typeof rawId === "string" ? rawId.trim() : "";
-    if (modelId.length === 0 || seen.has(modelId)) continue;
+    if (modelId.length === 0 || seen.has(modelId) || RETIRED_KIRO_MODEL_IDS.has(modelId)) continue;
     seen.add(modelId);
+    // The seed row owns the limits and capabilities of an id it declares. The
+    // upstream listing reports an input ceiling only, and trusting it overwrote
+    // the output ceiling the catalog states.
+    const seeded = KIRO_MODELS.find((model) => model.modelId === modelId);
+    if (seeded !== undefined) {
+      definitions.push(seeded);
+      continue;
+    }
     const limits = record["tokenLimits"];
     const maxInput =
       limits !== null && typeof limits === "object"

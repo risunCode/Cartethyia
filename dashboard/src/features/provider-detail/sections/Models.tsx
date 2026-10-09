@@ -252,7 +252,14 @@ export function AddModelModal({
   };
 
   return (
-    <Dialog open={true} onClose={onClose} title="Add Custom Model" size="sm">
+    <Dialog open={true} onClose={onClose} title="Add Custom Model" size="sm" footer={
+      <>
+        <Button variant="secondary" size="sm" onClick={onClose} disabled={register.isPending}>Cancel</Button>
+        <Button variant="primary" size="sm" disabled={register.isPending || normalized.length === 0} onClick={handleAdd}>
+          {register.isPending ? "Adding..." : "Add Model"}
+        </Button>
+      </>
+    }>
       <Stack gap="10px">
         <Inline gap="8px" align="flex-end">
           <Input
@@ -346,19 +353,6 @@ export function AddModelModal({
             {testError || "Model test failed."}
           </div>
         )}
-        <Inline justify="flex-end" gap="8px" style={{ marginTop: "6px" }}>
-          <Button variant="secondary" size="sm" onClick={onClose} disabled={register.isPending}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={register.isPending || normalized.length === 0}
-            onClick={handleAdd}
-          >
-            {register.isPending ? "Adding..." : "Add Model"}
-          </Button>
-        </Inline>
       </Stack>
     </Dialog>
   );

@@ -79,9 +79,9 @@ export function createProviderDetailOperations(deps: ProviderDetailConfig) {
       }
       if (
         patch.userAgent !== undefined &&
-        (!patch.userAgent.trim() || patch.userAgent.length > 4096 || /[\u0000-\u001f\u007f]/.test(patch.userAgent))
+        (patch.userAgent.length > 4096 || /[\u0000-\u001f\u007f]/.test(patch.userAgent))
       ) {
-        throw new ConsoleDomainError("invalid_request", 400, "userAgent must be a non-empty header value up to 4096 characters");
+        throw new ConsoleDomainError("invalid_request", 400, "userAgent must be a header value up to 4096 characters");
       }
       const updated = await deps.store.updateRouting(providerId, a.tenantId, patch);
       await deps.auditSink?.record({
@@ -131,7 +131,7 @@ const updateRoutingBody = t.Object({
   usageFloor: t.Optional(t.Nullable(t.Integer({ minimum: 0, maximum: 1_000_000 }))),
   usageFloorUnit: t.Optional(t.Union([t.Literal("credit"), t.Literal("percent")])),
   bypassProxy: t.Optional(t.Boolean()),
-  userAgent: t.Optional(t.String({ minLength: 1, maxLength: 4096 })),
+  userAgent: t.Optional(t.String({ minLength: 0, maxLength: 4096 })),
 });
 
 

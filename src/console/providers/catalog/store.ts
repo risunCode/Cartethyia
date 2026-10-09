@@ -1,9 +1,10 @@
 // Drizzle-backed provider, account, model, routing, and API-key repositories.
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { ConsoleDomainError } from "../../shared/errors";
 import { parseCustomProviderId, isBundledProviderId } from "../../../providers/contracts";
 import type { ModelDefinition } from "../../../providers/model-definition";
 import type { ProviderRegistry } from "../../../providers/registry";
+import { BUNDLED_PROVIDER_MODULES } from "../../../providers/default-registry";
 import { globalOrOwnedBy, ownedByOnly } from "../../../persistence/tenant-scope";
 import { nextSortIndex, reorderSortIndex } from "../../../persistence/sort-order";
 import type { CartethyiaDatabase } from "../../../persistence/db-handle";
@@ -271,10 +272,16 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     });
   }
   async list(tenantId: string): Promise<readonly ProviderRecord[]> {
+    const bundledIds = BUNDLED_PROVIDER_MODULES.map((provider) => provider.id);
     const rows = await this.db
       .select()
       .from(providers)
-      .where(globalOrOwnedBy(providers.tenantId, tenantId))
+      .where(
+        and(
+          globalOrOwnedBy(providers.tenantId, tenantId),
+          or(inArray(providers.id, bundledIds), eq(providers.tenantId, tenantId)),
+        ),
+      )
       .orderBy(asc(providers.id));
     return rows.map(mapProviderRow);
   }

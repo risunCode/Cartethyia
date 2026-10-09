@@ -207,8 +207,17 @@ function AliasesSection(): ReactNode {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         title={editingAlias ? "Edit Model Alias" : "New Model Alias"}
+        footer={
+          <>
+            <Button variant="secondary" type="button" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" form="alias-form" disabled={createMutation.isPending || updateMutation.isPending || !aliasName.trim() || !targetModel.trim()}>
+              {editingAlias ? "Save Changes" : "Create Alias"}
+            </Button>
+          </>
+        }
       >
         <form
+          id="alias-form"
           onSubmit={handleSave}
           style={{ display: "flex", flexDirection: "column", gap: "12px" }}
         >
@@ -250,23 +259,6 @@ function AliasesSection(): ReactNode {
             title="Select target model"
             multi={false}
           />
-          <DialogActions>
-            <Button variant="secondary" type="button" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={
-                createMutation.isPending ||
-                updateMutation.isPending ||
-                !aliasName.trim() ||
-                !targetModel.trim()
-              }
-            >
-              {editingAlias ? "Save Changes" : "Create Alias"}
-            </Button>
-          </DialogActions>
         </form>
       </Dialog>
 
@@ -572,8 +564,17 @@ function CombosSection(): ReactNode {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         title={editingCombo ? "Edit Model Combo" : "New Model Combo"}
+        footer={
+          <>
+            <Button variant="secondary" type="button" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" form="combo-form" disabled={createMutation.isPending || updateMutation.isPending || !comboName.trim() || memberValues.length === 0}>
+              {editingCombo ? "Save Changes" : "Create Combo"}
+            </Button>
+          </>
+        }
       >
         <form
+          id="combo-form"
           onSubmit={handleSave}
           style={{ display: "flex", flexDirection: "column", gap: "12px" }}
         >
@@ -685,23 +686,6 @@ function CombosSection(): ReactNode {
             title="Select combo members"
             multi
           />
-          <DialogActions>
-            <Button variant="secondary" type="button" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              type="submit"
-              disabled={
-                createMutation.isPending ||
-                updateMutation.isPending ||
-                !comboName.trim() ||
-                memberValues.length === 0
-              }
-            >
-              {editingCombo ? "Save Changes" : "Create Combo"}
-            </Button>
-          </DialogActions>
         </form>
       </Dialog>
 

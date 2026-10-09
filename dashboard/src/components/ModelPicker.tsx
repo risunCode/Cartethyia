@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
-import { DialogActions } from "./ui/dialog-actions";
 import { ProviderIcon } from "./ProviderIcon";
 import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
@@ -144,14 +143,13 @@ export function ModelPickerModal({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title={title}>
+    <Dialog open={open} onClose={onClose} title={title} footer={<Button variant="secondary" onClick={onClose}>Done</Button>}>
       <div
         style={{
           display: "flex",
           flexDirection: "column",
           gap: "12px",
           width: "min(720px, 90vw)",
-          maxHeight: "70vh",
           maxWidth: "100%",
         }}
       >
@@ -434,11 +432,6 @@ export function ModelPickerModal({
           )}
         </div>
 
-        <DialogActions>
-          <Button variant="secondary" onClick={onClose}>
-            Done
-          </Button>
-        </DialogActions>
       </div>
     </Dialog>
   );

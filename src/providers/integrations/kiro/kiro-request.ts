@@ -55,10 +55,15 @@ interface KiroToolSpecification {
   };
 }
 
+/** The checkpoint the upstream keys its prompt cache on. */
+interface KiroCachePoint {
+  readonly cachePoint: { readonly type: "default" };
+}
+
 /** One entry of `currentMessage.userInputMessage.userInputMessageContext`. */
 interface KiroUserInputContext {
   readonly toolResults?: readonly KiroToolResult[];
-  readonly tools?: readonly KiroToolSpecification[];
+  readonly tools?: readonly (KiroToolSpecification | KiroCachePoint)[];
 }
 
 interface KiroToolResult {
@@ -137,7 +142,6 @@ export function buildKiroWireRequest(
     prefix,
     wireNameByOriginal,
     usedToolIds,
-    now: new Date(),
   });
   if (problems.length > 0) return { ok: false, error: { problems } };
 
@@ -309,8 +313,6 @@ function splitConversation(
     /** The caller's tool name → the wire-safe name it was rewritten to. */
     readonly wireNameByOriginal: ReadonlyMap<string, string>;
     readonly usedToolIds: Set<string>;
-    /** When this request is being built, for the current turn's time line. */
-    readonly now: Date;
   },
 ): {
   readonly history: readonly KiroHistoryEntry[];
@@ -475,47 +477,32 @@ function splitConversation(
   // on the very last one.
   const images = currentTurn.userInputMessage.images ?? [];
   const history = turns2.slice(0, -1);
-  // The opening user turn carries the stable prefix — the system text and the
-  // thinking marker — and nothing else of ours, so a replayed conversation
-  // repeats it byte-for-byte and the upstream can reuse the cached prefix. The
-  // current-time line is volatile and rides the current turn instead.
-  const timeLine = buildCurrentTimeLine(context.now);
-  if (history.length > 0) {
-    const first = history[0];
-    if (first !== undefined && "userInputMessage" in first) {
-      history[0] = {
-        userInputMessage: {
-          ...first.userInputMessage,
-          content: `${context.prefix}\n\n${first.userInputMessage.content}`.trim(),
+  // The system text and thinking marker are a dedicated history pair, repeated
+  // byte-for-byte from the first request. The current turn carries only the
+  // caller's own text: a fresh timestamp there changes the cached tail on
+  // every request, and the upstream bills that tail again.
+  if (context.prefix.length > 0) {
+    history.unshift(
+      { userInputMessage: { content: context.prefix, origin: "AI_EDITOR" } },
+      {
+        assistantResponseMessage: {
+          content:
+            "I will fully incorporate this information when generating my responses, and explicitly acknowledge relevant parts of the summary when answering questions.",
         },
-      };
-    }
-  } else {
-    // A single-turn conversation: the prefix belongs on the current turn, and so
-    // does the time line, because there is no earlier turn to carry it.
-    return {
-      history: [],
-      current: {
-        content: `${context.prefix}\n\n${timeLine}\n\n${currentTurn.userInputMessage.content}`.trim(),
-        ...(currentTurn.userInputMessage.userInputMessageContext?.toolResults
-          ? { toolResults: currentTurn.userInputMessage.userInputMessageContext.toolResults }
-          : {}),
-        ...(images.length > 0 ? { images } : {}),
       },
-      problems,
-    };
+    );
   }
-
   const currentToolResults = currentTurn.userInputMessage.userInputMessageContext?.toolResults;
   return {
     history,
     current: {
-      content: `${timeLine}\n\n${currentTurn.userInputMessage.content}`.trim(),
+      content: currentTurn.userInputMessage.content.trim() || KIRO_EMPTY_USER_PLACEHOLDER,
       ...(currentToolResults ? { toolResults: currentToolResults } : {}),
       ...(images.length > 0 ? { images } : {}),
     },
     problems,
   };
+
 }
 
 /**

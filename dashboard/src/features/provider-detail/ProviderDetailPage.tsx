@@ -433,6 +433,7 @@ export default function ProviderDetail(): ReactNode {
         <RoutingStrategyCard
           providerId={id}
           clientVersion={provider.clientVersion}
+          routeIdentityVersions={provider.routeIdentityVersions}
           userAgentEditable={providerCanConfigureUserAgent(provider)}
         />
       ) : null}

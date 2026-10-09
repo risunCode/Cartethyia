@@ -38,4 +38,15 @@ describe("route User-Agent is only offered where the adapter reads it", () => {
     expect(providerHasAdapterUserAgent("openai")).toBe(false);
     expect(resolveRouteUserAgent("openai", "Custom/1.0", "Global/2.0")).toBe("Custom/1.0");
   });
+
+  test("InferHub takes the selected route identity", () => {
+    expect(providerHasAdapterUserAgent("inferhub")).toBe(false);
+    expect(resolveRouteUserAgent("inferhub", "Cartethyia/2.1", "codex_cli_rs/0.161.0")).toBe(
+      "Cartethyia/2.1",
+    );
+  });
+
+  test("an empty route identity sends no User-Agent", () => {
+    expect(resolveRouteUserAgent("inferhub", "", "codex_cli_rs/0.161.0")).toBeUndefined();
+  });
 });

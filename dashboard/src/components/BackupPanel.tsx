@@ -3,13 +3,12 @@ import { useRef, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
 import { Card, CardBody, CardHeader } from "./ui/card";
 import { Input } from "./ui/input";
-import { Inline } from "./ui/inline";
 import { Stack } from "./ui/stack";
 import { toast } from "../lib/toast";
 import { downloadTextFile } from "../lib/download";
 import { getErrorMessage } from "../lib/helpers";
 import { useDeleteAllBackup, useExportBackup, useRestoreBackup } from "../hooks/backup";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { Dialog } from "./ui/dialog";
 import type { BackupImportReport } from "../data/contracts";
 import type { DeleteAllScope } from "../../../src/console/backup/store";
 
@@ -69,14 +68,13 @@ function ImportReportPanel({ report }: { readonly report: BackupImportReport }):
 
 export function BackupPanel(): ReactNode {
   const [password, setPassword] = useState("");
+  const [passwordFor, setPasswordFor] = useState<"download" | "restore" | "delete" | null>(null);
   const [includeConfig, setIncludeConfig] = useState(true);
   const [includeTelemetry, setIncludeTelemetry] = useState(false);
   const [restored, setRestored] = useState<Record<string, number> | null>(null);
   const [report, setReport] = useState<BackupImportReport | null>(null);
   const [format, setFormat] = useState<string | null>(null);
-  const [deletePassword, setDeletePassword] = useState("");
   const [deleteScopes, setDeleteScopes] = useState<ReadonlySet<DeleteAllScope>>(new Set());
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const exportBackup = useExportBackup();
@@ -90,18 +88,20 @@ export function BackupPanel(): ReactNode {
       return next;
     });
   };
-  const deleteSelected = () => {
-    if (deleteScopes.size === 0 || deletePassword.length === 0) return;
-    setConfirmDelete(true);
+  const closePassword = () => {
+    setPasswordFor(null);
+    setPassword("");
+  };
+  const askDelete = () => {
+    if (deleteScopes.size === 0) return;
+    setPassword("");
+    setPasswordFor("delete");
   };
   const performDelete = async () => {
-    const result = await deleteAllBackup.mutateAsync({
-      password: deletePassword,
-      scopes: [...deleteScopes],
-    });
-    setDeletePassword("");
+    if (password.length === 0) return;
+    const result = await deleteAllBackup.mutateAsync({ password, scopes: [...deleteScopes] });
     setDeleteScopes(new Set());
-    setConfirmDelete(false);
+    closePassword();
     toast.success("Selected configuration deleted.", Object.entries(result.deleted).map(([table, count]) => `${table}: ${count}`).join(" · "));
   };
   const download = () => {
@@ -123,7 +123,7 @@ export function BackupPanel(): ReactNode {
             JSON.stringify(payload, null, 2),
             "application/json",
           );
-          setPassword("");
+          closePassword();
           toast.success("Backup downloaded.");
         },
         onError: (error) => toast.error(getErrorMessage(error, "Backup export failed.")),
@@ -133,6 +133,8 @@ export function BackupPanel(): ReactNode {
 
   const upload = (file: File) => {
     setPendingRestoreFile(file);
+    setPassword("");
+    setPasswordFor("restore");
   };
   const performRestore = async () => {
     const file = pendingRestoreFile;
@@ -153,7 +155,7 @@ export function BackupPanel(): ReactNode {
     setRestored(result.restored);
     setReport(result.report ?? null);
     setFormat(result.format);
-    setPassword("");
+    closePassword();
     setPendingRestoreFile(null);
     toast.success("Restore complete.");
   };
@@ -161,166 +163,150 @@ export function BackupPanel(): ReactNode {
   const restoreRows = restored === null ? [] : Object.entries(restored);
 
   return (
-    <Card>
-      <CardHeader
-        title="Backup & Restore"
-        subtitle="Export your configuration and history, or restore them from a file"
-        icon={<DatabaseBackup size={16} />}
-        action={
-          <Inline gap="8px">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={download}
-              disabled={exportBackup.isPending || password.length === 0}
-              icon={<Download size={13} />}
-            >
-              {exportBackup.isPending ? "Exporting…" : "Download backup"}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => fileInput.current?.click()}
-              disabled={restoreBackup.isPending || password.length === 0}
-              icon={<Upload size={13} />}
-            >
-              {restoreBackup.isPending ? "Restoring…" : "Restore from file"}
-            </Button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/json,.json"
-              style={{ display: "none" }}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) upload(file);
-                event.target.value = "";
-              }}
-            />
-          </Inline>
-        }
-      />
-      <CardBody>
-        <Stack gap="14px">
-          <Input
-            id="backup-password"
-            label="Console password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-          />
-          <fieldset className="backup-section-options">
-            <legend>Backup sections</legend>
-            <label className="backup-section-option">
-              <input
-                type="checkbox"
-                checked={includeConfig}
-                onChange={(event) => setIncludeConfig(event.target.checked)}
-              />
-              <span>Account, proxy &amp; settings</span>
-            </label>
-            <label className="backup-section-option">
-              <input
-                type="checkbox"
-                checked={includeTelemetry}
-                onChange={(event) => setIncludeTelemetry(event.target.checked)}
-              />
-              <span>Telemetry history</span>
-            </label>
-          </fieldset>
-          <p className="form-section-caption">
-            Both actions re-authenticate with your console password. The export is plain JSON
-            containing provider credentials, API-key hashes, routing configuration, and Studio sessions.
-            Telemetry is optional; prompt/response payload files, health-event history, and console
-            identity/session data are intentionally excluded from the config backup. Treat the file exactly as you would the database.
-          </p>
-
-          <p className="form-section-caption">
-            A backup carries request metadata only — status, tokens, cost, latency — never prompt or
-            response bodies, so it is not a substitute for a database dump. Restored history older
-            than the retention window is pruned again on the next sweep; raise
-            <code> CARTETHYIA_TELEMETRY_RETENTION_DAYS </code> if you need it to persist. A restore
-            only ever touches your own tenant&apos;s rows.
-          </p>
-
-          {format !== null ? (
-            <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-              Detected format: {format === "nine_router" ? "router export" : "Cartethyia backup"}
+    <>
+    <div className="two-column-grid">
+      <Card className="h-full">
+        <CardHeader
+          title="Backup"
+          subtitle="Download a JSON snapshot, or restore one you already trust"
+          icon={<DatabaseBackup size={16} />}
+        />
+        <CardBody className="flex flex-1 flex-col">
+          <Stack gap="14px" className="flex-1">
+            <fieldset className="backup-section-options">
+              <legend>Include in the download</legend>
+              <label className="backup-section-option">
+                <input type="checkbox" checked={includeConfig} onChange={(event) => setIncludeConfig(event.target.checked)} />
+                <span>
+                  <strong>Account, proxy &amp; settings</strong>
+                  <small>Credentials, API-key hashes, routing, Studio sessions</small>
+                </span>
+              </label>
+              <label className="backup-section-option">
+                <input type="checkbox" checked={includeTelemetry} onChange={(event) => setIncludeTelemetry(event.target.checked)} />
+                <span>
+                  <strong>Telemetry history</strong>
+                  <small>Status, tokens, cost, latency — never prompt bodies</small>
+                </span>
+              </label>
+            </fieldset>
+            <p className="form-section-caption">
+              The file is plain JSON and contains provider credentials. Treat it like the database. Prompt and response bodies, health-event history, and console sessions are left out.
             </p>
-          ) : null}
-
-          {restoreRows.length > 0 ? (
-            <div>
-              <p style={{ fontSize: "12px" }}>Restored rows:</p>
-              <ul style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: "4px 0 0 16px" }}>
-                {restoreRows.map(([table, count]) => (
-                  <li key={table}>
-                    {table}: {count}
-                  </li>
-                ))}
-              </ul>
+            <div className="mt-auto flex justify-end gap-[8px]">
+              <Button variant="primary" size="sm" onClick={() => { setPassword(""); setPasswordFor("download"); }} disabled={!includeConfig && !includeTelemetry} icon={<Download size={13} />}>
+                Download backup
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => fileInput.current?.click()} icon={<Upload size={13} />}>
+                Restore from file
+              </Button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/json,.json"
+                className="sr-only"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) upload(file);
+                  event.target.value = "";
+                }}
+              />
             </div>
-          ) : null}
-
-          {report !== null ? <ImportReportPanel report={report} /> : null}
-
-          <div style={{ borderTop: "1px solid var(--inner-border)", paddingTop: "14px", marginTop: "4px" }}>
-            <Stack gap="10px">
-              <div>
-                <strong style={{ color: "var(--red)" }}>Delete all</strong>
-                <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: "4px 0 0" }}>
-                  Destructive action. Select exactly what should be removed. Console users, sessions, audit history, and telemetry are preserved.
-                </p>
+            {format !== null ? (
+              <p className="form-section-caption">Detected format: {format === "nine_router" ? "router export" : "Cartethyia backup"}</p>
+            ) : null}
+            {restoreRows.length > 0 ? (
+              <div className="status-callout" data-tone="ok">
+                <strong>Restored rows</strong>
+                <ul>{restoreRows.map(([table, count]) => <li key={table}>{table}: {count}</li>)}</ul>
               </div>
+            ) : null}
+            {report !== null ? <ImportReportPanel report={report} /> : null}
+          </Stack>
+        </CardBody>
+      </Card>
+
+      <Card className="settings-danger h-full">
+        <CardHeader
+          title="Delete data"
+          subtitle="Removes the scopes you check. Console users, sessions, and audit history stay."
+          icon={<Trash2 size={16} />}
+        />
+        <CardBody className="flex flex-1 flex-col">
+          <Stack gap="12px" className="flex-1">
+            <fieldset className="backup-section-options">
+              <legend>Delete</legend>
               {([
-                ["providers", "Provider", "Provider accounts, credentials, tenant models, provider routing, and account health events"],
-                ["proxies", "Proxy", "Network pools, pool settings, and pool health events"],
-                ["configuration", "All configuration", "Includes Provider + Proxy, plus aliases, combos, API keys, CLI tools, settings, and Studio sessions"],
+                ["providers", "Providers", "Accounts, credentials, tenant models, routing, and account health"],
+                ["proxies", "Proxies", "Network pools, pool settings, and pool health"],
+                ["configuration", "All configuration", "Providers, proxies, aliases, combos, API keys, CLI tools, settings, and Studio"],
               ] as const).map(([scope, label, description]) => (
-                <label key={scope} style={{ display: "flex", gap: "8px", alignItems: "flex-start", fontSize: "12px" }}>
+                <label key={scope} className="backup-section-option">
                   <input type="checkbox" checked={deleteScopes.has(scope)} onChange={() => toggleDeleteScope(scope)} />
-                  <span><strong>{label}</strong><br /><span style={{ color: "var(--text-tertiary)", fontSize: "11px" }}>{description}</span></span>
+                  <span>
+                    <strong>{label}</strong>
+                    <small>{description}</small>
+                  </span>
                 </label>
               ))}
-              <Input
-                label="Password required for Delete all"
-                type="password"
-                value={deletePassword}
-                onChange={(event) => setDeletePassword(event.target.value)}
-                autoComplete="current-password"
-              />
-              <Button
-                variant="danger"
-                size="sm"
-                icon={<Trash2 size={14} />}
-                disabled={deleteScopes.size === 0 || deletePassword.length === 0 || deleteAllBackup.isPending}
-                onClick={deleteSelected}
-              >
-                {deleteAllBackup.isPending ? "Deleting…" : "Delete selected"}
+            </fieldset>
+            <div className="mt-auto flex justify-end">
+              <Button variant="danger" size="sm" icon={<Trash2 size={14} />} disabled={deleteScopes.size === 0} onClick={askDelete}>
+                Delete selected
               </Button>
-            </Stack>
-          </div>
-          <ConfirmDialog
-            open={pendingRestoreFile !== null}
-            onClose={() => setPendingRestoreFile(null)}
-            onConfirm={performRestore}
-            title="Restore backup?"
-            message="Restore replaces the selected tenant configuration described by the file. Existing provider credentials and routing data may be replaced. Continue only if this file is trusted."
-            confirmLabel="Restore backup"
-            danger
-          />
-          <ConfirmDialog
-            open={confirmDelete}
-            onClose={() => setConfirmDelete(false)}
-            onConfirm={performDelete}
-            title="Delete selected configuration?"
-            message={`This cannot be undone. ${deleteScopes.has("configuration") ? "All configuration includes Provider and Proxy. " : ""}Selected scopes: ${[...deleteScopes].join(", ")}. The password will be verified again before deletion.`}
-            confirmLabel="Delete permanently"
-            danger
-          />
-        </Stack>
-      </CardBody>
-    </Card>
+            </div>
+          </Stack>
+        </CardBody>
+      </Card>
+    </div>
+    <Dialog
+      open={passwordFor !== null}
+      onClose={closePassword}
+      title={passwordFor === "delete" ? "Confirm deletion" : passwordFor === "restore" ? "Restore backup" : "Download backup"}
+      description="The console password is checked again before this runs."
+      size="sm"
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={closePassword}>Cancel</Button>
+          <Button
+            variant={passwordFor === "delete" ? "danger" : "primary"}
+            size="sm"
+            disabled={password.length === 0 || exportBackup.isPending || restoreBackup.isPending || deleteAllBackup.isPending}
+            onClick={() => {
+              if (passwordFor === "download") download();
+              else if (passwordFor === "restore") void performRestore();
+              else void performDelete();
+            }}
+          >
+            {exportBackup.isPending || restoreBackup.isPending || deleteAllBackup.isPending
+              ? "Working…"
+              : passwordFor === "delete"
+                ? "Delete permanently"
+                : passwordFor === "restore"
+                  ? "Restore"
+                  : "Download"}
+          </Button>
+        </>
+      }
+    >
+      <Stack gap="10px">
+        <p className="form-section-caption">
+          {passwordFor === "delete"
+            ? "This cannot be undone. The password is verified again before anything is removed."
+            : passwordFor === "restore"
+              ? "Restore replaces the tenant configuration in this file. Continue only if the file is trusted."
+              : "The export is plain JSON and contains provider credentials."}
+        </p>
+        <Input
+          label="Console password"
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          autoComplete="current-password"
+          autoFocus
+        />
+      </Stack>
+    </Dialog>
+    </>
   );
 }

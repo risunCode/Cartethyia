@@ -269,6 +269,14 @@ html[data-empty-outline="true"] .empty-panel {
   }
 }
 
+@keyframes drawer-panel-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(105%);
+  }
+}
 .drawer-overlay {
   position: fixed;
   inset: 0;
@@ -307,6 +315,17 @@ html[data-empty-outline="true"] .empty-panel {
   box-sizing: border-box;
   overscroll-behavior: contain;
   animation: drawer-panel-in 220ms var(--ease-spring) both;
+}
+
+.drawer-overlay.closing,
+.drawer-overlay[data-state="closing"] {
+  animation: dialog-overlay-out var(--dur-micro) var(--ease-spring) both;
+  pointer-events: none;
+}
+
+.drawer-panel.closing,
+.drawer-panel[data-state="closing"] {
+  animation: drawer-panel-out 220ms var(--ease-spring) both;
 }
 
 .drawer-header {
@@ -2014,6 +2033,11 @@ main.route-enter .state-viewport {
     border-color var(--dur-micro) ease,
     background-color var(--dur-micro) ease;
 }
+.radix-select-trigger[aria-disabled="true"] {
+  opacity: 0.72;
+  cursor: default;
+  pointer-events: none;
+}
 
 /* The toolbar's sort control sits beside 30px buttons. The trigger's own
    rule is 36px and wins on equal specificity, so the size has to be named. */
@@ -2169,31 +2193,6 @@ main.route-enter .state-viewport {
 }
 
 
-/* Settings keeps related controls compact: security/privacy share the first
-   row at equal height, while the wider backup surface spans the full grid
-   below. */
-.settings-column {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: stretch;
-  gap: 16px;
-  width: 100%;
-  min-width: 0;
-}
-
-.settings-column > :last-child {
-  grid-column: 1 / -1;
-}
-
-@container (max-width: 820px) {
-  .settings-column {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .settings-column > :last-child {
-    grid-column: auto;
-  }
-}
 
 .backup-section-options {
   display: grid;
@@ -2201,8 +2200,13 @@ main.route-enter .state-viewport {
   gap: 10px;
   min-width: 0;
   border: 0;
+  margin: 0;
+  padding: 0;
 }
 
+.settings-danger .backup-section-options {
+  grid-template-columns: minmax(0, 1fr);
+}
 .backup-section-options legend {
   margin-bottom: 8px;
   color: var(--text-secondary);
@@ -2212,7 +2216,7 @@ main.route-enter .state-viewport {
 
 .backup-section-option {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   min-height: 42px;
   padding: 10px 12px;
@@ -2223,6 +2227,18 @@ main.route-enter .state-viewport {
   font-size: 12px;
   line-height: 1.35;
   cursor: pointer;
+}
+
+.backup-section-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.backup-section-option small {
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 .backup-section-option:hover,

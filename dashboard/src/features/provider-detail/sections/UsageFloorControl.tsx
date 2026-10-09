@@ -4,7 +4,7 @@ import { Switch } from "../../../components/ui/switch";
 import { useRoutingStrategy } from "../../../hooks/use-routing-strategy";
 import { useQuotaOverview } from "../../../hooks/quota";
 import { useProviderAccountInflight } from "../../../hooks/routing";
-import { usePrivacyMode } from "../../../lib/privacy-mode";
+import { useMysteriousAccounts } from "../../../lib/privacy-mode";
 /**
  * The provider-wide usage floor, shown above the account list.
  *
@@ -106,25 +106,25 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
         </label>
       </div>
     </div>
-    <PrivacyModeControl />
+    <PrivacyModeControl providerId={providerId} />
     </div>
   );
 }
 
-/** Hides account emails and proxy addresses behind one label. */
-function PrivacyModeControl(): ReactNode {
-  const { enabled, setEnabled } = usePrivacyMode();
+/** Hides this provider's account emails. Other providers keep their own choice. */
+function PrivacyModeControl({ providerId }: { readonly providerId: string }): ReactNode {
+  const { enabled, setEnabled } = useMysteriousAccounts(providerId);
   return (
     <div className="usage-floor">
       <div className="usage-floor-copy">
         <div className="usage-floor-title">
           <EyeOff size={14} />
-          <span>Privacy mode</span>
+          <span>Mysterious accounts</span>
         </div>
-        <p>Hide email or username. Accounts and proxies read as mysterious.</p>
+        <p>Hide this provider's emails and usernames. Stored in this browser only.</p>
       </div>
       <div className="usage-floor-control">
-        <Switch checked={enabled} aria-label="Privacy mode" onChange={setEnabled} />
+        <Switch checked={enabled} aria-label="Mysterious accounts" onChange={setEnabled} />
       </div>
     </div>
   );

@@ -19,7 +19,7 @@ import {
 import type { AccessDecision } from "../../../security/access-control";
 import { isBundledProviderId } from "../../../providers/contracts";
 import type { ProviderRegistry } from "../../../providers/registry";
-import { getProviderClientVersion } from "../../../providers/operations/client-versions";
+import { getProviderClientVersion, getRouteIdentityVersions } from "../../../providers/operations/client-versions";
 import type { OAuthLoginField } from "../../../providers/authentication/oauth-flow-store";
 import { providerCredentialHint, providerCredentialUrl, providerDisplayName, providerHasAdapterUserAgent, providerServiceKinds, providerSupportsWebSearch, type CompatibilityProfile } from "../../../providers/metadata";
 import type { AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
@@ -70,6 +70,7 @@ export function sanitizeProviderResponse(
     ...(credentialUrl === undefined ? {} : { credentialUrl }),
     ...(credentialHint === undefined ? {} : { credentialHint }),
     ...(clientVersion === undefined ? {} : { clientVersion }),
+    routeIdentityVersions: getRouteIdentityVersions(),
     supportsModelDiscovery: (p.supportsModelDiscovery as boolean | undefined) ?? !p.isBuiltIn,
     ...(typeof p.createdAt === "string" ? { createdAt: p.createdAt } : {}),
     ...(typeof p.updatedAt === "string" ? { updatedAt: p.updatedAt } : {}),
@@ -327,8 +328,9 @@ export function createProviderCatalogOperations(config: ProviderCatalogConfig) {
         providerId: string,
       ): Promise<{ success: boolean }> {
         const a = requireTenantAnyScope(access, PROVIDER_WRITE_SCOPES);
-        const ok = await config.store.delete(a.tenantId, providerId);
-        if (!ok)
+        const owned = await config.store.delete(a.tenantId, providerId);
+        const retired = owned || await config.store.deleteGlobal(providerId);
+        if (!retired)
           throw new ConsoleDomainError("provider_not_found", 404, `Provider ${providerId} not found`);
         await config.auditSink?.record({
           access: a,

@@ -23,14 +23,13 @@ const KIRO_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
 /**
  * One Kiro model row.
  *
- * `ctx` and `out` are the model's real limits — Opus-5/4.8/4.7 and Sonnet-5
- * carry 1M context per the Anthropic catalog (`claude.ts`) and models.dev; the
- * 4.5-era rows and Haiku 200k. The old uniform 500k overstated older Claude
- * models and understated the newest.
+ * `ctx` and `out` are the model's real limits. Opus 5/4.8/4.7 and Sonnet 5/5.5
+ * carry 1M context; the 4.5-era rows and both Haiku rows carry 200k. `auto`
+ * routes upstream and is declared at 1M/32k.
  *
- * The non-Anthropic rows use the upstream family defaults: DeepSeek V3.2
- * 128k/64k, Qwen3 Coder Next 1M, GLM 5 204.8k/131k, MiniMax M2.5 204.8k/131k. GPT
- * 5.6's 272k/128k is unchanged.
+ * The non-Anthropic row is GLM 5 at 200k/64k. GPT 5.5 and the 5.6 rows keep
+ * 272k/128k. DeepSeek V3.2, Qwen3 Coder Next, and MiniMax M2.5 are retired and
+ * must not return through discovery.
  */
 function kiroModel(options: {
   readonly id: string;
@@ -65,21 +64,22 @@ function kiroModel(options: {
  * guessing at what an individual account's plan reaches.
  */
 export const KIRO_MODELS: readonly ModelDefinition[] = [
-  kiroModel({ id: "claude-opus-5", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true,}),
-  kiroModel({ id: "claude-opus-4.8", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true,}),
-  kiroModel({ id: "claude-opus-4.7", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true,}),
-  kiroModel({ id: "claude-opus-4.5", ctx: 200_000, out: 64_000, vision: true, reasoning: true, toolCall: true,}),
-  kiroModel({ id: "claude-sonnet-5", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true,}),
-  kiroModel({ id: "claude-sonnet-4.5", ctx: 1_000_000, out: 64_000, vision: true, reasoning: true, toolCall: true,}),
-  kiroModel({ id: "claude-haiku-4.5", ctx: 200_000, out: 64_000, vision: true, reasoning: true, toolCall: true,}),
+  kiroModel({ id: "auto", ctx: 1_000_000, out: 32_000, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-opus-5", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-opus-4.8", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-opus-4.7", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-opus-4.5", ctx: 200_000, out: 64_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-sonnet-5", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-sonnet-5.5", ctx: 1_000_000, out: 128_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-sonnet-4.5", ctx: 1_000_000, out: 64_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-haiku-4.5", ctx: 200_000, out: 64_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "claude-haiku-5.5", ctx: 200_000, out: 64_000, vision: true, reasoning: true, toolCall: true }),
+  kiroModel({ id: "gpt-5.5", ctx: 272_000, out: 128_000, reasoning: true, toolCall: true }),
   kiroModel({ id: "gpt-5.6-sol", ctx: 272_000, out: 128_000, reasoning: true, toolCall: true }),
   kiroModel({ id: "gpt-5.6-terra", ctx: 272_000, out: 128_000, reasoning: true, toolCall: true }),
   kiroModel({ id: "gpt-5.6-luna", ctx: 272_000, out: 128_000, reasoning: true, toolCall: true }),
   // The non-Anthropic rows reject image and audio input upstream.
-  kiroModel({ id: "deepseek-3.2", ctx: 128_000, out: 64_000, reasoning: true, toolCall: true }),
-  kiroModel({ id: "qwen3-coder-next", ctx: 1_000_000, out: 64_000, reasoning: true, toolCall: true }),
-  kiroModel({ id: "glm-5", ctx: 204_800, out: 131_072, reasoning: true, toolCall: true }),
-  kiroModel({ id: "MiniMax-M2.5", ctx: 204_800, out: 131_072, reasoning: true, toolCall: true }),
+  kiroModel({ id: "glm-5", ctx: 200_000, out: 64_000, reasoning: true, toolCall: true }),
 ];
 
 /**
@@ -89,10 +89,10 @@ export const KIRO_MODELS: readonly ModelDefinition[] = [
  * (`contextUsageEvent`), never as a token count, so recovering a token figure
  * needs the denominator. This is the only place Kiro states one.
  *
- * Matching is case-insensitive and falls back to the family default rather than
- * returning `undefined`: a token estimate derived from the wrong window is still
- * far closer than reporting nothing, and every Anthropic row here shares one
- * window. A discovery-synced row not in this list takes that same default.
+ * Matching is case-insensitive and falls back to 200k rather than returning
+ * `undefined`: a token estimate derived from the wrong window is still far
+ * closer than reporting nothing. A discovery-synced row this catalog does not
+ * name takes that same default.
  */
 export function kiroContextWindow(modelId: string): number {
   const normalized = modelId.trim().toLowerCase();

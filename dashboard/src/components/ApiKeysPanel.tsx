@@ -54,6 +54,8 @@ export function ApiKeysPanel(): ReactNode {
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<ApiKeyResponse | null>(null);
   const [bansOpen, setBansOpen] = useState(false);
+  const [createActions, setCreateActions] = useState<ReactNode>(null);
+  const [editActions, setEditActions] = useState<ReactNode>(null);
 
   const keys = keysQuery.data ?? [];
   // Bans are keyed on the client address, so they are cross-tenant: only a
@@ -263,12 +265,14 @@ export function ApiKeysPanel(): ReactNode {
         title="Create API Key"
         description="Create a tenant-scoped credential. Choose model access, permissions, limits, and optional blocked client routers."
         size="lg"
+        footer={createActions}
       >
         <ApiKeyForm
           mode="create"
           record={null}
           busy={createKey.isPending}
           onClose={() => setCreateOpen(false)}
+          actionsRef={setCreateActions}
           onDone={(input: KeyFormInput) => {
             createKey.mutate(input, {
               onSuccess: (res) => {
@@ -288,12 +292,14 @@ export function ApiKeysPanel(): ReactNode {
         title="Edit API Key"
         description="Update the key's model access, permissions, limits, share notes, and optional public popup."
         size="lg"
+        footer={editActions}
       >
         <ApiKeyForm
           mode="edit"
           record={editTarget}
           busy={updateKey.isPending}
           onClose={() => setEditTarget(null)}
+          actionsRef={setEditActions}
           onDone={(input: KeyFormInput) => {
             if (!editTarget) return;
             updateKey.mutate(

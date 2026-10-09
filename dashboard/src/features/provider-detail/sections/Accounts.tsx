@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { consoleRequest } from "../../../data/api";
 import { accountErrorLabel } from "../../../shared/account-error-labels";
-import { usePrivacyMode } from "../../../lib/privacy-mode";
+import { useMysteriousAccounts } from "../../../lib/privacy-mode";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
@@ -248,7 +248,7 @@ function AccountRow({
   const [, setTick] = useState(0);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState("");
-  const privacy = usePrivacyMode();
+  const privacy = useMysteriousAccounts(providerId);
   const shown = (account.label?.match(/[^\s@]+@[^\s@]+/)?.[0] ?? account.label) || account.id.slice(0, 8);
   const label = privacy.enabled ? "Mysterious accounts" : shown;
   // The countdown re-renders on a timer. It must be armed by the per-model
@@ -1010,7 +1010,14 @@ export function AddAccountModal({
   };
 
   return (
-    <Dialog open={true} onClose={onClose} title="Add Account (API key / JSON)" width={560}>
+    <Dialog open={true} onClose={onClose} title="Add Account (API key / JSON)" width={560} footer={
+      <>
+        <Button variant="secondary" size="sm" onClick={onClose} disabled={submitting}>Cancel</Button>
+        <Button size="sm" variant="primary" disabled={submitting || entries.length === 0} onClick={() => void handleSubmit()}>
+          {submitting ? "Connecting..." : isBatch ? `Add ${entries.length} Accounts` : "Add Account"}
+        </Button>
+      </>
+    }>
       <div
         style={{
           display: "flex",
@@ -1156,23 +1163,6 @@ export function AddAccountModal({
             ))}
           </div>
         )}
-        <Inline justify="flex-end" gap="8px" style={{ marginTop: "6px" }}>
-          <Button variant="secondary" size="sm" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={submitting || entries.length === 0}
-            onClick={() => void handleSubmit()}
-          >
-            {submitting
-              ? "Connecting..."
-              : isBatch
-                ? `Add ${entries.length} Accounts`
-                : "Add Account"}
-          </Button>
-        </Inline>
       </div>
     </Dialog>
   );

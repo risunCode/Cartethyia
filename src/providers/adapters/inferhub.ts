@@ -6,7 +6,6 @@ import type { ModelDefinition } from "../model-definition";
 import { providerBaseUrl } from "../metadata";
 import { defineModel, isResponsesNativeModelId } from "../model-definition";
 import { createApiKeyAdapter, type ApiKeyProviderSpec } from "../integrations/shared/configured-provider";
-import { GATEWAY_USER_AGENT } from "../operations/gateway-user-agent";
 import type { FetchLike, ProviderQuotaResult } from "../quota/quota-contracts";
 import { probeApiKeyConnectivity } from "../quota/quota-support";
 import type { CanonicalEvent, CanonicalRequest, ContentPart } from "../../protocol/canonical-model";
@@ -103,9 +102,6 @@ export const INFERHUB_PROVIDER_ID = "inferhub" as const;
 const INFERHUB_CHAT_SPEC: ApiKeyProviderSpec = {
   provider_id: INFERHUB_PROVIDER_ID,
   endpoint_paths_by_wire_family: { responses: "/responses" },
-  // InferHub is explicitly provisioned for the gateway identity; bespoke
-  // first-party adapters (Codex, Claude Code) are untouched by this flag.
-  gatewayUserAgent: true,
 };
 
 /** InferHub — full marketplace catalog from your paste (80+ models, 4 providers ag/cc/cb/cbcn/cx/ocg/ali/mimo/zai). Context sizes via websearch (Claude 1M/200k, Gemini 1M). */
@@ -239,9 +235,6 @@ export class InferhubMessagesAdapter implements ProviderAdapter {
       baseUrl: this.baseUrl,
       endpointPath: candidate.endpoint_path,
       mutatePayload: ensureInferhubMessagesTextBreakpoints,
-      // Same explicit provisioning as the chat leg: inferhub's messages leg
-      // carries the gateway identity; bespoke first-party paths never do.
-      gatewayUserAgent: GATEWAY_USER_AGENT,
     });
     yield* sendClaudeMessagesRequest(
       outbound.url,

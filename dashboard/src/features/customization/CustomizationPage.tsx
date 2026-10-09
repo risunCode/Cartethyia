@@ -334,7 +334,7 @@ function BackgroundControls({
         <Slider label="Shift horizontal" value={settings.backgroundX} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundX} min={-100} max={100} onChange={(value) => setSettings({ backgroundX: value })} />
         <Slider label="Shift vertical" value={settings.backgroundY} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundY} min={-100} max={100} onChange={(value) => setSettings({ backgroundY: value })} />
       </div>
-      <div className="flex justify-end">
+      <div className="mt-auto flex justify-end">
         <Button variant="ghost" size="sm" icon={<RotateCcw size={13} />} onClick={onReset}>
           Reset
         </Button>

@@ -12,6 +12,7 @@ Entry point for repo work. Most tasks belong to a focused skill — pick it firs
 | A failing request to attribute to a field; payload/wire bytes; remote debugging | `cartethyia-trace-replay` |
 | Schema change, migration, new usage/telemetry field | `cartethyia-schema-telemetry` |
 | Add/remove/authenticate a provider; catalog, `/v1/models`, capabilities | `cartethyia-provider-catalog` |
+| Remove a bundled provider and its leftover global row | `cartethyia-provider-removal` |
 | Account health, cooldown class, pool selection, retries, leases | `cartethyia-health-routing` |
 | `dashboard/` React, layout, social meta, toasts, browser-agent verification | `cartethyia-dashboard` |
 | Repo invariants, deadness, legacy-era checks | `references/guards.md` |
