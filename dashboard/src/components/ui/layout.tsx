@@ -46,6 +46,7 @@ export function StatCard({
   status,
   valueColor,
   action,
+  size = "default",
 }: {
   label: string;
   value: string;
@@ -55,6 +56,7 @@ export function StatCard({
   status?: string;
   valueColor?: string;
   action?: ReactNode;
+  size?: "default" | "roomy";
 }) {
   const toneColorMap: Record<string, string> = {
     teal: "text-teal",
@@ -70,26 +72,27 @@ export function StatCard({
     (status === "cooldown" ? "orange" : status === "disabled" ? "red" : "accent");
   const toneColor = toneColorMap[effectiveTone] ?? "text-accent";
   return (
-    <div className="stat-card min-w-0 border border-inner-border rounded-card bg-surface-2 p-[12px]">
+    <div className={cn("stat-card min-w-0 border border-inner-border rounded-card bg-surface-2", size === "roomy" ? "p-[18px]" : "p-[12px]")}>
       <div
         className={cn(
-          "flex items-center justify-between gap-[6px] text-[10px] font-bold uppercase tracking-[0.08em]",
+          "flex items-center justify-between gap-[8px] font-bold uppercase tracking-[0.08em]",
+          size === "roomy" ? "text-[12px]" : "text-[10px]",
           toneColor,
         )}
       >
-        <span className="inline-flex items-center gap-[6px] min-w-0">
+        <span className="inline-flex items-center gap-[8px] min-w-0">
           {icon}
           <span>{label}</span>
         </span>
         {action ? <span className="shrink-0">{action}</span> : null}
       </div>
       <p
-        className="font-mono tabular-nums text-[20px] font-bold leading-[1.2] mt-[2px] mb-0"
+        className={cn("font-mono tabular-nums font-bold leading-[1.15] mb-0", size === "roomy" ? "text-[28px] mt-[8px]" : "text-[20px] mt-[2px]")}
         style={valueColor ? { color: valueColor } : undefined}
       >
         {value}
       </p>
-      <span className="stat-card-detail text-[11px] text-text-secondary">{detail}</span>
+      <span className={cn("stat-card-detail text-text-secondary", size === "roomy" ? "mt-[4px] block text-[13px]" : "text-[11px]")}>{detail}</span>
     </div>
   );
 }

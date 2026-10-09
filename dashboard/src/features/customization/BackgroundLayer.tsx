@@ -92,7 +92,7 @@ export function BackgroundLayer(): ReactNode {
     video.pause();
   }, [playVideo]);
 
-  if (!media || (settings.backgroundSet && !settings.backgroundEnabled)) return null;
+  if (!media || !settings.backgroundEnabled) return null;
 
   return (
     <div className="custom-background" data-kind={media.kind} data-playing={playVideo ? "true" : "false"} aria-hidden="true">

@@ -316,6 +316,9 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       uptime_seconds: Math.floor(process.uptime()),
       database_healthy: databaseHealthy,
       redis_healthy: redisHealthy,
+      redis_configured: this.redis !== undefined,
+      memory_heap_bytes: memory.heapUsed,
+      memory_external_bytes: memory.external,
       memory_bytes: memory.rss,
       memory_percent: Math.round((memory.rss / Math.max(totalmem(), 1)) * 10000) / 100,
       // Reported so the console can explain a large RSS instead of leaving the

@@ -28,7 +28,12 @@ export interface SystemHealthResponse {
   uptime_seconds: number;
   database_healthy: boolean;
   redis_healthy: boolean;
-  /** Resident set size, matching ps and /proc. */
+  /** False when no Redis client is configured and coordination stays in memory. */
+  redis_configured: boolean;
+  /** JavaScript heap used by this process. */
+  memory_heap_bytes: number;
+  /** Native buffers and malloc outside the JavaScript heap. */
+  memory_external_bytes: number;
   memory_bytes: number;
   /** RSS as a percentage of system memory, not of the JS heap. */
   memory_percent: number;

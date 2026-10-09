@@ -60,6 +60,8 @@ export function assertSystemHealth(value: unknown): SystemHealthResponse {
   const numericFields = [
     "uptime_seconds",
     "memory_bytes",
+    "memory_heap_bytes",
+    "memory_external_bytes",
     "memory_percent",
     "cpu_percent",
     "request_count",
@@ -72,6 +74,7 @@ export function assertSystemHealth(value: unknown): SystemHealthResponse {
     !numericFields.every((field) => isFiniteNumber(value[field])) ||
     typeof value.database_healthy !== "boolean" ||
     typeof value.redis_healthy !== "boolean" ||
+    typeof value.redis_configured !== "boolean" ||
     typeof value.database_in_process !== "boolean"
   ) {
     throw invalidResponse("Invalid system health response");

@@ -147,7 +147,7 @@ export function applyCustomization(settings: CustomizationSettings): void {
   root.dataset.blurCardsOn = settings.blurCardsEnabled ? "true" : "false";
   root.dataset.blurChromeOn = settings.blurChromeEnabled ? "true" : "false";
   root.dataset.emptyOutline = settings.emptyOutline ? "true" : "false";
-  root.dataset.bgActive = !settings.backgroundSet || settings.backgroundEnabled ? "true" : "false";
+  root.dataset.bgActive = settings.backgroundEnabled ? "true" : "false";
   root.style.setProperty("--bg-opacity", (settings.backgroundOpacity / 100).toFixed(2));
   root.style.setProperty("--bg-scale", (settings.backgroundScale / 100).toFixed(2));
   root.style.setProperty("--bg-x", `${settings.backgroundX}%`);

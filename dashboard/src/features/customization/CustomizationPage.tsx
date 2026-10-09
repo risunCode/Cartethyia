@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { Stack } from "../../components/ui/stack";
+import { Switch } from "../../components/ui/switch";
 import {
   DEFAULT_BACKGROUND_URL,
   BACKGROUND_MAX_BYTES,
@@ -317,17 +318,11 @@ function BackgroundControls({
 }): ReactNode {
   return (
     <div className="flex flex-col gap-[14px]">
+      <label className="flex min-h-[36px] items-center justify-between gap-[12px] text-[13px] font-semibold text-text-primary">
+        <span>Show background</span>
+        <Switch checked={settings.backgroundEnabled} onChange={(checked) => setSettings({ backgroundEnabled: checked })} aria-label="Show background" />
+      </label>
       <div className="grid gap-[14px] sm:grid-cols-2">
-        {settings.backgroundSet ? (
-          <label className="flex items-center justify-between gap-[8px] text-[12px] text-text-secondary sm:col-span-2">
-            <span>Show background</span>
-            <input
-              type="checkbox"
-              checked={settings.backgroundEnabled}
-              onChange={(event) => setSettings({ backgroundEnabled: event.target.checked })}
-            />
-          </label>
-        ) : null}
         <Slider label="Visibility" value={settings.backgroundOpacity} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundOpacity} min={0} max={100} unit="%" onChange={(value) => setSettings({ backgroundOpacity: value })} />
         <Slider label="Blur" value={settings.backgroundBlur} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundBlur} min={0} max={100} unit="%" onChange={(value) => setSettings({ backgroundBlur: value })} />
         <Slider label="Zoom" value={settings.backgroundScale} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundScale} min={100} max={180} unit="%" onChange={(value) => setSettings({ backgroundScale: value })} />
