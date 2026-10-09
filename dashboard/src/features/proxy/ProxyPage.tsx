@@ -1116,7 +1116,7 @@ const PoolRow = memo(function PoolRow({
       <td style={{ minWidth: "110px" }}>
         <PoolUsageBars pool={pool} view={view} />
       </td>
-      <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
+      <td className="whitespace-nowrap pl-[72px] text-right">
         <Inline gap="4px" justify="end">
           <PoolActionButtons
             pool={pool}
@@ -1133,80 +1133,6 @@ const PoolRow = memo(function PoolRow({
   );
 });
 
-/**
- * One proxy card for narrow viewports: the same status, address, load/quota,
- * and actions as the table row, stacked so no horizontal scroll is needed.
- */
-const PoolCard = memo(function PoolCard({
-  pool,
-  isSelected,
-  onToggleSelect,
-  checkResult,
-  isTesting,
-  onDelete,
-  onEdit,
-  onHealthCheck,
-  onActivity,
-  speedResult,
-  isSpeedTesting,
-  maskValues,
-  maskIp,
-}: {
-  readonly pool: NetworkPoolResponse;
-  readonly isSelected: boolean;
-  readonly onToggleSelect: (id: string) => void;
-  readonly checkResult?: HealthCheckResult;
-  readonly isTesting: boolean;
-  readonly onDelete: (id: string) => void;
-  readonly onEdit: (pool: NetworkPoolResponse) => void;
-  readonly onHealthCheck: (pool: NetworkPoolResponse) => void;
-  readonly onActivity: (pool: NetworkPoolResponse) => void;
-  readonly speedResult?: StoredSpeedResult;
-  readonly isSpeedTesting: boolean;
-  readonly maskValues: boolean;
-  readonly maskIp: boolean;
-}): ReactNode {
-  const live = useContext(PoolUsageContext);
-  const usage = live.live ? live.byId.get(pool.id) : undefined;
-  const view = derivePoolView(pool, checkResult, isTesting, usage ?? null);
-  return (
-    <Card className="proxy-card" style={{ opacity: view.isEnabled ? 1 : 0.6 }}>
-      <CardBody style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-        <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => onToggleSelect(pool.id)}
-            aria-label={`Select ${view.poolLabel}`}
-            style={{ marginTop: "4px" }}
-          />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <PoolTitleBlock pool={pool} view={view} maskValues={maskValues} />
-          </div>
-        </div>
-        <PoolAddressBlock
-          pool={pool}
-          view={view}
-          speedResult={speedResult}
-          isSpeedTesting={isSpeedTesting}
-          maskIp={maskIp}
-        />
-        <PoolUsageBars pool={pool} view={view} />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
-          <PoolActionButtons
-            pool={pool}
-            view={view}
-            isTesting={isTesting}
-            onDelete={onDelete}
-            onEdit={onEdit}
-            onHealthCheck={onHealthCheck}
-            onActivity={onActivity}
-          />
-        </div>
-      </CardBody>
-    </Card>
-  );
-});
 
 function PoolHealthDialog({
   pool,
@@ -1670,21 +1596,7 @@ export default function Proxy(): ReactNode {
 
           {/* Selection & Batch Toolbar (Image 2 style) */}
           {pools.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                justifyContent: "flex-start",
-                padding: "8px",
-                borderRadius: "10px",
-                border: "1px solid var(--inner-border)",
-                background: "var(--surface-2)",
-                marginBottom: "12px",
-                fontSize: "11px",
-                overflowX: "auto",
-              }}
-            >
+            <div className="nested-panel flex flex-wrap items-center justify-start overflow-x-auto rounded-card border border-inner-border bg-surface-2 p-[8px] text-[11px]">
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
                 <label
                   style={{
@@ -1880,28 +1792,6 @@ export default function Proxy(): ReactNode {
                   />
                 ))}
               </DataTable>
-            </div>
-          )}
-          {!isPending && !isError && pools.length > 0 && (
-            <div className="proxy-cards">
-              {sortedPools.map((pool) => (
-                <PoolCard
-                  key={pool.id}
-                  pool={pool}
-                  isSelected={selectedIds.has(pool.id)}
-                  onToggleSelect={toggleSelectOne}
-                  checkResult={checkResults[pool.id]}
-                  isTesting={testingIds.has(pool.id)}
-                  onDelete={requestDeletePool}
-                  onEdit={setEditingPool}
-                  onHealthCheck={runCheck}
-                  onActivity={setActivityPool}
-                  speedResult={newerSpeedResult(speedResults[pool.id], serverSpeedResult(pool))}
-                  isSpeedTesting={speedTestingIds.has(pool.id)}
-                  maskValues={maskValues}
-                  maskIp={maskIp}
-                />
-              ))}
             </div>
           )}
         </CardBody>

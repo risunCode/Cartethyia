@@ -36,7 +36,7 @@ function ApiEndpointCard() {
       />
       <CardBody>
         <Stack gap="10px">
-          <div className="flex items-center justify-between rounded-[10px] border border-inner-border bg-code-surface px-[14px] py-[10px] font-mono text-[13px] font-semibold tabular-nums">
+          <div className="nested-panel flex items-center justify-between rounded-[10px] border border-inner-border bg-code-surface px-[14px] py-[10px] font-mono text-[13px] font-semibold tabular-nums">
             <code>{endpoint}</code>
             <span className="text-[11px] font-normal text-text-tertiary">PORT 12800</span>
           </div>
@@ -51,7 +51,7 @@ function ApiEndpointCard() {
 
 function MemoryBar({ label, value, percent, color }: { readonly label: string; readonly value: string; readonly percent: number; readonly color: string }) {
   return (
-    <div className="min-w-0 rounded-[10px] bg-surface-3 px-[9px] py-[7px]">
+    <div className="nested-panel min-w-0 rounded-[10px] bg-surface-3 px-[9px] py-[7px]">
       <div className="mb-[5px] flex items-center justify-between gap-[6px] text-[9px] font-bold uppercase tracking-[0.05em] text-text-tertiary">
         <span>{label}</span><span className="font-mono text-[11px] normal-case tracking-normal" style={{ color }}>{value}</span>
       </div>
@@ -75,7 +75,7 @@ function SystemHealthCard(): ReactNode {
         {query.isError ? <ErrorState message={getErrorMessage(query.error, "Failed to load system health")} onRetry={() => void query.refetch()} /> : null}
         {health ? (
           <div className="grid grid-cols-1 gap-[8px] min-[820px]:grid-cols-2">
-            <section className="rounded-[12px] border border-white/8 bg-black/20 p-[9px]">
+            <section className="nested-panel rounded-[12px] border border-inner-border bg-surface-2 p-[9px]">
               <div className="flex items-center gap-[7px]">
                 <span className="grid size-[22px] place-items-center rounded-[7px] text-white" style={{ background: "var(--purple)" }}><MemoryStick size={12} /></span>
                 <div><div className="text-[12px] font-bold leading-none">RAM & Memory</div><div className="mt-[2px] text-[10px] text-text-tertiary">Process + database</div></div>
@@ -89,7 +89,7 @@ function SystemHealthCard(): ReactNode {
               </div>
             </section>
 
-            <section className="rounded-[12px] border border-white/8 bg-black/20 p-[9px]">
+            <section className="nested-panel rounded-[12px] border border-inner-border bg-surface-2 p-[9px]">
               <div className="flex items-center gap-[7px]">
                 <span className="grid size-[22px] place-items-center rounded-[7px] text-white" style={{ background: "var(--status-info)" }}><Database size={12} /></span>
                 <div><div className="text-[12px] font-bold leading-none">Coordination</div><div className="mt-[2px] text-[10px] text-text-tertiary">Database and Redis</div></div>
@@ -97,8 +97,8 @@ function SystemHealthCard(): ReactNode {
               <div className="mt-[6px] font-mono text-[21px] font-bold leading-none tabular-nums">{health.database_healthy && (!health.redis_configured || health.redis_healthy) ? "Ready" : "Degraded"}</div>
               <p className="mt-[2px] text-[10px] text-text-secondary">{health.database_in_process ? "Database shares this process." : "Database runs separately."}</p>
               <div className="mt-[8px] grid grid-cols-2 gap-[5px]">
-                <div className="flex items-center gap-[7px] rounded-[8px] bg-surface-3 px-[7px] py-[5px] text-[10px]"><Database size={13} className="shrink-0 text-teal" /><span><b className="block text-[12px]">{health.database_healthy ? "Healthy" : "Down"}</b><span className="text-text-tertiary">{health.database_in_process ? "Inside memory" : "Separate"}</span></span></div>
-                <div className="flex items-center gap-[7px] rounded-[8px] bg-surface-3 px-[7px] py-[5px] text-[10px]"><Activity size={13} className="shrink-0 text-orange" /><span><b className="block text-[12px]">{health.redis_configured ? "Redis" : "Memory"}</b><span className="text-text-tertiary">{health.redis_configured ? (health.redis_healthy ? "Healthy" : "Down") : "No Redis"}</span></span></div>
+                <div className="nested-panel flex items-center gap-[7px] rounded-[8px] bg-surface-3 px-[7px] py-[5px] text-[10px]"><Database size={13} className="shrink-0 text-teal" /><span><b className="block text-[12px]">{health.database_healthy ? "Healthy" : "Down"}</b><span className="text-text-tertiary">{health.database_in_process ? "Inside memory" : "Separate"}</span></span></div>
+                <div className="nested-panel flex items-center gap-[7px] rounded-[8px] bg-surface-3 px-[7px] py-[5px] text-[10px]"><Activity size={13} className="shrink-0 text-orange" /><span><b className="block text-[12px]">{health.redis_configured ? "Redis" : "Memory"}</b><span className="text-text-tertiary">{health.redis_configured ? (health.redis_healthy ? "Healthy" : "Down") : "No Redis"}</span></span></div>
               </div>
             </section>
           </div>

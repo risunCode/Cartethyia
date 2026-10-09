@@ -434,7 +434,11 @@ html[data-glass-enabled="true"] .card-solid {
    clarity, so the whole card blurs, not just its top edge. */
 html[data-glass-enabled="true"] .card-solid .bg-surface-1,
 html[data-glass-enabled="true"] .card-solid .bg-surface-2,
-html[data-glass-enabled="true"] .card-solid .stat-card {
+html[data-glass-enabled="true"] .card-solid .bg-surface-3,
+html[data-glass-enabled="true"] .card-solid .bg-code-surface,
+html[data-glass-enabled="true"] .card-solid .stat-card,
+html[data-glass-enabled="true"] .card-solid .backup-section-option,
+html[data-glass-enabled="true"] .card-solid .nested-panel {
   background-color: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent) !important;
 }
 
@@ -539,9 +543,11 @@ html[data-blur-chrome-on="false"] .app-topbar {
 .card-header-action {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   min-width: 0;
   max-width: 100%;
+  margin-left: auto;
   flex-shrink: 1;
   flex-wrap: wrap;
 }
@@ -777,10 +783,30 @@ html[data-blur-chrome-on="false"] .app-topbar {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--surface-1);
-  /* Keep the header above the rows' own sticky-ish content and give it a
-   * solid backing so scrolled rows cannot show through. */
+  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent);
   box-shadow: inset 0 -1px 0 var(--inner-border);
+}
+
+.proxy-table-scroll {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent);
+}
+.proxy-table-scroll .data-table thead th:first-child {
+  border-top-left-radius: var(--radius-card);
+}
+.proxy-table-scroll .data-table thead th:last-child {
+  border-top-right-radius: var(--radius-card);
+}
+.proxy-table-scroll .data-table thead th {
+  padding-top: 16px;
+  padding-bottom: 12px;
+}
+.proxy-table-scroll .data-table th:last-child,
+.proxy-table-scroll .data-table td:last-child {
+  padding-left: 72px;
 }
 
 .data-table td {

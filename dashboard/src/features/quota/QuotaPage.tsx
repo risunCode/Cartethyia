@@ -333,7 +333,7 @@ function QuotaCard({
   const healthStatus = account.health?.status ?? "unknown";
 
   return (
-    <div className="card-glass rounded-[10px]" style={{ overflow: "hidden" }} aria-busy={busy}>
+    <Card className="overflow-hidden" aria-busy={busy}>
       {/* Header: icon + provider name + plan + account hint + actions */}
       <div
         className="flex flex-wrap items-center gap-[8.75px] px-[12.25px] py-3.5"
@@ -771,7 +771,7 @@ function QuotaCard({
           {busy || account.pending ? "Fetching quota…" : "No quota data"}
         </div>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -869,7 +869,8 @@ export default function QuotaPage(): ReactNode {
       <Card>
         <CardHeader title="Quota" subtitle="Provider account limits and what is left of them" icon={<SlidersHorizontal size={16} />} />
       </Card>
-      <div className="card-glass flex flex-col gap-[10px] rounded-[10px] px-[14px] py-[12px]">
+      <Card>
+        <CardBody className="flex flex-col gap-[10px]">
       <div className="flex flex-wrap items-center justify-between gap-[10px]">
         <div className="flex flex-wrap items-center gap-[8px]">
           <Select
@@ -964,9 +965,9 @@ export default function QuotaPage(): ReactNode {
           </Button>
         </span>
       </div>
-      </div>
-      <Card style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
-        <CardBody style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+        </CardBody>
+      </Card>
+      <div className="flex min-h-0 flex-1 flex-col gap-[12px]">
 
 
       {isLoading ? (
@@ -1021,8 +1022,7 @@ export default function QuotaPage(): ReactNode {
           ))}
         </div>
       )}
-        </CardBody>
-      </Card>
+      </div>
 
       {healthTarget && (
         <HealthEventsModal
