@@ -26,7 +26,7 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { HealthEventsModal } from "../../components/HealthEventsModal";
 import { Select } from "../../components/ui/select";
-import { Toolbar } from "../../components/ui/toolbar";
+
 import { Stack } from "../../components/ui/stack";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { toast } from "../../lib/toast";
@@ -866,107 +866,108 @@ export default function QuotaPage(): ReactNode {
 
   return (
     <Stack gap="16px" className="dashboard-page" style={{ minHeight: 0, flex: 1 }}>
-      <Card style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
+      <Card>
         <CardHeader title="Quota" subtitle="Provider account limits and what is left of them" icon={<SlidersHorizontal size={16} />} />
-        <CardBody style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
-      <Toolbar>
-        <Select
-          aria-label="Filter quota by provider"
-          value={providerFilter}
-          onValueChange={setProviderFilter}
-          style={{ width: "160px", height: "32px" }}
-          options={[
-            { value: "all", label: "All Providers" },
-            ...providers.map((provider) => ({ value: provider.id, label: provider.name })),
-          ]}
-        />
-        <Select
-          aria-label="Filter quota by account"
-          value={accountFilter}
-          onValueChange={setAccountFilter}
-          style={{ width: "135px", height: "32px" }}
-          options={[
-            { value: "all", label: "With quota" },
-            { value: "active", label: "Active" },
-            { value: "disabled", label: "Disabled" },
-            { value: "untracked", label: "No quota" },
-          ]}
-        />
-        <Button
-          variant={expiringFirst ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setExpiringFirst((current) => !current)}
-          aria-pressed={expiringFirst}
-          icon={<Clock3 size={13} />}
-        >
-          Expiring first
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-[var(--red)]"
-          style={{ color: "var(--red)" }}
-          disabled={emptyCount === 0 || isFetching}
-          onClick={() => void turnOffEmpty()}
-          icon={<EyeOff size={13} />}
-        >
-          Turn off Empty
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-[var(--green)]"
-          style={{ color: "var(--green)" }}
-          disabled={isFetching}
-          onClick={() => void turnOnAvailable()}
-          icon={<Check size={13} />}
-        >
-          Turn on Available
-        </Button>
-        <span
-          className="ml-auto flex items-center gap-1.75 text-[10px] text-[var(--text-tertiary)]"
-          style={{
-            marginLeft: "auto",
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            fontSize: "10.5px",
-            color: "var(--text-tertiary)",
-          }}
-        >
+      </Card>
+      <div className="card-glass flex flex-col gap-[10px] rounded-[10px] px-[14px] py-[12px]">
+      <div className="flex flex-wrap items-center justify-between gap-[10px]">
+        <div className="flex flex-wrap items-center gap-[8px]">
+          <Select
+            aria-label="Filter quota by provider"
+            value={providerFilter}
+            onValueChange={setProviderFilter}
+            style={{ width: "160px", height: "32px" }}
+            options={[
+              { value: "all", label: "All Providers" },
+              ...providers.map((provider) => ({ value: provider.id, label: provider.name })),
+            ]}
+          />
+          <Select
+            aria-label="Filter quota by account"
+            value={accountFilter}
+            onValueChange={setAccountFilter}
+            style={{ width: "135px", height: "32px" }}
+            options={[
+              { value: "all", label: "With quota" },
+              { value: "active", label: "Active" },
+              { value: "disabled", label: "Disabled" },
+              { value: "untracked", label: "No quota" },
+            ]}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-[8px]">
+          <Button
+            variant={expiringFirst ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setExpiringFirst((current) => !current)}
+            aria-pressed={expiringFirst}
+            icon={<Clock3 size={13} />}
+          >
+            Expiring first
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-red"
+            disabled={emptyCount === 0 || isFetching}
+            onClick={() => void turnOffEmpty()}
+            icon={<EyeOff size={13} />}
+          >
+            Turn off Empty
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-green"
+            disabled={isFetching}
+            onClick={() => void turnOnAvailable()}
+            icon={<Check size={13} />}
+          >
+            Turn on Available
+          </Button>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-[8px] border-t border-inner-border pt-[10px]">
+        <span className="text-[11px] text-text-tertiary">
+          {filteredAccounts.length} shown
+          {emptyCount > 0 ? ` · ${emptyCount} empty` : ""}
+        </span>
+        <span className="flex items-center gap-[10px] text-[11px] text-text-tertiary">
           {refreshingCount > 0
             ? `Refreshing ${refreshingCount} account${refreshingCount === 1 ? "" : "s"}…`
-            : `Auto-refresh (60s) · updated ${lastUpdated}`}{" "}
-          · {filteredAccounts.length} shown
-        </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-14"
-          title="Queue quota refresh"
-          aria-label="Queue quota refresh"
-          disabled={isFetching || refreshAll.isPending || accounts.length === 0}
-          onClick={() =>
-            refreshAll.mutate(
-              accounts.map((account) => account.id),
-              {
-                onSuccess: (result) => {
-                  toast.success(
-                    result.failed === 0
-                      ? `Refreshed ${result.succeeded} quota${result.succeeded === 1 ? "" : "s"}`
-                      : `Refreshed ${result.succeeded}, ${result.failed} failed`,
-                  );
+            : `Auto-refresh 60s · ${lastUpdated}`}
+          <Button
+            variant="secondary"
+            size="sm"
+            title="Queue quota refresh"
+            aria-label="Queue quota refresh"
+            disabled={isFetching || refreshAll.isPending || accounts.length === 0}
+            icon={<RefreshCw size={13} className={refreshAll.isPending ? "animate-spin" : undefined} />}
+            onClick={() =>
+              refreshAll.mutate(
+                accounts.map((account) => account.id),
+                {
+                  onSuccess: (result) => {
+                    toast.success(
+                      result.failed === 0
+                        ? `Refreshed ${result.succeeded} quota${result.succeeded === 1 ? "" : "s"}`
+                        : `Refreshed ${result.succeeded}, ${result.failed} failed`,
+                    );
+                  },
+                  onError: (err) =>
+                    toast.error(err instanceof Error ? err.message : "Unable to refresh quota"),
                 },
-                onError: (err) =>
-                  toast.error(err instanceof Error ? err.message : "Unable to refresh quota"),
-              },
-            )
-          }
-          style={{ width: "32px", height: "32px", padding: 0 }}
-        >
-          <RefreshCw size={14} className={refreshAll.isPending ? "animate-spin" : undefined} />
-        </Button>
-      </Toolbar>
+              )
+            }
+          >
+            Refresh
+          </Button>
+        </span>
+      </div>
+      </div>
+      <Card style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column" }}>
+        <CardBody style={{ minHeight: 0, flex: 1, display: "flex", flexDirection: "column", gap: "12px" }}>
+
 
       {isLoading ? (
         <StatePanel
