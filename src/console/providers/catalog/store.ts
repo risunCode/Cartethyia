@@ -77,6 +77,12 @@ export function parsePastedOAuthCredential(raw: string): {
   readonly accessToken: string;
   readonly refreshToken: string;
   readonly expiresAt: Date | undefined;
+  /**
+   * Non-secret account configuration the export carried — the profile the
+   * account is bound to, how it authenticates, the region it was minted in.
+   * Empty for a bare token, which carries none.
+   */
+  readonly authState: Readonly<Record<string, unknown>>;
 } {
   let record: Record<string, unknown> | undefined;
   try {
@@ -94,6 +100,7 @@ export function parsePastedOAuthCredential(raw: string): {
       accessToken: raw,
       refreshToken: raw,
       expiresAt: jwt?.expiresAt,
+      authState: {},
     };
   }
   // A nested `data` object is unwrapped the same way the dashboard's parser does.
@@ -117,7 +124,48 @@ export function parsePastedOAuthCredential(raw: string): {
         record["expires"] ??
         (nested ? nested["expires"] : undefined),
     ) ?? parseJwtCredential(accessToken)?.expiresAt;
-  return { accessToken, refreshToken, expiresAt };
+  return { accessToken, refreshToken, expiresAt, authState: pastedAuthState(record, nested) };
+}
+
+/**
+ * The account configuration a pasted export carries beside its tokens.
+ *
+ * Kiro refuses a generation request that omits the profile the account is bound
+ * to, and an export from this gateway or from 9router carries that profile under
+ * a different key. Reading neither is how an imported account probes with no
+ * profile and is answered `400 profileArn is required`.
+ */
+function pastedAuthState(
+  record: Record<string, unknown>,
+  nested: Record<string, unknown> | undefined,
+): Readonly<Record<string, unknown>> {
+  const sources = [record, nested, asRecord(record["providerSpecificData"]), asRecord(record["authState"]), asRecord(nested?.["authState"])];
+  const profileArn = firstStringFrom(sources, ["profileArn", "profile_arn"]);
+  const authMethod = firstStringFrom(sources, ["authMethod", "auth_method"]);
+  const region = firstStringFrom(sources, ["region"]);
+  return {
+    ...(profileArn === undefined ? {} : { profileArn }),
+    ...(authMethod === undefined ? {} : { authMethod }),
+    ...(region === undefined ? {} : { region }),
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function firstStringFrom(
+  sources: readonly (Record<string, unknown> | undefined)[],
+  fields: readonly string[],
+): string | undefined {
+  for (const source of sources) {
+    if (source === undefined) continue;
+    const value = firstString(source, fields);
+    if (value !== undefined) return value;
+  }
+  return undefined;
 }
 
 /**
@@ -853,6 +901,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         let oauthRefreshCiphertext: Buffer | undefined;
         let oauthExpiresAt: Date | undefined;
         let oauthHasRefreshToken = false;
+        let pastedAuthState: Readonly<Record<string, unknown>> = {};
 
         if (
           (request.credentialKind === "oauth" || request.credentialKind === "api_key") &&
@@ -879,6 +928,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             oauthHasRefreshToken = true;
           } else {
             const parts = parsePastedOAuthCredential(trimmed);
+            pastedAuthState = parts.authState;
             const hasRefreshToken = parts.refreshToken !== parts.accessToken;
             const parsedJwt =
               requestedCredentialMode === "api_key"
@@ -925,6 +975,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             ? undefined
             : hashSecret(effectiveSecret);
         const accountAuthState = {
+          ...pastedAuthState,
           ...(request.authState ?? {}),
           credentialMode: effectiveCredentialMode,
           ...(tokenExpiresAt === undefined ? {} : { tokenExpiresAt: tokenExpiresAt.toISOString() }),

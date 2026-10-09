@@ -50,7 +50,7 @@ import {
 import { machineIdForAuthState } from "./kiro-machine-id";
 import { resolveKiroProfileArn } from "./kiro-profile";
 import { kiroContextWindow } from "./kiro-catalog";
-import { resolveInboundSessionId } from "../../operations/session-resolution";
+import { resolveInboundSessionId, resolvePromptCacheKey } from "../../operations/session-resolution";
 import { KiroStreamDecoder, isKiroTruncationReason, type KiroUsage } from "./kiro-stream";
 
 /** Provider id this adapter registers under. */
@@ -119,6 +119,35 @@ function resolveKiroConversationId(
     resolveInboundSessionId(context, request) ??
     generateKiroConversationId()
   );
+}
+
+/**
+ * The field the upstream keys its prompt cache on.
+ *
+ * A stable `conversationId` is not enough: the upstream ignores `cache_control`
+ * entirely unless `metadata.user_id` is present, and then recomputes the whole
+ * prompt on every turn. The value follows the shape the real client sends, and
+ * its session id is the same one the conversation already uses, so turns of one
+ * conversation hit and a different conversation does not.
+ */
+function withKiroCacheKey(
+  payload: Record<string, unknown>,
+  request: CanonicalRequest,
+  context: ProviderDispatchContext,
+): Record<string, unknown> {
+  const existing = (payload.metadata as { user_id?: unknown } | undefined)?.user_id;
+  if (typeof existing === "string" && existing.length > 0) return payload;
+  const sessionId = resolvePromptCacheKey(request, context) ?? resolveKiroConversationId(request, context);
+  return {
+    ...payload,
+    metadata: {
+      user_id: JSON.stringify({
+        device_id: resolveAccountMachineId(context),
+        account_uuid: "",
+        session_id: sessionId,
+      }),
+    },
+  };
 }
 
 /**
@@ -203,6 +232,11 @@ export function kiroHeaders(
     headers["tokentype"] = "API_KEY";
   } else if (authMethod === "external_idp") {
     headers["tokentype"] = "EXTERNAL_IDP";
+  } else {
+    headers["x-amz-sso-bearer"] = secret;
+  }
+  if (authState?.profileArn !== undefined && authState.profileArn.length > 0) {
+    headers["x-amzn-codewhisperer-profile-arn"] = authState.profileArn;
   }
   return headers;
 }
@@ -351,9 +385,8 @@ class KiroAdapter implements ProviderAdapter {
         { providerId: KIRO_PROVIDER_ID, problems: built.error.problems },
       );
     }
-
     const fetchFn = (context.outbound_fetch as unknown as typeof fetch | undefined) ?? this.#fetch;
-    const body = JSON.stringify(built.value.payload);
+    const body = JSON.stringify(withKiroCacheKey(built.value.payload, request, context));
     const machineId = resolveAccountMachineId(context);
     const response = await this.#send(
       fetchFn,

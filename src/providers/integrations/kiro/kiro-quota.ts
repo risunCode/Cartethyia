@@ -137,7 +137,7 @@ function parseUsage(payload: unknown): ProviderQuotaResult {
 /**
  * Reads Kiro's usage limits.
  *
- * Four surfaces are attempted in turn because which one answers depends on the
+ * Three surfaces are attempted in turn because which one answers depends on the
  * account's auth family and region; an auth refusal is remembered so the
  * reported error names the real cause instead of the last transport failure.
  */
@@ -150,21 +150,48 @@ export async function fetchKiroQuota(
   if (token.length === 0) throw new Error("Kiro credential is empty.");
   const auth = quotaAuth(context);
   const headers = usageHeaders(token, auth);
-  const scopedQuery = new URLSearchParams({
+  const query = new URLSearchParams({
+    isEmailRequired: "true",
+    origin: "AI_EDITOR",
+    resourceType: "AGENTIC_REQUEST",
+  });
+  const usageBody = JSON.stringify({
     origin: "AI_EDITOR",
     ...(auth.profileArn.length > 0 ? { profileArn: auth.profileArn } : {}),
     resourceType: "AGENTIC_REQUEST",
   });
 
-  // The usage surface is `q.{region}` and only that. The legacy CodeWhisperer
-  // host and its awsJson `x-amz-target` form are not what the observed client
-  // calls, and probing them for an account that has just been refused is the
-  // shape of credential scanning rather than of a client reading its own quota.
+  // Which surface answers depends on the account's auth family. The profile
+  // travels in the POST body only: the GET form rejects it in the query with
+  // `400`, which is what a freshly imported account was failing its test on.
   const attempts: readonly { readonly name: string; readonly run: () => Promise<Response> }[] = [
+    {
+      name: "codewhisperer-get",
+      run: () =>
+        fetcher(`https://codewhisperer.us-east-1.amazonaws.com/getUsageLimits?${query.toString()}`, {
+          method: "GET",
+          headers,
+          signal: AbortSignal.timeout(15_000),
+        }),
+    },
+    {
+      name: "codewhisperer-post",
+      run: () =>
+        fetcher("https://codewhisperer.us-east-1.amazonaws.com", {
+          method: "POST",
+          headers: {
+            ...headers,
+            "content-type": "application/x-amz-json-1.0",
+            "x-amz-target": "AmazonCodeWhispererService.GetUsageLimits",
+          },
+          body: usageBody,
+          signal: AbortSignal.timeout(15_000),
+        }),
+    },
     {
       name: "q-get",
       run: () =>
-        fetcher(`https://q.${auth.region}.amazonaws.com/getUsageLimits?${scopedQuery.toString()}`, {
+        fetcher(`https://q.${auth.region}.amazonaws.com/getUsageLimits?${query.toString()}`, {
           method: "GET",
           headers,
           signal: AbortSignal.timeout(15_000),
