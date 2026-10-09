@@ -94,6 +94,6 @@ check against the bundle proves nothing.
 
 ## See also
 
-- [`console-api.md`](../console-api.md) — the four boundaries; the public router
+- [`console-api.md`](../reference/console-api.md) — the four boundaries; the public router
   deliberately bypasses the session one.
-- [`backend.md`](../backend.md) — where the domain sits in the console mount.
+- [`backend.md`](../reference/backend.md) — where the domain sits in the console mount.

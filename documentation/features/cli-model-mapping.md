@@ -129,7 +129,7 @@ pin the console half; `test/unit/api-key-auth.test.ts` pins that
 
 - [Routing aliases and combos](routing-aliases-combos.md) — the ordinary alias
   table this resolves through when the gates are closed.
-- [`architecture.md`](../architecture.md) — how the snapshot is built and
+- [`architecture.md`](../reference/architecture.md) — how the snapshot is built and
   invalidated.
-- [`console-api.md`](../console-api.md) — the four boundaries every console
+- [`console-api.md`](../reference/console-api.md) — the four boundaries every console
   write passes through first.

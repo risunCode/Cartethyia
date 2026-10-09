@@ -1,5 +1,21 @@
 ## Unreleased
 
+- `documentation/` is no longer one flat pile of ten pages beside a `features/`
+  folder. The eight "how it is built" pages — `architecture`, `backend`,
+  `protocol-and-translation`, `providers`, `console-api`, `dashboard`,
+  `sqlite-parity`, and the generated `configuration` — now live in
+  `documentation/reference/`, with their own index. `getting-started.md` and
+  `installation.md` stay at the root, because they are the entry pages and by far
+  the most-referenced paths in the repo (`AGENTS.md`, `CONTRIBUTING.md`,
+  `README.md`, and the generator all name them); burying them would have cost
+  four callers to buy no clarity. `README.md` now states the split in one tree so
+  the reference pages do not grow back into feature manuals.
+
+- `scripts/generate/config-reference.ts`, `test/config/config-reference.test.ts`,
+  and `.skills/cartethyia-console-api/SKILL.md` follow the moves. The generated
+  reference is regenerated, not edited — its one prose line that names the
+  getting-started path moved with it.
+
 - Documentation gains `documentation/features/`: one page per feature, holding
   the data, the owning code, and where to change what. Four features have one —
   [CLI model mapping](documentation/features/cli-model-mapping.md),

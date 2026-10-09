@@ -116,9 +116,9 @@ write that forgets leaves the data plane on the old plan.
 
 ## See also
 
-- [`architecture.md`](../architecture.md) — the snapshot and the eligibility
+- [`architecture.md`](../reference/architecture.md) — the snapshot and the eligibility
   table that runs after this.
-- [`protocol-and-translation.md`](../protocol-and-translation.md) — where in the
+- [`protocol-and-translation.md`](../reference/protocol-and-translation.md) — where in the
   request path alias resolution sits.
 - `.skills/cartethyia-health-routing` — what happens to a resolved candidate
   that is cooling down.

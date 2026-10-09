@@ -146,8 +146,8 @@ hold slots and leases. `round-robin.ts` keeps the per-provider cursor.
 Three strategies are configured independently: provider (`fallback` or
 `round_robin`), pool (`least_loaded` or `round_robin`), and combo (`fallback` or
 `round_robin`). The features behind two of them have their own pages —
-[network pools](features/network-pools.md) and
-[routing aliases and combos](features/routing-aliases-combos.md).
+[network pools](../features/network-pools.md) and
+[routing aliases and combos](../features/routing-aliases-combos.md).
 
 `src/network/` is the egress half: `pool/` selects a pool and accounts bytes,
 `ssrf.ts` rejects destinations the policy does not allow, and `retry.ts` is the
@@ -233,11 +233,11 @@ limiter wrap every domain. `domain-registration.ts` attaches the domains.
 | observability, live, logs, audit | usage, health, log ring, audit |
 
 Four areas in that table have a feature page of their own:
-[share keys](features/share-keys.md) (`/api-keys`, plus the public
+[share keys](../features/share-keys.md) (`/api-keys`, plus the public
 `/share/:token` router mounted outside `/console/api`),
-[network pools](features/network-pools.md) (`/network/pools`),
-[CLI model mapping](features/cli-model-mapping.md) (`/cli-tools`), and
-[routing aliases and combos](features/routing-aliases-combos.md) (`/routing`).
+[network pools](../features/network-pools.md) (`/network/pools`),
+[CLI model mapping](../features/cli-model-mapping.md) (`/cli-tools`), and
+[routing aliases and combos](../features/routing-aliases-combos.md) (`/routing`).
 
 Backup restore drops columns listed in `LEGACY_DROPPED_COLUMNS`. An old backup
 that still carries `share_popup_*`, `credit_limit`, or `used_at` restores. Those

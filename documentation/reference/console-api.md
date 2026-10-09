@@ -132,10 +132,10 @@ into the next.
 That table is the index. Four areas carry their own feature page — data,
 ownership, the routes behind the row, and where to change what:
 
-[CLI model mapping](features/cli-model-mapping.md) ·
-[Share keys](features/share-keys.md) ·
-[Network pools](features/network-pools.md) ·
-[Routing aliases and combos](features/routing-aliases-combos.md)
+[CLI model mapping](../features/cli-model-mapping.md) ·
+[Share keys](../features/share-keys.md) ·
+[Network pools](../features/network-pools.md) ·
+[Routing aliases and combos](../features/routing-aliases-combos.md)
 
 ## Route snapshot
 

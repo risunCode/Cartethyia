@@ -120,10 +120,10 @@ straight off the selector.
 
 ## See also
 
-- [`configuration.md`](../configuration.md) — "Account and pool cooldowns",
+- [`configuration.md`](../reference/configuration.md) — "Account and pool cooldowns",
   "Proxy pool agents", and "Network policy (trusted proxy and SSRF)". Generated
   from `src/config/spec.ts`; do not edit it.
 - `.skills/cartethyia-health-routing` — cooldown classes, retries, leases, and
   rotation procedure.
-- [`architecture.md`](../architecture.md) — pool routing as part of the route
+- [`architecture.md`](../reference/architecture.md) — pool routing as part of the route
   snapshot.

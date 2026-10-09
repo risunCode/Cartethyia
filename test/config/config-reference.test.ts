@@ -1,7 +1,7 @@
 /**
  * The configuration reference is derived, not written.
  *
- * `documentation/configuration.md` must be exactly what
+ * `documentation/reference/configuration.md` must be exactly what
  * `scripts/generate/config-reference.ts` produces from `CONFIG_SPEC`. A knob
  * added to the spec without regenerating the doc fails the first assertion,
  * which is the drift this guards: the operator list going stale while the
@@ -17,7 +17,7 @@ import { resolve } from "node:path";
 import { CONFIG_SPEC } from "../../src/config/spec";
 import { renderConfigReference } from "../../scripts/generate/config-reference";
 
-const outputPath = resolve(process.cwd(), "documentation", "configuration.md");
+const outputPath = resolve(process.cwd(), "documentation", "reference", "configuration.md");
 const committed = readFileSync(outputPath, "utf8");
 const rendered = renderConfigReference();
 

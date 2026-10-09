@@ -20,7 +20,7 @@ import { resolve } from "node:path";
 import { CONFIG_SPEC } from "../../src/config/spec";
 
 const projectRoot = resolve(import.meta.dir, "..", "..");
-const outputPath = resolve(projectRoot, "documentation", "configuration.md");
+const outputPath = resolve(projectRoot, "documentation", "reference", "configuration.md");
 
 type Entry = (typeof CONFIG_SPEC)[keyof typeof CONFIG_SPEC];
 

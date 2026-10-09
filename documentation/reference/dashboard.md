@@ -58,10 +58,10 @@ Unknown protected paths redirect to `/`. There is no fusion page and no
 minimum-balance editor.
 
 Three of those pages are backed by a feature page that owns the data and the
-console domain behind them: [`/combos`](features/routing-aliases-combos.md),
-[`/proxy`](features/network-pools.md), and `/cli-tools`
-([CLI model mapping](features/cli-model-mapping.md)). The share page is public
-and has its own: [share keys](features/share-keys.md).
+console domain behind them: [`/combos`](../features/routing-aliases-combos.md),
+[`/proxy`](../features/network-pools.md), and `/cli-tools`
+([CLI model mapping](../features/cli-model-mapping.md)). The share page is public
+and has its own: [share keys](../features/share-keys.md).
 
 ## Data flow
 
@@ -126,7 +126,7 @@ to `dashboard/src/hooks/`.
 
 `apps/share` is the public page a share link opens: it reads the share API and
 carries no probe, enable, disable, or delete controls. What the page is for, and
-what enforces it, is on the [share keys](features/share-keys.md) page.
+what enforces it, is on the [share keys](../features/share-keys.md) page.
 
 `apps/landing` is the unauthenticated product page. Crawlers do not run the
 bundle, so title, description, and social tags for landing, console, and share

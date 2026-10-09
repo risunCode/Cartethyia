@@ -10,7 +10,7 @@ check, or the error envelope. For the browser side of the same change use
 `cartethyia-dashboard`; for provider/catalog semantics use
 `cartethyia-provider-catalog`.
 
-Read `documentation/console-api.md` for orientation first.
+Read `documentation/reference/console-api.md` for orientation first.
 
 ## When not to touch a route
 

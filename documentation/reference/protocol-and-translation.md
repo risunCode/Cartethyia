@@ -94,8 +94,8 @@ precedence lives in `src/transport/surface/dialects.ts`: `parseToolDefinition`
 runs everything that needs no knowledge of the chosen provider: the `model(high)`
 thinking suffix is stripped before anything matches on the model name (:101),
 alias and CLI remapping resolve the target
-([alias and combo resolution](features/routing-aliases-combos.md),
-[CLI model mapping](features/cli-model-mapping.md)), corrupt attachments are
+([alias and combo resolution](../features/routing-aliases-combos.md),
+[CLI model mapping](../features/cli-model-mapping.md)), corrupt attachments are
 dropped (:155), capabilities are derived and the plan is built, degraded
 variants are tried when nothing supports the full request (:174), tool rounds
 are repaired (:281), and the request is projected onto the winning candidate
