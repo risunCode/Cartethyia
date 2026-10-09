@@ -135,8 +135,8 @@
   --surface-active: #e4ddd4;
 
   --text-primary: #2d2926;
-  --text-secondary: #746b65;
-  --text-tertiary: #a49a92;
+  --text-secondary: #5c544e;
+  --text-tertiary: #8a8078;
 
   --border-subtle: #e4d7cb;
   --border-strong: #d8c7b8;
@@ -194,8 +194,8 @@
   --surface-active: #38383f;
 
   --text-primary: #f5f5f7;
-  --text-secondary: #a1a1a6;
-  --text-tertiary: #6e6e73;
+  --text-secondary: #c4c4c8;
+  --text-tertiary: #8d8d93;
 
   --border-subtle: #2f2f36;
   --border-strong: #3a3a42;
@@ -415,15 +415,29 @@ html[data-glass-depth="2"] {
  * which has no utility equivalent, and the `[data-depth]` ladder that sets it.
  */
 
-.glass,
 .card-glass,
 html[data-glass-enabled="true"] .card-solid {
   --card-glass-depth: var(--glass-depth, 1);
-  background: var(--glass-bg) !important;
-  backdrop-filter: blur(calc(10px + (var(--card-glass-depth) * 4px)));
-  -webkit-backdrop-filter: blur(calc(10px + (var(--card-glass-depth) * 4px)));
+  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent) !important;
+  backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
+  -webkit-backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
   border: 1px solid var(--inner-border);
   box-shadow: var(--shadow-card);
+}
+
+/* The card's own contents sit on top of its backdrop-filter, so a solid child
+   hides the blur and only the header looks affected. They follow the same
+   clarity, so the whole card blurs, not just its top edge. */
+html[data-glass-enabled="true"] .card-solid .bg-surface-1,
+html[data-glass-enabled="true"] .card-solid .bg-surface-2,
+html[data-glass-enabled="true"] .card-solid .stat-card {
+  background-color: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent) !important;
+}
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(calc(10px + (var(--card-glass-depth, 1) * 4px)));
+  -webkit-backdrop-filter: blur(calc(10px + (var(--card-glass-depth, 1) * 4px)));
 }
 
 
@@ -439,79 +453,29 @@ html[data-glass-enabled="true"] .card-solid {
  * the page behind it looks like, so `.dialog-panel` keeps its own solid
  * surface and never picks up these attributes.
  */
-html[data-blur-cards="none"] .card-solid,
-html[data-blur-cards="none"] .card-glass {
+
+
+.app-sidebar,
+.app-topbar {
+  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-chrome, 30) * 0.55%), transparent) !important;
+  backdrop-filter: blur(calc((100 - var(--blur-chrome, 30)) * var(--blur-chrome-depth, 30) * 0.01px)) !important;
+  -webkit-backdrop-filter: blur(calc((100 - var(--blur-chrome, 30)) * var(--blur-chrome-depth, 30) * 0.01px)) !important;
+}
+
+html[data-blur-cards-on="false"] .card-solid,
+html[data-blur-cards-on="false"] .card-glass {
   background: var(--surface-1) !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
-html[data-blur-tiles="none"] .stat-card {
+html[data-blur-chrome-on="false"] .app-sidebar,
+html[data-blur-chrome-on="false"] .app-topbar {
   background: var(--surface-1) !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
-html[data-blur-chrome="none"] .app-sidebar,
-html[data-blur-chrome="none"] .app-topbar {
-  background: var(--surface-1) !important;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-html[data-blur-cards="vibrancy"] .card-solid,
-html[data-blur-cards="vibrancy"] .card-glass {
-  backdrop-filter: blur(18px) saturate(1.6);
-  -webkit-backdrop-filter: blur(18px) saturate(1.6);
-}
-
-html[data-blur-tiles="vibrancy"] .stat-card {
-  backdrop-filter: blur(18px) saturate(1.6);
-  -webkit-backdrop-filter: blur(18px) saturate(1.6);
-}
-
-html[data-blur-chrome="vibrancy"] .app-sidebar,
-html[data-blur-chrome="vibrancy"] .app-topbar {
-  backdrop-filter: blur(18px) saturate(1.6);
-  -webkit-backdrop-filter: blur(18px) saturate(1.6);
-}
-
-html[data-blur-cards="heavy"] .card-solid,
-html[data-blur-cards="heavy"] .card-glass {
-  background: color-mix(in srgb, var(--glass-bg) 70%, transparent) !important;
-  backdrop-filter: blur(34px) saturate(1.8);
-  -webkit-backdrop-filter: blur(34px) saturate(1.8);
-}
-
-html[data-blur-tiles="heavy"] .stat-card {
-  background: color-mix(in srgb, var(--surface-muted) 70%, transparent) !important;
-  backdrop-filter: blur(34px) saturate(1.8);
-  -webkit-backdrop-filter: blur(34px) saturate(1.8);
-}
-
-html[data-blur-chrome="heavy"] .app-sidebar,
-html[data-blur-chrome="heavy"] .app-topbar {
-  background: color-mix(in srgb, var(--glass-bg) 70%, transparent);
-  backdrop-filter: blur(32px) saturate(1.8);
-  -webkit-backdrop-filter: blur(32px) saturate(1.8);
-}
-
-/* A narrow viewport pays for every blur. Cap it; the look survives, the frame rate does not otherwise. */
-@media (max-width: 767px) {
-  html[data-blur-cards="vibrancy"] .card-solid,
-  html[data-blur-cards="vibrancy"] .card-glass,
-  html[data-blur-cards="heavy"] .card-solid,
-  html[data-blur-cards="heavy"] .card-glass,
-  html[data-blur-tiles="vibrancy"] .stat-card,
-  html[data-blur-tiles="heavy"] .stat-card,
-  html[data-blur-chrome="vibrancy"] .app-sidebar,
-  html[data-blur-chrome="vibrancy"] .app-topbar,
-  html[data-blur-chrome="heavy"] .app-sidebar,
-  html[data-blur-chrome="heavy"] .app-topbar {
-    backdrop-filter: blur(12px) saturate(1.4);
-    -webkit-backdrop-filter: blur(12px) saturate(1.4);
-  }
-}
 
 .card-solid[data-depth="1"],
 .card-glass[data-depth="1"],

@@ -141,6 +141,8 @@ sibling above the scrolling content, opaque, with its own shadow.
 `.app-main-column`, `.dashboard-page`, and `.route-enter` do not scroll. The
 sidebar collapses to a drawer on the shell's own width, not the viewport's.
 
+Card blur only reaches the uploaded background when that image is painted behind the card in the same group. `BackgroundLayer` mounts inside `.app-main-column`. `.route-enter` animates position only — an `opacity`, `transform`, or `filter` animation groups the page, and the card then blurs the black body instead of the image. `.custom-background` keeps `contain: none` for the same reason; anything else also pins a `fixed` layer to the scroller. Clarity and blur are separate sliders.
+
 Dialog sizes are `sm` 420, `md` 640, `lg` 880, `xl` 1160. An expanded dialog
 caps at 1160. Below 640px the panel becomes a bottom sheet. New dialogs use
 `DialogSize`, not a raw width.

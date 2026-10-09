@@ -19,7 +19,7 @@ export type BlurStyle = "none" | "frosted" | "vibrancy" | "heavy";
 export const BLUR_STYLES: readonly BlurStyle[] = ["none", "frosted", "vibrancy", "heavy"];
 
 /** Which shell surface a blur style applies to. */
-export type BlurTarget = "cards" | "tiles" | "chrome";
+export type BlurTarget = "cards" | "chrome";
 
 export interface CustomizationSettings {
   /** A background blob is stored. The layer renders only when this is true. */
@@ -33,9 +33,24 @@ export interface CustomizationSettings {
   readonly backgroundX: number;
   /** -100–100. Vertical anchor; 0 is centered. */
   readonly backgroundY: number;
+  /** 0–100. How hard the background itself blurs. */
+  readonly backgroundBlur: number;
   readonly blurCards: BlurStyle;
-  readonly blurTiles: BlurStyle;
   readonly blurChrome: BlurStyle;
+  /** 0–100. How see-through the card is. 0 is clear, 100 is solid. */
+  readonly blurCardsAmount: number;
+  /** 0–100. How see-through the shell is. 0 is clear, 100 is solid. */
+  readonly blurChromeAmount: number;
+  /** 0–100. How blurred the card is. Separate from how see-through it is. */
+  readonly blurCardsDepth: number;
+  /** 0–100. How blurred the shell is. */
+  readonly blurChromeDepth: number;
+  /** The card blur is on. Off, the card is solid. */
+  readonly blurCardsEnabled: boolean;
+  /** The shell blur is on. Off, the shell is solid. */
+  readonly blurChromeEnabled: boolean;
+  /** Draw a dashed frame around an empty panel. Off by default. */
+  readonly emptyOutline: boolean;
 }
 
 export const CUSTOMIZATION_DEFAULTS: CustomizationSettings = {
@@ -45,16 +60,23 @@ export const CUSTOMIZATION_DEFAULTS: CustomizationSettings = {
   backgroundScale: 100,
   backgroundX: 0,
   backgroundY: 0,
+  backgroundBlur: 0,
   // The console already ships frosted; a fresh profile keeps that look.
   blurCards: "frosted",
-  blurTiles: "frosted",
   blurChrome: "frosted",
+  blurCardsAmount: 40,
+  blurChromeAmount: 67,
+  blurCardsDepth: 0,
+  blurChromeDepth: 67,
+  blurCardsEnabled: true,
+  blurChromeEnabled: true,
+  emptyOutline: false,
 };
 
 const STORAGE_KEY = "cartethyia.customization";
 const CHANGE_EVENT = "cartethyia-customization-change";
 
-const BLUR_TARGETS: readonly BlurTarget[] = ["cards", "tiles", "chrome"];
+const BLUR_TARGETS: readonly BlurTarget[] = ["cards", "chrome"];
 
 function isBlurStyle(value: unknown): value is BlurStyle {
   return typeof value === "string" && (BLUR_STYLES as readonly string[]).includes(value);
@@ -78,9 +100,16 @@ export function normalizeCustomization(raw: unknown): CustomizationSettings {
     backgroundScale: clamp(source.backgroundScale, 100, 180, CUSTOMIZATION_DEFAULTS.backgroundScale),
     backgroundX: clamp(source.backgroundX, -100, 100, CUSTOMIZATION_DEFAULTS.backgroundX),
     backgroundY: clamp(source.backgroundY, -100, 100, CUSTOMIZATION_DEFAULTS.backgroundY),
+    backgroundBlur: clamp(source.backgroundBlur, 0, 100, CUSTOMIZATION_DEFAULTS.backgroundBlur),
     blurCards: isBlurStyle(source.blurCards) ? source.blurCards : CUSTOMIZATION_DEFAULTS.blurCards,
-    blurTiles: isBlurStyle(source.blurTiles) ? source.blurTiles : CUSTOMIZATION_DEFAULTS.blurTiles,
     blurChrome: isBlurStyle(source.blurChrome) ? source.blurChrome : CUSTOMIZATION_DEFAULTS.blurChrome,
+    blurCardsAmount: clamp(source.blurCardsAmount, 0, 100, CUSTOMIZATION_DEFAULTS.blurCardsAmount),
+    blurChromeAmount: clamp(source.blurChromeAmount, 0, 100, CUSTOMIZATION_DEFAULTS.blurChromeAmount),
+    blurCardsDepth: clamp(source.blurCardsDepth, 0, 100, CUSTOMIZATION_DEFAULTS.blurCardsDepth),
+    blurChromeDepth: clamp(source.blurChromeDepth, 0, 100, CUSTOMIZATION_DEFAULTS.blurChromeDepth),
+    blurCardsEnabled: source.blurCardsEnabled !== false,
+    blurChromeEnabled: source.blurChromeEnabled !== false,
+    emptyOutline: source.emptyOutline === true,
   };
 }
 
@@ -106,13 +135,21 @@ export function applyCustomization(settings: CustomizationSettings): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
   root.dataset.blurCards = settings.blurCards;
-  root.dataset.blurTiles = settings.blurTiles;
   root.dataset.blurChrome = settings.blurChrome;
+  root.style.setProperty("--blur-cards", `${settings.blurCardsAmount}`);
+  root.style.setProperty("--blur-chrome", `${settings.blurChromeAmount}`);
+  root.style.setProperty("--blur-cards-depth", `${settings.blurCardsDepth}`);
+  root.style.setProperty("--blur-chrome-depth", `${settings.blurChromeDepth}`);
+  root.dataset.blurCardsOn = settings.blurCardsEnabled ? "true" : "false";
+  root.dataset.blurChromeOn = settings.blurChromeEnabled ? "true" : "false";
+  root.dataset.emptyOutline = settings.emptyOutline ? "true" : "false";
+  root.dataset.bgActive = settings.backgroundSet && settings.backgroundEnabled ? "true" : "false";
   root.dataset.bgActive = settings.backgroundSet && settings.backgroundEnabled ? "true" : "false";
   root.style.setProperty("--bg-opacity", (settings.backgroundOpacity / 100).toFixed(2));
   root.style.setProperty("--bg-scale", (settings.backgroundScale / 100).toFixed(2));
   root.style.setProperty("--bg-x", `${settings.backgroundX}%`);
   root.style.setProperty("--bg-y", `${settings.backgroundY}%`);
+  root.style.setProperty("--bg-blur", `${Math.round(settings.backgroundBlur * 0.4)}px`);
 }
 
 function persist(settings: CustomizationSettings): void {
@@ -157,15 +194,11 @@ export function useCustomizationSettings(): readonly [
 }
 
 export function blurStyleOf(settings: CustomizationSettings, target: BlurTarget): BlurStyle {
-  if (target === "cards") return settings.blurCards;
-  if (target === "tiles") return settings.blurTiles;
   if (target === "chrome") return settings.blurChrome;
   return settings.blurCards;
 }
 
 export function blurPatch(target: BlurTarget, style: BlurStyle): Partial<CustomizationSettings> {
-  if (target === "cards") return { blurCards: style };
-  if (target === "tiles") return { blurTiles: style };
   if (target === "chrome") return { blurChrome: style };
   return { blurCards: style };
 }

@@ -21,6 +21,7 @@ the backend.
   and sits as a sibling above scrolling content. The sidebar collapses to a
   drawer on the shell's own width (`@container app-shell`), never a viewport
   breakpoint.
+- A card blurs only what is painted behind it in the same group. `BackgroundLayer` mounts inside `.app-main-column`, and `.route-enter` must not animate `opacity`, `transform`, or `filter` — any of those groups the page and the card blurs black instead of the image. `contain` other than `none` on `.custom-background` does the same, and also makes a `fixed` layer scroll. Clarity (`--blur-cards`) and blur (`--blur-cards-depth`) are separate; never let one slider write both.
 - Polling lists use stable sorting with a deterministic name tiebreaker.
 - Every console mutation toasts on both arms: `toast.success(...)` on success
   (short outcome, e.g. "Proxy pool created") and `toast.error(...)` with

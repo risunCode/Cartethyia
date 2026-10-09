@@ -698,7 +698,7 @@ export function DashboardShell({
       <div className="app-bg" aria-hidden="true" />
       <div className="app-shell-frame">
       <div className="app-shell-root" data-drawer={drawerOpen ? "open" : undefined} onClick={(event) => { if (drawerOpen && (event.target as HTMLElement).closest(".app-main-column")) setDrawerOpen(false); }}>
-        <BackgroundLayer />
+
         <aside
           className={`glass app-sidebar ${drawerOpen ? "is-open" : ""}`}
           aria-label="Dashboard navigation"
@@ -779,6 +779,7 @@ export function DashboardShell({
 
         {/* Main Column */}
         <div className="app-main-column">
+          <BackgroundLayer />
           {/* Topbar Header */}
           <header className="glass app-topbar">
             <button

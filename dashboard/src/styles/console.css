@@ -1,15 +1,15 @@
 @layer components {
 /* ===== overlays ===== */
 /* Route transitions, drawers, dialogs, OAuth modals, and form layouts. */
-/* Animations */
+/* Animations. The route enter moves only. An opacity, transform, or filter
+   here groups the page, and a card's backdrop-filter then blurs black instead
+   of the background image. */
 @keyframes motion-route-in {
   from {
-    opacity: 0;
-    translate: 0 6px;
+    top: 6px;
   }
   to {
-    opacity: 1;
-    translate: 0 0;
+    top: 0;
   }
 }
 
@@ -122,24 +122,59 @@
 }
 
 .route-enter {
+  position: relative;
   animation: motion-route-in var(--dur-macro) var(--ease-spring) both;
   width: 100%;
   min-width: 0;
 }
 
 /* An empty page should read as a panel, not as a blank gap. The dashed edge
-   and the surface are what separate "nothing here yet" from "the page failed
-   to render". */
+   is what separates "nothing here yet" from "the page failed to render". The
+   fill stays transparent so the panel follows the card behind it instead of
+   painting a solid slab over the glass. */
 .empty-panel {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  border: 1px dashed var(--inner-border);
+  border: 1px dashed transparent;
   border-radius: var(--radius-card);
-  background: var(--surface-2);
+  background: transparent;
   text-align: center;
+}
+
+/* The dashed frame is opt-in from Customization. On, the panel blurs on its
+   own, because it covers the card and would otherwise hide the card's blur. */
+html[data-empty-outline="true"] .empty-panel {
+  border-color: var(--inner-border);
+  background: var(--glass-bg);
+  backdrop-filter: blur(34px) saturate(1.8);
+  -webkit-backdrop-filter: blur(34px) saturate(1.8);
+}
+
+/* Xiaomi-style blur slider: a tall track, a round thumb, and the filled part
+   painted by the input itself so it follows the thumb without extra markup. */
+.blur-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--text-primary) var(--fill, 0%), var(--surface-active) var(--fill, 0%));
+  cursor: pointer;
+}
+
+.blur-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--surface-1);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--inner-border);
 }
 
 .card-interactive {
@@ -1166,18 +1201,19 @@
 }
 
 /* Custom background, rendered by `BackgroundLayer` and framed by the variables
-   the Customization page writes onto `<html>`. Fixed, behind everything, and
-   inert — it must never catch a click meant for the shell.
+   the Customization page writes onto `<html>`. It mounts inside
+   `.app-main-column`, so a card's backdrop-filter samples this image instead
+   of the black body. Inert — it must never catch a click meant for the page.
 
    The media is oversized by the zoom and anchored with the offsets, then the
    layer clips it. That is what makes "taller" and "shift left" real instead of
-   letterboxing. `contain` keeps the blur and the video decode off the rest of
-   the page's paint. */
+   letterboxing. `contain` stays `none`: any other value both hides this image
+   from backdrop-filter and pins the fixed layer to the scroller. */
 .custom-background {
-  contain: strict;
+  contain: none;
   position: fixed;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   overflow: hidden;
   pointer-events: none;
   opacity: var(--bg-opacity, 0.4);
@@ -1426,6 +1462,8 @@
   flex-direction: column;
   gap: 16px;
   box-sizing: border-box;
+  position: relative;
+  z-index: 1;
 }
 
 /* The document is the scroller, so a page grows with its content and a short

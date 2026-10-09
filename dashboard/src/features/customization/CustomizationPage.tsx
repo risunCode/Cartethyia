@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
-import { Image as ImageIcon, Layers, LayoutGrid, PanelTop, RectangleHorizontal, RotateCcw } from "lucide-react";
+import { Frame, Image as ImageIcon, Layers, PanelTop, RectangleHorizontal, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
@@ -23,35 +23,20 @@ import {
   writeBackgroundMedia,
 } from "./media";
 import {
-  BLUR_STYLES,
   BLUR_TARGET_ORDER,
   CUSTOMIZATION_DEFAULTS,
-  blurPatch,
-  blurStyleOf,
   saveCustomizationSettings,
   useCustomizationSettings,
-  type BlurStyle,
   type BlurTarget,
   type CustomizationSettings,
 } from "./settings";
 
-const BLUR_COPY: Record<BlurStyle, { readonly label: string; readonly hint: string }> = {
-  none: { label: "None", hint: "Solid surface, no blur" },
-  frosted: { label: "Frosted", hint: "Plain blur, the console default" },
-  vibrancy: { label: "Vibrancy", hint: "macOS-style blur with saturated colour" },
-  heavy: { label: "Heavy", hint: "Deep blur for a busy background" },
-};
 
 const BLUR_TARGET_COPY: Record<BlurTarget, { readonly label: string; readonly description: string; readonly icon: ReactNode }> = {
   cards: {
     label: "Cards",
     description: "The card body on every page",
     icon: <RectangleHorizontal size={15} />,
-  },
-  tiles: {
-    label: "Tiles",
-    description: "The tiles sitting on top of a card",
-    icon: <LayoutGrid size={15} />,
   },
   chrome: {
     label: "Sidebar & topbar",
@@ -121,6 +106,7 @@ export default function CustomizationPage(): ReactNode {
       backgroundScale: CUSTOMIZATION_DEFAULTS.backgroundScale,
       backgroundX: CUSTOMIZATION_DEFAULTS.backgroundX,
       backgroundY: CUSTOMIZATION_DEFAULTS.backgroundY,
+      backgroundBlur: CUSTOMIZATION_DEFAULTS.backgroundBlur,
       backgroundEnabled: settings.backgroundSet,
     });
     toast.success("Background reset to defaults.");
@@ -128,9 +114,12 @@ export default function CustomizationPage(): ReactNode {
 
   const resetBlur = () => {
     saveCustomizationSettings({
-      blurCards: CUSTOMIZATION_DEFAULTS.blurCards,
-      blurTiles: CUSTOMIZATION_DEFAULTS.blurTiles,
-      blurChrome: CUSTOMIZATION_DEFAULTS.blurChrome,
+      blurCardsAmount: CUSTOMIZATION_DEFAULTS.blurCardsAmount,
+      blurChromeAmount: CUSTOMIZATION_DEFAULTS.blurChromeAmount,
+      blurCardsEnabled: CUSTOMIZATION_DEFAULTS.blurCardsEnabled,
+      blurChromeEnabled: CUSTOMIZATION_DEFAULTS.blurChromeEnabled,
+      blurCardsDepth: CUSTOMIZATION_DEFAULTS.blurCardsDepth,
+      blurChromeDepth: CUSTOMIZATION_DEFAULTS.blurChromeDepth,
     });
     toast.success("Blur reset to defaults.");
   };
@@ -185,16 +174,63 @@ export default function CustomizationPage(): ReactNode {
           }
         />
         <CardBody>
-          <div className="grid gap-[12px] lg:grid-cols-3">
-            {BLUR_TARGET_ORDER.map((target) => (
-              <BlurPicker
-                key={target}
-                target={target}
-                active={blurStyleOf(settings, target)}
-                onChange={(style) => setSettings(blurPatch(target, style))}
-              />
-            ))}
+          <div className="grid gap-[20px] lg:grid-cols-2">
+            {BLUR_TARGET_ORDER.map((target) => {
+              const chrome = target === "chrome";
+              return (
+                <BlurSlider
+                  key={target}
+                  target={target}
+                  enabled={chrome ? settings.blurChromeEnabled : settings.blurCardsEnabled}
+                  onToggle={() =>
+                    setSettings(chrome ? { blurChromeEnabled: !settings.blurChromeEnabled } : { blurCardsEnabled: !settings.blurCardsEnabled })
+                  }
+                  clarity={chrome ? settings.blurChromeAmount : settings.blurCardsAmount}
+                  onClarity={(amount) => setSettings(chrome ? { blurChromeAmount: amount } : { blurCardsAmount: amount })}
+                  depth={chrome ? settings.blurChromeDepth : settings.blurCardsDepth}
+                  onDepth={(amount) => setSettings(chrome ? { blurChromeDepth: amount } : { blurCardsDepth: amount })}
+                />
+              );
+            })}
           </div>
+        </CardBody>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Empty panels"
+          subtitle="A dashed frame around a page that has nothing to show yet."
+          icon={<Frame size={16} />}
+        />
+        <CardBody>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={settings.emptyOutline}
+            onClick={() => setSettings({ emptyOutline: !settings.emptyOutline })}
+            className="flex w-full items-center justify-between gap-[12px] rounded-card border border-inner-border bg-surface-2 px-[14px] py-[12px] text-left"
+          >
+            <span className="flex min-w-0 flex-col">
+              <span className="text-[12.5px] font-semibold text-text-primary">Dashed border</span>
+              <span className="text-[11px] text-text-tertiary">Off leaves the empty state sitting on the card.</span>
+            </span>
+            <span
+              aria-hidden="true"
+              className={
+                settings.emptyOutline
+                  ? "h-[20px] w-[36px] shrink-0 rounded-pill bg-accent p-[2px]"
+                  : "h-[20px] w-[36px] shrink-0 rounded-pill bg-surface-active p-[2px]"
+              }
+            >
+              <span
+                className={
+                  settings.emptyOutline
+                    ? "block size-[16px] translate-x-[16px] rounded-pill bg-accent-foreground transition-transform"
+                    : "block size-[16px] rounded-pill bg-text-secondary transition-transform"
+                }
+              />
+            </span>
+          </button>
         </CardBody>
       </Card>
     </Stack>
@@ -292,6 +328,7 @@ function BackgroundControls({
           />
         </label>
         <Slider label="Visibility" value={settings.backgroundOpacity} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundOpacity} min={0} max={100} unit="%" onChange={(value) => setSettings({ backgroundOpacity: value })} />
+        <Slider label="Blur" value={settings.backgroundBlur} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundBlur} min={0} max={100} unit="%" onChange={(value) => setSettings({ backgroundBlur: value })} />
         <Slider label="Zoom" value={settings.backgroundScale} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundScale} min={100} max={180} unit="%" onChange={(value) => setSettings({ backgroundScale: value })} />
         <Slider label="Shift horizontal" value={settings.backgroundX} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundX} min={-100} max={100} onChange={(value) => setSettings({ backgroundX: value })} />
         <Slider label="Shift vertical" value={settings.backgroundY} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundY} min={-100} max={100} onChange={(value) => setSettings({ backgroundY: value })} />
@@ -350,53 +387,95 @@ function Slider({
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
         aria-label={label}
+        className="blur-slider w-full"
+        style={{ ["--fill" as string]: `${((value - min) / (max - min)) * 100}%` }}
       />
     </label>
   );
 }
 
-function BlurPicker({
+function BlurSlider({
   target,
-  active,
-  onChange,
+  enabled,
+  onToggle,
+  clarity,
+  onClarity,
+  depth,
+  onDepth,
 }: {
   readonly target: BlurTarget;
-  readonly active: BlurStyle;
-  readonly onChange: (style: BlurStyle) => void;
+  readonly enabled: boolean;
+  readonly onToggle: () => void;
+  readonly clarity: number;
+  readonly onClarity: (amount: number) => void;
+  readonly depth: number;
+  readonly onDepth: (amount: number) => void;
 }): ReactNode {
-  const copy = BLUR_TARGET_COPY[target] ?? BLUR_TARGET_COPY.cards;
+  const item = BLUR_TARGET_COPY[target] ?? BLUR_TARGET_COPY.cards;
   return (
-    <div className="flex flex-col gap-[12px] rounded-card border border-inner-border bg-surface-2 p-[14px]">
-      <div className="flex items-center gap-[8px] text-text-secondary">
-        <span className="flex size-[28px] shrink-0 items-center justify-center rounded-control bg-surface-1 text-text-secondary">
-          {copy.icon}
+    <div className="flex flex-col gap-[16px] rounded-card border border-inner-border bg-surface-2 p-[16px]">
+      <div className="flex items-center gap-[10px]">
+        <span className="flex size-[32px] shrink-0 items-center justify-center rounded-control bg-surface-1 text-text-secondary">
+          {item.icon}
         </span>
-        <span className="flex min-w-0 flex-col">
-          <span className="text-[12.5px] font-semibold text-text-primary">{copy.label}</span>
-          <span className="text-[11px] text-text-tertiary">{copy.description}</span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-[13px] font-semibold text-text-primary">{item.label}</span>
+          <span className="text-[11.5px] text-text-tertiary">{item.description}</span>
         </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={`Toggle ${item.label} blur`}
+          onClick={onToggle}
+          className={enabled ? "h-[20px] w-[36px] shrink-0 rounded-pill bg-accent p-[2px]" : "h-[20px] w-[36px] shrink-0 rounded-pill bg-surface-active p-[2px]"}
+        >
+          <span className={enabled ? "block size-[16px] translate-x-[16px] rounded-pill bg-accent-foreground" : "block size-[16px] rounded-pill bg-text-secondary"} />
+        </button>
       </div>
-      <div className="grid grid-cols-2 gap-[6px]" role="radiogroup" aria-label={`${copy.label} blur`}>
-        {BLUR_STYLES.map((style) => {
-          const selected = style === active;
-          return (
-            <button
-              key={style}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              title={BLUR_COPY[style].hint}
-              onClick={() => onChange(style)}
-              className={
-                selected
-                  ? "rounded-control border border-accent bg-accent-soft px-[12px] py-[6px] text-[12px] font-semibold text-text-primary"
-                  : "rounded-control border border-inner-border bg-surface-1 px-[12px] py-[6px] text-[12px] text-text-secondary hover:border-border-strong"
-              }
-            >
-              {BLUR_COPY[style].label}
-            </button>
-          );
-        })}
+      <div className={enabled ? "flex flex-col gap-[12px]" : "flex flex-col gap-[12px] opacity-40"}>
+        <label className="flex flex-col gap-[6px] text-[12px] text-text-secondary">
+          <span className="flex items-center justify-between">
+            Clarity
+            <span className="font-mono text-[11px] tabular-nums text-text-tertiary">{clarity}%</span>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={clarity}
+            disabled={!enabled}
+            onChange={(event) => onClarity(Number(event.target.value))}
+            aria-label={`${item.label} clarity. How see-through the surface is.`}
+            className="blur-slider w-full"
+            style={{ ["--fill" as string]: `${clarity}%` }}
+          />
+          <span className="flex justify-between text-[11px] text-text-tertiary">
+            <span>See-through</span>
+            <span>Solid</span>
+          </span>
+        </label>
+        <label className="flex flex-col gap-[6px] text-[12px] text-text-secondary">
+          <span className="flex items-center justify-between">
+            Blur
+            <span className="font-mono text-[11px] tabular-nums text-text-tertiary">{depth}%</span>
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={depth}
+            disabled={!enabled}
+            onChange={(event) => onDepth(Number(event.target.value))}
+            aria-label={`${item.label} blur. How blurred whatever is behind it looks.`}
+            className="blur-slider w-full"
+            style={{ ["--fill" as string]: `${depth}%` }}
+          />
+          <span className="flex justify-between text-[11px] text-text-tertiary">
+            <span>Sharp</span>
+            <span>Blurred</span>
+          </span>
+        </label>
       </div>
     </div>
   );
