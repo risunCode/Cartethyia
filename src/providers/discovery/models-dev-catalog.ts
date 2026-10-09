@@ -1,4 +1,4 @@
-import baseModels from "./base-models.json";
+import compactModels from "./base-models.compact.json";
 
 /** Billing metadata from the prebuilt models.dev base catalog. */
 export interface ModelsDevModelCost {
@@ -22,6 +22,20 @@ export interface ModelsDevModelMetadata {
   readonly toolCall: boolean;
 }
 
+interface CompactCatalog {
+  readonly providers: readonly string[];
+  readonly modalities: readonly string[];
+  readonly rows: readonly (readonly [number, string, string, number, number, number, number, number, BaseCost])[];
+}
+
+interface BaseCost {
+  readonly input?: number;
+  readonly output?: number;
+  readonly cache_read?: number;
+  readonly cache_write?: number;
+  readonly reasoning?: number;
+}
+
 interface BaseModelRow {
   readonly provider: string;
   readonly id: string;
@@ -32,16 +46,32 @@ interface BaseModelRow {
   readonly outputModalities: readonly string[];
   readonly reasoning: boolean;
   readonly toolCall: boolean;
-  readonly cost: {
-    readonly input: number | null;
-    readonly output: number | null;
-    readonly cache_read?: number;
-    readonly cache_write?: number;
-    readonly reasoning?: number;
+  readonly cost: BaseCost;
+}
+
+const COMPACT_MODELS = compactModels as unknown as CompactCatalog;
+
+function modalityList(mask: number): readonly string[] {
+  return COMPACT_MODELS.modalities.filter((_, index) => (mask & (1 << index)) !== 0);
+}
+
+function compactRow(row: CompactCatalog["rows"][number]): BaseModelRow {
+  const [providerIndex, id, name, context, output, inputMask, outputMask, flags, cost] = row;
+  return {
+    provider: COMPACT_MODELS.providers[providerIndex] ?? "",
+    id,
+    ...(name.length > 0 ? { name } : {}),
+    context: context > 0 ? context : null,
+    output: output > 0 ? output : null,
+    input: modalityList(inputMask),
+    outputModalities: modalityList(outputMask),
+    reasoning: (flags & 1) !== 0,
+    toolCall: (flags & 2) !== 0,
+    cost,
   };
 }
 
-const BASE_MODELS = baseModels.models as readonly BaseModelRow[];
+const BASE_MODELS: readonly BaseModelRow[] = COMPACT_MODELS.rows.map(compactRow);
 const UNKNOWN_COST: ModelsDevModelCost = {
   input: null,
   output: null,
@@ -102,7 +132,11 @@ function toMetadata(row: BaseModelRow): ModelsDevModelMetadata {
     contextLimit: row.context,
     outputLimit: row.output,
     cost: {
-      ...row.cost,
+      input: row.cost.input ?? null,
+      output: row.cost.output ?? null,
+      ...(row.cost.cache_read === undefined ? {} : { cache_read: row.cost.cache_read }),
+      ...(row.cost.cache_write === undefined ? {} : { cache_write: row.cost.cache_write }),
+      ...(row.cost.reasoning === undefined ? {} : { reasoning: row.cost.reasoning }),
       pricing_model: pricingModel(row.cost),
     },
     modalities: {
@@ -156,61 +190,52 @@ const MODELS_DEV_PROVIDER_IDS: Readonly<Record<string, string>> = {
  * absent: deployed instances use the exact catalog selected at build time.
  */
 export class ModelsDevCatalog {
-  private readonly exactMap = new Map<string, ModelsDevModelMetadata>();
+  private readonly exactIndex = new Map<string, number>();
   /**
-   * Bare id → every row that carried it, not just the first.
+   * Bare id → every source-row offset that carried it, not a copied object.
    *
-   * A bare id is not unique: `claude-sonnet-4-6` appears under 32 providers in
-   * the base catalog, and 428 bare keys disagree about `context`, 503 about
-   * `output`, and 551 about pricing. Keeping only the first row meant the
-   * winner was whichever provider sorted first (`302ai`), so a Cartethyia
+   * A bare id is not unique: one id can appear under dozens of providers, and
+   * hundreds disagree about context, output, or pricing. Keeping only the first
+   * row meant the winner was whichever provider sorted first, so a Cartethyia
    * model could report another reseller's limits and price.
    */
-  private readonly bareMap = new Map<string, ModelsDevModelMetadata[]>();
+  private readonly bareIndex = new Map<string, number[]>();
   /**
    * Bare model id → the price the catalog records for the model itself,
    * independent of which provider filed it.
    *
    * Pricing is a property of the model, not of the reseller: a gateway that
    * republishes `grok-4.7` bills the model's rate even though the catalog filed
-   * that id under `xai`. Metadata (limits, modalities) stays provider-specific
-   * and fail-closed on disagreement — a wrong limit is harmful and optional —
-   * but a price is needed for every routed request, and reporting `$0.00` for a
-   * paid model is worse than the closest published rate. Where providers
-   * disagree the most frequently recorded price wins; a tie resolves to the
-   * higher rate, so a reseller's free-tier entry cannot make a paid model look
-   * free.
+   * that id under `xai`. Metadata stays provider-specific and fail-closed on
+   * disagreement, but a price is needed for every routed request.
    */
   private readonly globalCostMap = new Map<string, ModelsDevModelCost>();
+  /** Metadata objects created for rows that were actually queried. */
+  private readonly metadataCache = new Map<number, ModelsDevModelMetadata>();
 
-  constructor(rows: readonly BaseModelRow[] = BASE_MODELS) {
+  constructor(private readonly rows: readonly BaseModelRow[] = BASE_MODELS) {
     /** Bare id → price signature → vote, used to build {@link globalCostMap}. */
     const priceVotes = new Map<string, Map<string, { cost: ModelsDevModelCost; count: number }>>();
-    for (const row of rows) {
-      const metadata = toMetadata(row);
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (row === undefined) continue;
       const provider = row.provider.trim().toLowerCase();
       const modelId = row.id.trim().toLowerCase();
-      this.exactMap.set(`${provider}:${modelId}`, metadata);
+      this.exactIndex.set(`${provider}:${modelId}`, index);
       const bareId = modelId.includes("/") ? modelId.slice(modelId.indexOf("/") + 1) : modelId;
-      const bucket = this.bareMap.get(bareId);
-      if (bucket) bucket.push(metadata);
-      else this.bareMap.set(bareId, [metadata]);
+      const bucket = this.bareIndex.get(bareId);
+      if (bucket) bucket.push(index);
+      else this.bareIndex.set(bareId, [index]);
 
-      // Only a fully stated rate is a candidate: a row missing either side
-      // states no price at all and must not vote.
-      const cost = metadata.cost;
+      const cost = toMetadata(row).cost;
       if (typeof cost.input !== "number" || typeof cost.output !== "number") continue;
       let votes = priceVotes.get(bareId);
       if (votes === undefined) {
         votes = new Map();
         priceVotes.set(bareId, votes);
       }
-      // The vote is the base rate (`input/output`), because that is what every
-      // row that prices the model agrees or disagrees about. Cache rates are
-      // detail layered on top: two rows quoting the same base rate but only one
-      // carrying `cache_read`/`cache_write` must not split the vote, or the
-      // mode could pick the row that forgot the cache rates and bill every
-      // cached token at the full input rate.
+      // The vote is the base rate. Cache rates are detail layered on top, so
+      // two rows quoting the same base rate must not split the vote.
       const signature = `${cost.input}/${cost.output}`;
       const existing = votes.get(signature);
       if (existing) {
@@ -223,31 +248,41 @@ export class ModelsDevCatalog {
     for (const [bareId, votes] of priceVotes) {
       let winner: { cost: ModelsDevModelCost; count: number } | undefined;
       for (const vote of votes.values()) {
-        if (winner === undefined) {
+        if (winner === undefined || vote.count > winner.count) {
           winner = vote;
           continue;
         }
-        if (vote.count > winner.count) {
-          winner = vote;
-          continue;
-        }
-        // Tie: take the dearer rate so a free-tier row never wins by accident.
         const voteTotal = (vote.cost.input ?? 0) + (vote.cost.output ?? 0);
         const winnerTotal = (winner.cost.input ?? 0) + (winner.cost.output ?? 0);
         if (vote.count === winner.count && voteTotal > winnerTotal) winner = vote;
       }
       if (winner) this.globalCostMap.set(bareId, winner.cost);
     }
-    // A dated snapshot is the same model at the same rate, and callers may ask
-    // for either spelling. Seed the undated form too, without letting it
-    // override a rate already recorded for that exact id: the catalog's own
-    // undated row (when it has one) stays authoritative.
+    // A dated snapshot is the same model at the same rate. Seed the undated
+    // form too, without overriding a rate already recorded for that exact id.
     for (const [bareId, cost] of [...this.globalCostMap]) {
       const undated = stripDateSuffix(bareId);
       if (undated !== bareId && !this.globalCostMap.has(undated)) {
         this.globalCostMap.set(undated, cost);
       }
     }
+  }
+
+  private metadataAt(index: number): ModelsDevModelMetadata | undefined {
+    const cached = this.metadataCache.get(index);
+    if (cached) return cached;
+    const row = this.rows[index];
+    if (row === undefined) return undefined;
+    const metadata = toMetadata(row);
+    this.metadataCache.set(index, metadata);
+    return metadata;
+  }
+
+  private metadataFor(indexes: readonly number[]): ModelsDevModelMetadata[] {
+    return indexes.flatMap((index) => {
+      const metadata = this.metadataAt(index);
+      return metadata === undefined ? [] : [metadata];
+    });
   }
 
   /**
@@ -271,8 +306,8 @@ export class ModelsDevCatalog {
     // must keep winning, or a future provider added upstream under our own id
     // would be shadowed by the mapping.
     const exact =
-      this.exactMap.get(`${provider}:${normalizedModel}`) ??
-      this.exactMap.get(`${MODELS_DEV_PROVIDER_IDS[provider] ?? ""}:${normalizedModel}`);
+      this.metadataAt(this.exactIndex.get(`${provider}:${normalizedModel}`) ?? -1) ??
+      this.metadataAt(this.exactIndex.get(`${MODELS_DEV_PROVIDER_IDS[provider] ?? ""}:${normalizedModel}`) ?? -1);
     if (exact) return exact;
     // A reseller suffix (`:free`, `@variant`) is the reseller's, not the
     // model's: retry the exact lookup without it before falling through to the
@@ -283,8 +318,8 @@ export class ModelsDevCatalog {
     const unsuffixed = stripVariantSuffix(normalizedModel);
     if (unsuffixed !== normalizedModel) {
       const unsuffixedExact =
-        this.exactMap.get(`${provider}:${unsuffixed}`) ??
-        this.exactMap.get(`${MODELS_DEV_PROVIDER_IDS[provider] ?? ""}:${unsuffixed}`);
+        this.metadataAt(this.exactIndex.get(`${provider}:${unsuffixed}`) ?? -1) ??
+        this.metadataAt(this.exactIndex.get(`${MODELS_DEV_PROVIDER_IDS[provider] ?? ""}:${unsuffixed}`) ?? -1);
       if (unsuffixedExact) return unsuffixedExact;
     }
     const bareId = normalizedModel.includes("/")
@@ -312,7 +347,7 @@ export class ModelsDevCatalog {
    * so the first is returned rather than treating agreement as ambiguity.
    */
   private unambiguousBare(bareId: string): ModelsDevModelMetadata | undefined {
-    const rows = this.bareMap.get(bareId);
+    const rows = this.metadataFor(this.bareIndex.get(bareId) ?? []);
     if (rows === undefined) return undefined;
     const first = rows[0];
     if (first === undefined) return undefined;
@@ -352,8 +387,8 @@ export class ModelsDevCatalog {
     // undated form tried too (the global cost index seeds both; this one does
     // not). Merge rather than pick: both spellings name the same model.
     const rows = [
-      ...(this.bareMap.get(bare) ?? []),
-      ...(stripDateSuffix(bare) === bare ? [] : (this.bareMap.get(stripDateSuffix(bare)) ?? [])),
+      ...this.metadataFor(this.bareIndex.get(bare) ?? []),
+      ...(stripDateSuffix(bare) === bare ? [] : this.metadataFor(this.bareIndex.get(stripDateSuffix(bare)) ?? [])),
     ];
     if (rows.length === 0) return undefined;
     const vote = (values: ReadonlyArray<number | null>): number | undefined => {

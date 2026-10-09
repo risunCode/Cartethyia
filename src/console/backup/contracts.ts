@@ -37,7 +37,6 @@ import {
   providers,
   shareLinks,
   sharePopups,
-  studioSessions,
   tenantDisabledModels,
   tenants,
   telemetryEvents,

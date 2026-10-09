@@ -4,8 +4,8 @@ import { DELETE_ALL_SCOPES, type DeleteAllScope } from "../../src/console/backup
 import { validateRestorePayload } from "../../src/console/backup/validate";
 
 describe("backup contract coverage", () => {
-  test("includes tenant-owned studio sessions in configuration", () => {
-    expect(tablesForSection("config").map(tableName)).toContain("studio_sessions");
+  test("keeps browser-only studio history out of the backup", () => {
+    expect(tablesForSection("config").map(tableName)).not.toContain("studio_sessions");
   });
 
   test("includes console users so a first boot can restore its accounts", () => {

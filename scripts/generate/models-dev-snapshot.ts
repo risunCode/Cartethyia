@@ -107,6 +107,42 @@ const snapshot = { source: "models.dev", fetchedAt: new Date().toISOString(), mo
 // Minified: this is a machine-read data file, and pretty-printing it roughly
 // triples the bytes that ship in the binary for no reader's benefit.
 await Bun.write(SNAPSHOT_PATH, `${JSON.stringify(snapshot)}\n`);
+await Bun.write(
+  path.join(import.meta.dir, "../src/providers/discovery/base-models.compact.json"),
+  `${JSON.stringify(compactRows(rows))}\n`,
+);
 console.log(
   `Wrote ${rows.length} rows across ${new Set(rows.map((r) => r.provider)).size} providers to ${SNAPSHOT_PATH}`,
 );
+
+function compactRows(source: readonly SnapshotRow[]): {
+  providers: string[];
+  modalities: string[];
+  rows: Array<[number, string, string, number, number, number, number, number, RawCost]>;
+} {
+  const providers = [...new Set(source.map((row) => row.provider))];
+  const providerIndex = new Map(providers.map((provider, index) => [provider, index]));
+  const modalities = ["text", "image", "pdf", "video", "audio"];
+  return {
+    providers,
+    modalities,
+    rows: source.map((row) => [
+      providerIndex.get(row.provider) ?? 0,
+      row.id,
+      row.name ?? "",
+      row.context ?? 0,
+      row.output ?? 0,
+      modalityMask(row.input, modalities),
+      modalityMask(row.outputModalities, modalities),
+      (row.reasoning ? 1 : 0) | (row.toolCall ? 2 : 0),
+      row.cost,
+    ]),
+  };
+}
+
+function modalityMask(values: readonly string[], modalities: readonly string[]): number {
+  return values.reduce((mask, value) => {
+    const index = modalities.indexOf(value);
+    return index < 0 ? mask : mask | (1 << index);
+  }, 0);
+}

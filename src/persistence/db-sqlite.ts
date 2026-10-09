@@ -400,15 +400,16 @@ function sqliteSql(text: string): string {
  *
  * `synchronous = NORMAL` is durable against a process crash under WAL; only a
  * power loss can drop the last commit. `busy_timeout` makes a writer wait
- * instead of failing instantly when a sweep holds the lock. The cache is 64 MB,
- * enough to hold the auth and catalog working set. `temp_store` keeps sorts
- * off disk. The checkpoint interval keeps a request from stalling on one.
+ * instead of failing instantly when a sweep holds the lock. The cache is 8 MB:
+ * large enough for auth and the active catalog working set, without reserving
+ * 64 MB that an idle gateway never touches. `temp_store` keeps sorts off disk.
+ * The checkpoint interval keeps a request from stalling on one.
  */
 function applyFilePragmas(db: Database): void {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA busy_timeout = 5000");
-  db.exec("PRAGMA cache_size = -65536");
+  db.exec("PRAGMA cache_size = -8192");
   db.exec("PRAGMA temp_store = MEMORY");
   db.exec("PRAGMA wal_autocheckpoint = 1000");
 }

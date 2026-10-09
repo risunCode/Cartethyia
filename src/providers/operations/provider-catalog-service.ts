@@ -11,8 +11,9 @@ import { OpenAICompatibleAdapter } from "../compatible-adapter";
 import { resolveByokWireProfile } from "./byok-wire-profile";
 import { BUNDLED_PROVIDER_MODULES } from "../default-registry";
 import { getCachedModels } from "./model-catalog-cache";
+import { seedBundledModels } from "./provider-catalog-seeder";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
-import { providers } from "../../persistence/schema";
+import { providerAccounts, providers } from "../../persistence/schema";
 import type { CompatibilityProfile } from "../metadata";
 import { resolveCustomCliHeaders } from "./custom-cli-headers";
 import { GATEWAY_USER_AGENT } from "./gateway-user-agent";
@@ -125,9 +126,12 @@ export interface BundledProviderCatalog {
 
 export async function bundledModelCatalog(
   registry: ProviderRegistry,
+  db?: CartethyiaDatabase,
 ): Promise<BundledProviderCatalog> {
+  const activeProviders = db === undefined ? undefined : await providersWithAccounts(db);
   const modelsByProvider = new Map<string, readonly ModelDefinition[]>();
   for (const registration of registry.registrations()) {
+    if (activeProviders !== undefined && !activeProviders.has(registration.provider_id)) continue;
     const definitions = registration.loadModels
       ? await getCachedModels(registration.provider_id, registration.loadModels)
       : [];
@@ -152,6 +156,30 @@ export async function bundledModelCatalog(
     }
   }
   return { modelsByProvider };
+}
+
+/** Loads and persists static catalogs for providers that gained an account after boot. */
+export async function refreshActiveProviderCatalogs(
+  db: CartethyiaDatabase,
+  registry: ProviderRegistry,
+): Promise<void> {
+  const catalog = await bundledModelCatalog(registry, db);
+  await seedBundledModels(db, catalog.modelsByProvider);
+}
+
+/**
+ * Providers whose static catalogs must be resident.
+ *
+ * A bundled catalog is only needed once the provider has an account to route
+ * through. Loading every registration at boot imports adapters and model arrays
+ * the process will never dispatch. Providers with no accounts stay unloaded
+ * until an account is added and the catalog is rebuilt.
+ */
+async function providersWithAccounts(db: CartethyiaDatabase): Promise<ReadonlySet<string>> {
+  const rows = await db
+    .selectDistinct({ providerId: providerAccounts.providerId })
+    .from(providerAccounts);
+  return new Set(rows.map((row) => row.providerId));
 }
 
 /**

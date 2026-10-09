@@ -22,6 +22,7 @@ import { MAX_BACKUP_BYTES } from "./contracts";
 import type { BackupSection } from "./contracts";
 import { DELETE_ALL_SCOPES, compressBackup } from "./store";
 import type { BackupService } from "./service";
+import type { AuditRecorder } from "../auth/audit-recorder";
 
 export interface BackupRoutesConfig {
   readonly accessResolver: ConsoleAccessResolver;
@@ -57,7 +58,7 @@ export interface BackupRoutesConfig {
    * reservation/counter state. Paired with {@link apiKeyStore} on restore.
    */
   readonly admissionService?: { purgeKey(apiKeyId: string): Promise<void> };
-  readonly auditSink?: AuditSink;
+  readonly auditSink?: AuditRecorder;
 }
 
 /**

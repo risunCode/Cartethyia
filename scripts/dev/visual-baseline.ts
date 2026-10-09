@@ -419,7 +419,7 @@ async function applyTheme(page: Cdp, url: string, theme: "light" | "dark"): Prom
   await settle(page);
 }
 
-async function captureOne(url: string, route: string, viewport: (typeof VIEWPORTS)[number], theme: (typeof THEMES)[number]): Promise<Capture> {
+async function captureOne(route: string, viewport: (typeof VIEWPORTS)[number], theme: (typeof THEMES)[number]): Promise<Capture> {
   const page = await openPage(`${ORIGIN}${route}`, viewport.width, viewport.height);
   try {
     await settle(page);
@@ -443,7 +443,7 @@ async function captureAll(): Promise<Baseline> {
       for (const theme of THEMES) {
         surfaces.push({
           key: `${route}@${viewport.name}@${theme}`,
-          capture: await captureOne(ORIGIN, route, viewport, theme),
+          capture: await captureOne(route, viewport, theme),
         });
       }
     }
@@ -483,8 +483,8 @@ function diffSurface(before: Capture, after: Capture, key: string): Difference {
   const missing = [...beforeNodes.keys()].filter((p) => !afterNodes.has(p));
   const added = [...afterNodes.keys()].filter((p) => !beforeNodes.has(p));
 
-  const rectMoved: Difference["rectMoved"] = [];
-  const styleChanged: Difference["styleChanged"] = [];
+  const rectMoved: Array<{ p: string; from: readonly number[]; to: readonly number[] }> = [];
+  const styleChanged: Array<{ p: string; prop: string; from: string; to: string }> = [];
   for (const [p, b] of beforeNodes) {
     const a = afterNodes.get(p);
     if (!a) continue;

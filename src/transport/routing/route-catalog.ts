@@ -667,8 +667,14 @@ class RouteCatalogRepository {
 }
 
 /** Builds a `SnapshotBuilder` reading the live catalog from `db`. */
-export function createDatabaseSnapshotBuilder(db: CartethyiaDatabase): SnapshotBuilder {
+export function createDatabaseSnapshotBuilder(
+  db: CartethyiaDatabase,
+  refreshActiveCatalogs?: () => Promise<void>,
+): SnapshotBuilder {
   const repository = new RouteCatalogRepository(db);
-  return () => repository.loadRouteCatalogSnapshot(undefined);
+  return async () => {
+    await refreshActiveCatalogs?.();
+    return repository.loadRouteCatalogSnapshot(undefined);
+  };
 }
 

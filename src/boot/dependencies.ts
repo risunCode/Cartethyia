@@ -7,6 +7,7 @@ import type { RedisClient } from "../persistence/redis";
 import {
   bundledModelCatalog,
   liveProviderUpstreamHosts,
+  refreshActiveProviderCatalogs,
   registerByokProviders,
   retireUnbundledProviders,
   seedBundledProviders,
@@ -138,10 +139,10 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   // edited from the console) must resolve their SSRF binding immediately.
   const byokUpstreamHosts = liveProviderUpstreamHosts(registry);
   await registerByokProviders(registry, db, ssrfPolicy);
-  const bundledCatalog = await bundledModelCatalog(registry);
+  const bundledCatalog = await bundledModelCatalog(registry, db);
   await seedBundledModels(db, bundledCatalog.modelsByProvider);
   const snapshotService = new InMemoryRouteSnapshotService(
-    createDatabaseSnapshotBuilder(db),
+    createDatabaseSnapshotBuilder(db, () => refreshActiveProviderCatalogs(db, registry)),
   );
   const routingEngine = new RoutingEngine(
     redis ? new RedisAdmissionController(redis) : undefined,
