@@ -1895,9 +1895,6 @@ export default function Proxy(): ReactNode {
           {isPending && <LoadingState />}
           {isError && <ErrorState title="Error" message="Failed to load network pools" />}
           {!isPending && !isError && pools.length === 0 && (
-            // Fill the card down to the footer as one full-width panel with the
-            // empty state centred inside it, rather than a narrow box hugging
-            // the text in the middle of an otherwise blank card.
             <div className="empty-panel">
               <EmptyState
                 title="No proxy pools configured"

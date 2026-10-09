@@ -11,6 +11,8 @@ const DB_NAME = "cartethyia.customization";
 const STORE = "media";
 const RECORD_KEY = "background";
 const DB_VERSION = 1;
+/** Shipped with the console. Shown until the user stores their own. */
+export const DEFAULT_BACKGROUND_URL = `${import.meta.env.BASE_URL}console-backgrounds.jpg`;
 
 export interface BackgroundMedia {
   readonly blob: Blob;

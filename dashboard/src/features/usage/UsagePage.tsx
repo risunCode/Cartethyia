@@ -80,10 +80,12 @@ type Metric = "requests" | "tokens" | "cached";
 /** Mirrors the backend `USAGE_DIMENSIONS`; keep in sync by hand. */
 type Dimension = UsageDimension;
 
-/** Breakdown rows visible before the list scrolls; the rest scrolls inside. */
+/** Breakdown rows the panel holds before it scrolls; the rest scrolls inside.
+ *  The body is locked to this height so the card keeps it when the list is
+ *  empty, loading, or short. */
 const BREAKDOWN_VISIBLE_ROWS = 5;
-/** Row box (12px + 12px padding, ~17px content) plus the 8px flex gap. */
-const BREAKDOWN_ROW_HEIGHT = 49;
+/** Measured row box (39px) plus the 8px flex gap, minus the trailing gap. */
+const BREAKDOWN_LIST_HEIGHT = BREAKDOWN_VISIBLE_ROWS * 47 - 8;
 
 
 /**
@@ -668,7 +670,7 @@ function ChartPanel({ period, metric }: { readonly period: Period; readonly metr
     );
   }
   return (
-    <div className="usage-panel-body">
+    <div className="usage-panel-body h-[227px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={buckets} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
           <defs>
@@ -776,7 +778,7 @@ function BreakdownSnapshot({
           />
         }
       />
-      <CardBody>
+      <CardBody style={{ height: `${BREAKDOWN_LIST_HEIGHT}px` }}>
         {byQuery.isPending && rows.length === 0 ? (
           <LoadingState label="Loading breakdown…" />
         ) : byQuery.isError && rows.length === 0 ? (
@@ -785,8 +787,7 @@ function BreakdownSnapshot({
           <EmptyState title="No usage for this period" message="Route requests to populate the breakdown." />
         ) : (
           <div
-            className="scroll-region flex flex-col gap-[8px] pr-[2px]"
-            style={{ maxHeight: `${BREAKDOWN_VISIBLE_ROWS * BREAKDOWN_ROW_HEIGHT}px` }}
+            className="scroll-region flex h-full flex-col gap-[8px] pr-[2px]"
           >
             {rows.map((row) => {
               const pct = maxTotal > 0 ? Math.max(2, (row.total / maxTotal) * 100) : 2;

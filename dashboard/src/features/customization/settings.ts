@@ -24,6 +24,8 @@ export type BlurTarget = "cards" | "chrome";
 export interface CustomizationSettings {
   /** A background blob is stored. The layer renders only when this is true. */
   readonly backgroundSet: boolean;
+  /** Bumps on every upload, so a replacement reloads even while one is already set. */
+  readonly backgroundRevision: number;
   readonly backgroundEnabled: boolean;
   /** 0–100. How strongly the background shows through the page. */
   readonly backgroundOpacity: number;
@@ -56,17 +58,18 @@ export interface CustomizationSettings {
 export const CUSTOMIZATION_DEFAULTS: CustomizationSettings = {
   backgroundSet: false,
   backgroundEnabled: false,
+  backgroundRevision: 0,
   backgroundOpacity: 40,
   backgroundScale: 100,
   backgroundX: 0,
   backgroundY: 0,
-  backgroundBlur: 0,
+  backgroundBlur: 5,
   // The console already ships frosted; a fresh profile keeps that look.
   blurCards: "frosted",
   blurChrome: "frosted",
-  blurCardsAmount: 40,
+  blurCardsAmount: 50,
   blurChromeAmount: 67,
-  blurCardsDepth: 0,
+  blurCardsDepth: 5,
   blurChromeDepth: 67,
   blurCardsEnabled: true,
   blurChromeEnabled: true,
@@ -95,6 +98,7 @@ export function normalizeCustomization(raw: unknown): CustomizationSettings {
     : {};
   return {
     backgroundSet: source.backgroundSet === true,
+    backgroundRevision: clamp(source.backgroundRevision, 0, Number.MAX_SAFE_INTEGER, 0),
     backgroundEnabled: source.backgroundEnabled === true,
     backgroundOpacity: clamp(source.backgroundOpacity, 0, 100, CUSTOMIZATION_DEFAULTS.backgroundOpacity),
     backgroundScale: clamp(source.backgroundScale, 100, 180, CUSTOMIZATION_DEFAULTS.backgroundScale),
@@ -143,8 +147,7 @@ export function applyCustomization(settings: CustomizationSettings): void {
   root.dataset.blurCardsOn = settings.blurCardsEnabled ? "true" : "false";
   root.dataset.blurChromeOn = settings.blurChromeEnabled ? "true" : "false";
   root.dataset.emptyOutline = settings.emptyOutline ? "true" : "false";
-  root.dataset.bgActive = settings.backgroundSet && settings.backgroundEnabled ? "true" : "false";
-  root.dataset.bgActive = settings.backgroundSet && settings.backgroundEnabled ? "true" : "false";
+  root.dataset.bgActive = !settings.backgroundSet || settings.backgroundEnabled ? "true" : "false";
   root.style.setProperty("--bg-opacity", (settings.backgroundOpacity / 100).toFixed(2));
   root.style.setProperty("--bg-scale", (settings.backgroundScale / 100).toFixed(2));
   root.style.setProperty("--bg-x", `${settings.backgroundX}%`);

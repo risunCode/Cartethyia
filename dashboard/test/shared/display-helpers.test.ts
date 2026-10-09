@@ -317,7 +317,7 @@ describe("version metadata", () => {
   });
 
   test("the version is a non-empty string taken from package.json", () => {
-    // MEASURED: the dashboard's package.json carries a two-part version ("2.0"),
+    // MEASURED: the dashboard's package.json carries a two-part version ("2.1"),
     // not a semver triple. I first asserted `/^\d+\.\d+\.\d+/` and was wrong.
     // Asserting the actual shape rather than a stricter guess keeps this a real
     // test of "it comes from package.json and is numeric", which is what the

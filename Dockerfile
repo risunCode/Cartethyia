@@ -44,8 +44,7 @@ COPY --from=builder --chown=cartethyia:cartethyia /build/dist/dashboard ./dist/d
 COPY --chmod=755 docker-entrypoint.sh ./entrypoint.sh
 COPY --from=builder --chown=cartethyia:cartethyia /build/dist/cartethyia ./cartethyia
 
-ENV CARTETHYIA_VERSION=2.0 \
-    NODE_ENV=production \
+ENV NODE_ENV=production \
     DASHBOARD_DIST=/app/dist/dashboard \
     CARTETHYIA_DATA_DIR=/app/data \
     CARTETHYIA_INSTALL_ID_DIR=/app/data/.cartethyia

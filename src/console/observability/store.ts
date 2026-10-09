@@ -311,7 +311,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
         : "healthy";
 
     return {
-      version: process.env.CARTETHYIA_VERSION ?? CARTETHYIA_VERSION,
+      version: CARTETHYIA_VERSION,
       status,
       uptime_seconds: Math.floor(process.uptime()),
       database_healthy: databaseHealthy,

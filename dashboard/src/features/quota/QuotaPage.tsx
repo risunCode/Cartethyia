@@ -333,7 +333,7 @@ function QuotaCard({
   const healthStatus = account.health?.status ?? "unknown";
 
   return (
-    <div className="card-glass" style={{ overflow: "hidden" }} aria-busy={busy}>
+    <div className="card-glass rounded-[10px]" style={{ overflow: "hidden" }} aria-busy={busy}>
       {/* Header: icon + provider name + plan + account hint + actions */}
       <div
         className="flex flex-wrap items-center gap-[8.75px] px-[12.25px] py-3.5"

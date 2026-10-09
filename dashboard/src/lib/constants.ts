@@ -14,4 +14,5 @@ export const STREAM_RETRY_MS = 5_000;
  * link cannot point at different projects.
  */
 export const GITHUB_REPO = "risunCode/Cartethyia";
+export const GITHUB_REPO_URL = `https://github.com/${GITHUB_REPO}`;
 export const GITHUB_RELEASES_URL = `https://github.com/${GITHUB_REPO}/releases`;

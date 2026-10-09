@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { readBackgroundMedia, type BackgroundMedia } from "./media";
+import { DEFAULT_BACKGROUND_URL, readBackgroundMedia, type BackgroundMedia } from "./media";
 import { useCustomizationSettings } from "./settings";
 
 const COMPACT_QUERY = "(max-width: 767px)";
@@ -54,7 +54,7 @@ export function BackgroundLayer(): ReactNode {
     if (!settings.backgroundSet) {
       setMedia((current) => {
         if (current) URL.revokeObjectURL(current.url);
-        return null;
+        return { blob: new Blob(), kind: "image", url: DEFAULT_BACKGROUND_URL };
       });
       return;
     }
@@ -76,7 +76,7 @@ export function BackgroundLayer(): ReactNode {
       revoked = true;
       if (loaded) URL.revokeObjectURL(loaded.url);
     };
-  }, [settings.backgroundSet]);
+  }, [settings.backgroundSet, settings.backgroundRevision]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playVideo = media?.kind === "video" && !compact && !reducedMotion && pageVisible;
 
@@ -92,7 +92,7 @@ export function BackgroundLayer(): ReactNode {
     video.pause();
   }, [playVideo]);
 
-  if (!media || !settings.backgroundEnabled) return null;
+  if (!media || (settings.backgroundSet && !settings.backgroundEnabled)) return null;
 
   return (
     <div className="custom-background" data-kind={media.kind} data-playing={playVideo ? "true" : "false"} aria-hidden="true">

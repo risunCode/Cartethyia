@@ -14,6 +14,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { Stack } from "../../components/ui/stack";
 import {
+  DEFAULT_BACKGROUND_URL,
   BACKGROUND_MAX_BYTES,
   BACKGROUND_WARN_BYTES,
   deleteBackgroundMedia,
@@ -74,7 +75,7 @@ export default function CustomizationPage(): ReactNode {
       const blob = kind === "image" ? await shrinkBackgroundImage(file) : file;
       await writeBackgroundMedia(blob, kind);
       setMediaBytes(blob.size);
-      setSettings({ backgroundSet: true, backgroundEnabled: true });
+      setSettings({ backgroundSet: true, backgroundEnabled: true, backgroundRevision: settings.backgroundRevision + 1 });
       toast.success(kind === "video" ? "Video background saved in this browser." : "Background saved in this browser.");
       if (heavy) {
         toast.warning("File too big. Your web performance and experience may be degraded.");
@@ -155,9 +156,7 @@ export default function CustomizationPage(): ReactNode {
                 Images are resized to 2560px. Videos play on desktop and show their first frame on mobile.
               </span>
             </div>
-            {settings.backgroundSet ? (
-              <BackgroundControls settings={settings} setSettings={setSettings} onReset={reset} />
-            ) : null}
+            <BackgroundControls settings={settings} setSettings={setSettings} onReset={reset} />
           </Stack>
         </CardBody>
       </Card>
@@ -250,8 +249,8 @@ function BackgroundPreview({
 
   useEffect(() => {
     if (!settings.backgroundSet) {
-      setUrl(null);
-      setKind(null);
+      setUrl(DEFAULT_BACKGROUND_URL);
+      setKind("image");
       return;
     }
     let active = true;
@@ -277,7 +276,7 @@ function BackgroundPreview({
     };
   }, [settings.backgroundSet, onBytes]);
 
-  if (!settings.backgroundSet || !url) {
+  if (!url) {
     return (
       <div className="flex h-[120px] items-center justify-center rounded-card border border-dashed border-inner-border bg-surface-2 text-[12px] text-text-tertiary">
         No background yet. The console uses its plain surface.
@@ -319,14 +318,16 @@ function BackgroundControls({
   return (
     <div className="flex flex-col gap-[14px]">
       <div className="grid gap-[14px] sm:grid-cols-2">
-        <label className="flex items-center justify-between gap-[8px] text-[12px] text-text-secondary sm:col-span-2">
-          <span>Show background</span>
-          <input
-            type="checkbox"
-            checked={settings.backgroundEnabled}
-            onChange={(event) => setSettings({ backgroundEnabled: event.target.checked })}
-          />
-        </label>
+        {settings.backgroundSet ? (
+          <label className="flex items-center justify-between gap-[8px] text-[12px] text-text-secondary sm:col-span-2">
+            <span>Show background</span>
+            <input
+              type="checkbox"
+              checked={settings.backgroundEnabled}
+              onChange={(event) => setSettings({ backgroundEnabled: event.target.checked })}
+            />
+          </label>
+        ) : null}
         <Slider label="Visibility" value={settings.backgroundOpacity} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundOpacity} min={0} max={100} unit="%" onChange={(value) => setSettings({ backgroundOpacity: value })} />
         <Slider label="Blur" value={settings.backgroundBlur} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundBlur} min={0} max={100} unit="%" onChange={(value) => setSettings({ backgroundBlur: value })} />
         <Slider label="Zoom" value={settings.backgroundScale} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundScale} min={100} max={180} unit="%" onChange={(value) => setSettings({ backgroundScale: value })} />
