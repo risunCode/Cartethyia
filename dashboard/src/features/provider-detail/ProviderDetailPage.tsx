@@ -23,7 +23,7 @@ import { BackLink, PageHeader } from "../../components/ui/page-header";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Dialog } from "../../components/ui/dialog";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
-import { Inline } from "../../components/ui/inline";
+import { Inline, CardActions } from "../../components/ui/inline";
 import { Stack } from "../../components/ui/stack";
 import {
   useProbeAllProviderAccounts,
@@ -455,7 +455,7 @@ export default function ProviderDetail(): ReactNode {
             subtitle={`${accounts.length} total · ${activeAccounts} active · ${accounts.length - activeAccounts} disabled`}
             icon={<Cable size={16} />}
             action={
-              <Inline gap="6px" style={{ flexWrap: "wrap" }}>
+              <CardActions>
                 {provider.oauthFlows?.browser && (
                   <Button
                     variant="secondary"
@@ -498,7 +498,7 @@ export default function ProviderDetail(): ReactNode {
                 >
                   Add Account
                 </Button>
-              </Inline>
+              </CardActions>
             }
           />
           <CardBody style={{ display: "flex", flexDirection: "column", gap: "10px" }}>

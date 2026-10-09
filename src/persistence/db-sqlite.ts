@@ -469,6 +469,21 @@ export async function applySqliteMigrations(
                   .get(column) as { present: number } | null;
             if (present !== null) continue;
           }
+          // Same idempotency rule for a rename: the baseline already carries the
+          // new name, so a fresh database reaches this forward file with nothing
+          // left to rename. Skip when the target column is present, so a fresh
+          // install and an upgraded one converge on the same schema.
+          const renameColumn = /^ALTER TABLE "?(\w+)"? RENAME COLUMN "?(\w+)"? TO "?(\w+)"?/i.exec(sql);
+          if (renameColumn) {
+            const table = renameColumn[1];
+            const target = renameColumn[3];
+            const present = table === undefined || target === undefined
+              ? null
+              : sqlite
+                  .prepare(`SELECT 1 AS present FROM pragma_table_info('${table}') WHERE name = ?`)
+                  .get(target) as { present: number } | null;
+            if (present !== null) continue;
+          }
           sqlite.exec(sql);
         }
         record.run(migrationId);

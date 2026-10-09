@@ -1,4 +1,4 @@
-import { Activity, Check, Copy, Cpu, Database, Globe, MemoryStick, RefreshCw, TimerReset } from "lucide-react";
+import { Activity, Check, Copy, Database, Globe, MemoryStick } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
@@ -9,7 +9,7 @@ import { CompressionPanel } from "../../components/CompressionPanel";
 import { useSystemHealth } from "../../hooks/system";
 
 import { useTrackedTimeout } from "../../hooks/use-timeout";
-import { formatBytes, formatDuration, formatNumber, formatUptime } from "../../lib/format";
+import { formatBytes } from "../../lib/format";
 import { getErrorMessage } from "../../lib/helpers";
 
 

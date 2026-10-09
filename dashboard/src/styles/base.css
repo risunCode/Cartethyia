@@ -788,16 +788,24 @@ html[data-blur-chrome-on="false"] .app-topbar {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent);
+  background: var(--surface-1);
   box-shadow: inset 0 -1px 0 var(--inner-border);
 }
 
 .proxy-table-scroll {
+  /* Named container: the labeled action buttons above collapse to square icon
+   * buttons against this width, so a narrow row degrades gracefully instead of
+   * overflowing the Actions column.
+   *
+   * Deliberately NOT a scroller — the table's own container scrolls (via
+   * `maxHeight`), which is what keeps the header row pinned while rows move. */
+  container-type: inline-size;
+  container-name: rule-row;
   margin-top: 14px;
   overflow: hidden;
   border: 1px solid var(--inner-border);
   border-radius: var(--radius-card);
-  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent);
+  background: var(--surface-1);
 }
 .proxy-table-scroll .data-table thead th:first-child {
   border-top-left-radius: var(--radius-card);

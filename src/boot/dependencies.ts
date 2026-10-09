@@ -104,6 +104,8 @@ export interface ProductionDeps {
   admissionService: ApiKeyAdmissionService;
   /** Graduated strikes for repeated invalid-model requests. */
   modelStrikes: ModelStrikeService;
+  /** Memory sampler; in-flight source is bound once the request store exists. */
+  runtimeMetricsSampler: RuntimeMetricsSampler;
 }
 
 /**
@@ -279,6 +281,8 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     poolAgentEntries: () => poolAgentResolver.agentCount(),
     ipAbuseKeys: () => (ipStore instanceof InMemoryIpAbuseStore ? ipStore.keyCount() : 0),
     quotaCacheEntries: () => quotaCacheSize(),
+    // Late-bound via bindInFlight once the request state store exists.
+    inFlight: () => 0,
   });
   scheduledTasks.register({
     name: "runtime-metrics",
@@ -402,5 +406,6 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     providerRegistry: registry,
     resolveOAuthRefresher: (providerId) => registry.resolveRefresher(providerId),
     oauthRefreshService,
+    runtimeMetricsSampler,
   };
 }

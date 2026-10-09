@@ -107,7 +107,7 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     bespokeWire: true,
     hasAdapterUserAgent: true,
     credentialUrl: "https://kiro.dev",
-    credentialHint: "Sign in with AWS Builder ID, an Identity Center organization, Google/GitHub, or paste a Kiro API key.",
+    credentialHint: "Sign in with Google or GitHub in the browser, or use the device-code login with an Identity Center organization, then paste a Kiro API key if you prefer. Prompt caching is not reliably working for Kiro: the upstream recomputes the prompt on every turn, so cached-token savings should not be expected.",
   },
   { id: "kimi", displayName: "Kimi Code", baseUrl: "https://api.kimi.com/coding", credentialUrl: "https://platform.moonshot.ai/console/api-keys" },
   { id: "opencodeft", displayName: "OpenCode Free", baseUrl: "https://opencode.ai", requiresAccount: false, ipScopedRateLimit: true, hasAdapterUserAgent: true },
@@ -131,11 +131,11 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   },
   { id: "hermes", displayName: "Nous Research", baseUrl: "https://inference-api.nousresearch.com/v1", credentialUrl: "https://portal.nousresearch.com" },
   { id: "bai", displayName: "B.AI", baseUrl: "https://api.b.ai/v1", credentialUrl: "https://b.ai" },
-  { id: "inferhub", displayName: "InferHub", baseUrl: "https://api.inferhub.dev/v1", defaultBypassProxy: true },
+  { id: "inferhub", displayName: "InferHub", baseUrl: "https://api.inferhub.dev/v1", defaultSkipProxy: true },
   { id: "aihubmix", displayName: "AiHubMix", baseUrl: "https://aihubmix.com/v1", credentialUrl: "https://aihubmix.com/token" },
   { id: "tokenharbor", displayName: "TokenHarbor", baseUrl: "https://tokenharbor.ai/v1", credentialUrl: "https://tokenharbor.ai" },
   { id: "agentrouter", displayName: "AgentRouter", baseUrl: "https://agentrouter.org", hasAdapterUserAgent: true, credentialUrl: "https://agentrouter.org" },
-  { id: "cline", displayName: "Cline", baseUrl: "https://api.cline.bot/api/v1", hasAdapterUserAgent: true, credentialUrl: "https://app.cline.bot" },
+  { id: "cline", displayName: "Cline", baseUrl: "https://api.cline.bot/api/v1", hasAdapterUserAgent: true, defaultSkipProxy: true, credentialUrl: "https://app.cline.bot" },
   { id: "cb", displayName: "CodeBuddy", baseUrl: "https://www.codebuddy.ai/v2", hasAdapterUserAgent: true, credentialUrl: "https://www.codebuddy.ai", credentialHint: "Sign in with the same CodeBuddy account you use in the desktop app." },
   { id: "cbcn", displayName: "CodeBuddy CN", baseUrl: "https://copilot.tencent.com/v2", hasAdapterUserAgent: true, credentialUrl: "https://copilot.tencent.com", credentialHint: "Sign in with the same CodeBuddy China account you use in the desktop app." },
   { id: "workbuddy", displayName: "WorkBuddy", baseUrl: "https://www.workbuddy.ai", hasAdapterUserAgent: true, credentialUrl: "https://www.workbuddy.ai", credentialHint: "Sign in with the same WorkBuddy account you use in the desktop app." },
@@ -274,7 +274,7 @@ export interface BundledProviderMetadata {
   readonly credentialHint?: string;
   readonly wireFamilyDefault: WireFamily;
   readonly requiresAccount: boolean;
-  readonly defaultBypassProxy: boolean;
+  readonly defaultSkipProxy: boolean;
   /**
    * Whether this provider's rate limits are keyed on the *egress address*
    * rather than on a credential.
@@ -311,7 +311,7 @@ export interface BundledProviderMetadata {
 export const BUNDLED_PROVIDER_METADATA: readonly BundledProviderMetadata[] = RAW_BUNDLED_PROVIDER_METADATA.map((definition) => {
   const wireFamilyDefault: WireFamily = "wireFamilyDefault" in definition ? definition.wireFamilyDefault : "chat";
   const requiresAccount = "requiresAccount" in definition ? definition.requiresAccount : true;
-  const defaultBypassProxy = Boolean("defaultBypassProxy" in definition && definition.defaultBypassProxy);
+  const defaultSkipProxy = Boolean("defaultSkipProxy" in definition && definition.defaultSkipProxy);
   const ipScopedRateLimit = Boolean("ipScopedRateLimit" in definition && definition.ipScopedRateLimit);
   const jwtVerification: ProviderJwtVerification =
     "jwtVerification" in definition ? definition.jwtVerification : {};
@@ -323,7 +323,7 @@ export const BUNDLED_PROVIDER_METADATA: readonly BundledProviderMetadata[] = RAW
     serviceKinds,
     wireFamilyDefault,
     requiresAccount,
-    defaultBypassProxy,
+    defaultSkipProxy,
     ipScopedRateLimit,
     jwtVerification,
     bespokeWire,
@@ -439,9 +439,9 @@ export function providerUpstreamHost(providerId: string): { readonly hostname: s
   return { hostname: url.hostname, port: url.port ? Number(url.port) : url.protocol === "http:" ? 80 : 443 };
 }
 
-/** Default proxy bypass providers. */
-export const DEFAULT_PROXY_BYPASS_PROVIDER_IDS: ReadonlySet<string> = new Set(
-  BUNDLED_PROVIDER_METADATA.filter((entry) => entry.defaultBypassProxy === true).map((entry) => entry.id),
+/** Default proxy-skip providers. */
+export const DEFAULT_PROXY_SKIP_PROVIDER_IDS: ReadonlySet<string> = new Set(
+  BUNDLED_PROVIDER_METADATA.filter((entry) => entry.defaultSkipProxy === true).map((entry) => entry.id),
 );
 
 /** Providers whose rate limits follow the egress address, not a credential. */

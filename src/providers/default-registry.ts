@@ -466,7 +466,7 @@ export const BUNDLED_PROVIDER_MODULES: readonly ProviderModule[] = BUNDLED_PROVI
     displayName: definition.displayName,
     baseUrl: definition.baseUrl,
     serviceKinds: definition.serviceKinds,
-    defaultBypassProxy: definition.defaultBypassProxy,
+    defaultSkipProxy: definition.defaultSkipProxy,
     ...implementation,
     upstreamHost: providerUpstreamHost(definition.id),
     ...(compatibility === undefined ? {} : { compatibility }),

@@ -324,7 +324,7 @@ export function assertProviderRouting(value: unknown): ProviderRoutingResponse {
     (value.maxInflight !== null && typeof value.maxInflight !== "number") ||
     (value.usageFloor !== null && value.usageFloor !== undefined && typeof value.usageFloor !== "number") ||
     (value.usageFloorUnit !== undefined && value.usageFloorUnit !== "credit" && value.usageFloorUnit !== "percent") ||
-    typeof value.bypassProxy !== "boolean" ||
+    typeof value.skipProxy !== "boolean" ||
     typeof value.userAgent !== "string" ||
     value.userAgent.length > 4096
   ) {

@@ -127,10 +127,14 @@ CREATE TABLE "network_pools" (
   "last_speedtest_at" text,
   "bytes_sent_total" bigint DEFAULT 0 NOT NULL,
   "bytes_received_total" bigint DEFAULT 0 NOT NULL,
+  "family" text,
   CONSTRAINT "network_pools_kind_enum_check" CHECK ("kind" IS NULL OR "kind" IN ('http', 'socks5', 'bridge')),
   CONSTRAINT "network_pools_status_enum_check" CHECK ("status" IS NULL OR "status" IN ('active', 'cooldown', 'disabled')),
   CONSTRAINT "network_pools_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
 );
+--> statement-breakpoint
+
+CREATE INDEX IF NOT EXISTS "network_pools_family_idx" ON "network_pools" ("family");
 --> statement-breakpoint
 
 CREATE TABLE "health_events" (
@@ -187,7 +191,7 @@ CREATE TABLE "provider_routing_settings" (
   "usage_floor_unit" text DEFAULT 'percent' NOT NULL,
   "enabled" integer DEFAULT false NOT NULL CHECK ("enabled" IN (0, 1)),
   "user_agent" text DEFAULT 'codex_cli_rs/0.156.1' NOT NULL,
-  "bypass_proxy" integer DEFAULT false NOT NULL CHECK ("bypass_proxy" IN (0, 1)),
+  "skip_proxy" integer DEFAULT false NOT NULL CHECK ("skip_proxy" IN (0, 1)),
   CONSTRAINT "provider_routing_settings_provider_id_providers_id_fk" FOREIGN KEY ("provider_id") REFERENCES "providers"("id") ON DELETE cascade,
   CONSTRAINT "provider_routing_settings_strategy_enum_check" CHECK ("strategy" IS NULL OR "strategy" IN ('fallback', 'round_robin')),
   CONSTRAINT "provider_routing_settings_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE cascade
@@ -556,4 +560,12 @@ CREATE INDEX "share_links_api_key_idx" ON "share_links" ("api_key_id");
 --> statement-breakpoint
 
 CREATE INDEX "share_links_active_kind_expires_idx" ON "share_links" ("active", "kind", "expires_at");
+--> statement-breakpoint
+
+CREATE TABLE "daily_checkin_ledger" (
+  "day_key" text NOT NULL,
+  "account_id" text NOT NULL,
+  "claimed_at" text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')) NOT NULL,
+  CONSTRAINT "daily_checkin_ledger_day_key_account_id_pk" PRIMARY KEY("day_key", "account_id")
+);
 --> statement-breakpoint

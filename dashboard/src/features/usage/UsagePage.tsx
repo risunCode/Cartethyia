@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Activity,
@@ -1324,6 +1324,8 @@ export default function Usage(): ReactNode {
   const [requestLimit, setRequestLimit] = useState(50);
   const [requestStatusFilter, setRequestStatusFilter] = useState<number | null>(null);
   const requestsQuery = useUsageRequests(period, requestLimit, requestStatusFilter);
+  /** Scroll offset of the Requests table, restored after each live refresh. */
+  const requestsScrollTopRef = useRef(0);
   const [requestSortKey, setRequestSortKey] = useState<"startedAt" | "model" | "status" | "tokens" | "tps" | "ttft" | "duration">("startedAt");
   const [requestSortDirection, setRequestSortDirection] = useState<"asc" | "desc">("desc");
   const toggleRequestSort = (key: typeof requestSortKey): void => {
@@ -1371,6 +1373,10 @@ export default function Usage(): ReactNode {
 
   const handleTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
+    // Recorded on every scroll so a live poll that replaces the rows can put
+    // the operator back where they were. `requestItems` is keyed by request id,
+    // so a refetch remounts the rows and the browser resets scrollTop to 0.
+    requestsScrollTopRef.current = target.scrollTop;
     if (target.scrollHeight - target.scrollTop - target.clientHeight < 40) {
       if (!requestsQuery.isFetching && requestItems.length >= requestLimit && requestLimit < 500) {
         setRequestLimit((prev) => prev + 50);
@@ -1409,7 +1415,29 @@ export default function Usage(): ReactNode {
     });
     return items;
   }, [requestsQuery.data?.items, requestSortKey, requestSortDirection]);
+
+  /**
+   * Puts the Requests table back at the offset it was scrolled to.
+   *
+   * The rows are keyed by request id, so a live poll that swaps the data
+   * replaces the `<tr>` elements and the browser resets the scroll container to
+   * 0 — the operator is thrown back to the newest row mid-read. Restore only
+   * when the row count changed, so an ordinary re-render with the same rows
+   * never fights the user's own scrolling. A deliberate reset (status filter,
+   * period change) clears the offset first via `resetRequestsScroll`.
+   */
+  useLayoutEffect(() => {
+    const scroller = document.getElementById("usage-requests-scroll");
+    if (scroller === null) return;
+    const target = Math.min(requestsScrollTopRef.current, scroller.scrollHeight);
+    scroller.scrollTop = target;
+  }, [requestItems.length]);
+
+  const resetRequestsScroll = () => {
+    requestsScrollTopRef.current = 0;
+  };
   const toggleRequestStatus = (status: number): void => {
+    resetRequestsScroll();
     setRequestLimit(50);
     setRequestStatusFilter((current) => (current === status ? null : status));
   };
@@ -1606,7 +1634,7 @@ export default function Usage(): ReactNode {
               />
             </div>
           ) : (
-            <div className="rounded-[10px] border border-inner-border">
+            <div id="usage-requests-scroll" className="rounded-[10px] border border-inner-border bg-surface-1">
               <DataTable
                 maxHeight={445}
                 onScroll={handleTableScroll}

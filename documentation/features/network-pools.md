@@ -9,11 +9,11 @@ not own model selection (`architecture.md`).
 
 | Table | Key | Holds |
 | --- | --- | --- |
-| `network_pools` | `id` | `kind`, `endpoint_config`, `credential_ciphertext`, `max_inflight`, `weight`, health columns, speed-test and byte totals |
+| `network_pools` | `id` | `kind`, `endpoint_config`, `credential_ciphertext`, `max_inflight`, `weight`, `family`, health columns, speed-test and byte totals |
 | `pool_routing_settings` | PK `tenant_id` | `strategy` (`least_loaded` \| `round_robin`), `rotate_count` |
-| `provider_routing_settings` | `(tenant_id, provider_id)` or global when `tenant_id IS NULL` | `bypass_proxy` (dial direct, never through a pool), `user_agent`, per-account `max_inflight`, `usage_floor` |
+| `provider_routing_settings` | `(tenant_id, provider_id)` or global when `tenant_id IS NULL` | `skip_proxy` (dial direct, never through a pool), `user_agent`, per-account `max_inflight`, `usage_floor` |
 
-`bypassProxy` and `userAgent` live on the *provider* row, not the pool row: when
+`skipProxy` and `userAgent` live on the *provider* row, not the pool row: when
 it is false, dispatch selects among every active pool the tenant owns —
 least-loaded and not cooling down — and never an admin-pinned one.
 

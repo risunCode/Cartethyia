@@ -10,7 +10,7 @@ const routing = {
   usageFloor: null,
   usageFloorUnit: "percent",
   enabled: true,
-  bypassProxy: true,
+  skipProxy: true,
 };
 
 describe("assertProviderRouting", () => {

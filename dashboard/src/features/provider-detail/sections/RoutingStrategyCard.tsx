@@ -9,7 +9,7 @@ import { Switch } from "../../../components/ui/switch";
 import { toast } from "../../../lib/toast";
 import { DASHBOARD_VERSION } from "../../../lib/version";
 import {
-  PROXY_UNSUPPORTED_HINT_PROVIDERS,
+  PROXY_SKIP_HINT_PROVIDERS,
   ROUTING_ACTIVE_LABEL,
   useRoutingStrategy,
 } from "../../../hooks/use-routing-strategy";
@@ -46,7 +46,7 @@ export function RoutingStrategyCard({
   readonly userAgentEditable: boolean;
 }): ReactNode {
   const routing = useRoutingStrategy(providerId, userAgentEditable);
-  const showUnsupportedHint = PROXY_UNSUPPORTED_HINT_PROVIDERS.has(providerId);
+  const showUnsupportedHint = PROXY_SKIP_HINT_PROVIDERS.has(providerId);
   const presets = userAgentPresets(
     DASHBOARD_VERSION,
     routeIdentityVersions.codex,
@@ -155,20 +155,20 @@ export function RoutingStrategyCard({
           <Row
             action={
               <Switch
-                checked={routing.bypassProxy}
-                onChange={routing.setBypassProxy}
-                id="routing-bypass-proxy"
+                checked={routing.skipProxy}
+                onChange={routing.setSkipProxy}
+                id="routing-skip-proxy"
               />
             }
           >
             <div style={{ minWidth: 0 }}>
-              <label htmlFor="routing-bypass-proxy">
+              <label htmlFor="routing-skip-proxy">
                 <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
                   <Cable
                     size={15}
                     aria-hidden="true"
                     style={{
-                      color: routing.bypassProxy ? "var(--accent)" : "var(--text-tertiary)",
+                      color: routing.skipProxy ? "var(--accent)" : "var(--text-tertiary)",
                       flexShrink: 0,
                     }}
                   />

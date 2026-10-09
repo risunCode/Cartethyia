@@ -8,7 +8,7 @@ import { Input } from "../../components/ui/input";
 import { ListRow } from "../../components/ui/list-row";
 import { Select } from "../../components/ui/select";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/state";
-import { Inline } from "../../components/ui/inline";
+import { Inline, CardActions } from "../../components/ui/inline";
 import { ModelPickerModal } from "../../components/ModelPicker";
 import { SortableList } from "../../components/SortableList";
 import { Stack } from "../../components/ui/stack";
@@ -128,9 +128,11 @@ function AliasesSection(): ReactNode {
         subtitle="Map readable names to real models (e.g. claude-mythos-5 → claude-opus-5)"
         icon={<Route size={16} />}
         action={
-          <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={openCreate}>
-            New Alias
-          </Button>
+          <CardActions>
+            <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={openCreate}>
+              New Alias
+            </Button>
+          </CardActions>
         }
       />
       <CardBody>
@@ -454,9 +456,11 @@ function CombosSection(): ReactNode {
         subtitle="Combine multiple models with fallback or round-robin rotation"
         icon={<Layers size={16} />}
         action={
-          <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={openCreate}>
-            New Combo
-          </Button>
+          <CardActions>
+            <Button variant="primary" size="sm" icon={<Plus size={13} />} onClick={openCreate}>
+              New Combo
+            </Button>
+          </CardActions>
         }
       />
       <CardBody>

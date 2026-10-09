@@ -172,6 +172,7 @@ export function createNetworkPoolOperations(config: NetworkPoolConfig) {
           // Absent or `null` both mean unmetered; a positive number is the
           // allowance. The body schema already rejects zero and negatives.
           ...(typeof request.quotaBytes === "number" ? { quotaBytes: request.quotaBytes } : {}),
+          ...(request.family === undefined ? {} : { family: request.family }),
         };
         await config.store.create(record);
         await config.auditSink?.record({

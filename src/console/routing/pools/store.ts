@@ -105,6 +105,7 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
       ...(row.lastSpeedtestAt ? { lastSpeedtestAt: row.lastSpeedtestAt.toISOString() } : {}),
       ...(Object.keys(rest).length > 0 ? { config: rest } : {}),
       ...(row.credentialCiphertext ? { hasCredential: true } : {}),
+      ...(row.family ? { family: row.family } : {}),
       tenantId,
       createdAt: row.createdAt.toISOString(),
     };
@@ -188,6 +189,7 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
       status: record.status,
       consecutiveFailures: 0,
       ...(record.quotaBytes !== undefined ? { quotaBytes: record.quotaBytes } : {}),
+      ...(record.family !== undefined ? { family: record.family } : {}),
     });
   }
 
@@ -237,6 +239,9 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
         ...(patch.credential !== undefined
           ? { credentialCiphertext: encryptCredential(patch.credential) }
           : {}),
+        // An explicit `null` clears the family tag; omitting the field leaves
+        // it as-is, matching `quotaBytes`.
+        ...("family" in patch ? { family: patch.family ?? null } : {}),
       })
       .where(and(eq(networkPools.tenantId, tenantId), eq(networkPools.id, poolId)))
       .returning();

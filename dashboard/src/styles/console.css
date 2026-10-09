@@ -589,16 +589,6 @@ html[data-empty-outline="true"] .empty-panel {
   outline-offset: 1px;
 }
 
-.modal-form-actions {
-  grid-column: 1 / -1;
-}
-
-@media (max-width: 640px) {
-
-  .modal-form-actions {
-    grid-column: auto;
-  }
-}
 
 /*
  * API key create/edit form.
@@ -819,8 +809,7 @@ html[data-empty-outline="true"] .empty-panel {
   margin: 0 0 12px;
 }
 
-.api-key-form-section-wide,
-.modal-form-actions {
+.api-key-form-section-wide {
   grid-column: 1 / -1;
 }
 
@@ -1098,8 +1087,7 @@ html[data-empty-outline="true"] .empty-panel {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .api-key-form-section-wide,
-  .modal-form-actions {
+  .api-key-form-section-wide {
     grid-column: auto;
   }
 }
@@ -1733,16 +1721,6 @@ main.route-enter .state-viewport {
 }
 
 /* `.stat-card` emits utilities from `ui/layout.tsx`. */
-/* Named container for the proxy table: the labeled action buttons in
- * `base.css` collapse to square icon buttons against this width, so a narrow
- * row degrades gracefully instead of overflowing the Actions column.
- *
- * Deliberately NOT a scroller — the table's own container scrolls (via
- * `maxHeight`), which is what keeps the header row pinned while the rows move. */
-.proxy-table-scroll {
-  container-type: inline-size;
-  container-name: rule-row;
-}
 
 .stat-card-detail {
   /* Details can name a pool or a live count. Wrap rather than clip, and cap

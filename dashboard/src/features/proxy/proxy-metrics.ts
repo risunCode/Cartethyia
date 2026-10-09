@@ -11,7 +11,7 @@ import type { NetworkPoolResponse } from "../../data/contracts";
  */
 export const MAX_BATCH_PROBE_TARGETS = 100;
 
-export type PoolSortKey = "name" | "address" | "load";
+export type PoolSortKey = "name" | "family" | "address" | "load";
 export type PoolSortDirection = "asc" | "desc";
 
 /** The value a column sorts on. `null` means "not known yet". */
@@ -23,6 +23,12 @@ function poolSortValue(
   switch (key) {
     case "name":
       return (pool.label || pool.endpoint).toLowerCase();
+    case "family":
+      // Untagged pools sort last in both directions rather than leading an
+      // ascending sort as if "" were a family name.
+      return pool.family === undefined || pool.family === null || pool.family === ""
+        ? null
+        : pool.family.toLowerCase();
     case "address":
       return pool.egressIp ?? null;
     case "load":

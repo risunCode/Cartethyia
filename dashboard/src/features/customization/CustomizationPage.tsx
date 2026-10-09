@@ -14,6 +14,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { Stack } from "../../components/ui/stack";
 import { Switch } from "../../components/ui/switch";
+import { CardActions } from "../../components/ui/inline";
 import {
   DEFAULT_BACKGROUND_URL,
   BACKGROUND_MAX_BYTES,
@@ -133,6 +134,13 @@ export default function CustomizationPage(): ReactNode {
           title="Background"
           subtitle="Stored in this browser only. It never leaves the machine."
           icon={<ImageIcon size={16} />}
+          action={
+            <CardActions>
+              <Button variant="ghost" size="sm" icon={<RotateCcw size={13} />} onClick={reset}>
+                Reset
+              </Button>
+            </CardActions>
+          }
         />
         <CardBody>
           <Stack gap="14px">
@@ -157,7 +165,7 @@ export default function CustomizationPage(): ReactNode {
                 Images are resized to 2560px. Videos play on desktop and show their first frame on mobile.
               </span>
             </div>
-            <BackgroundControls settings={settings} setSettings={setSettings} onReset={reset} />
+            <BackgroundControls settings={settings} setSettings={setSettings} />
           </Stack>
         </CardBody>
       </Card>
@@ -168,9 +176,11 @@ export default function CustomizationPage(): ReactNode {
           subtitle="Each surface keeps its own style. Dialogs are never blurred, so they stay readable."
           icon={<Layers size={16} />}
           action={
-            <Button variant="ghost" size="sm" icon={<RotateCcw size={13} />} onClick={resetBlur}>
-              Reset
-            </Button>
+            <CardActions>
+              <Button variant="ghost" size="sm" icon={<RotateCcw size={13} />} onClick={resetBlur}>
+                Reset
+              </Button>
+            </CardActions>
           }
         />
         <CardBody>
@@ -310,11 +320,9 @@ function BackgroundPreview({
 function BackgroundControls({
   settings,
   setSettings,
-  onReset,
 }: {
   readonly settings: CustomizationSettings;
   readonly setSettings: (patch: Partial<CustomizationSettings>) => void;
-  readonly onReset: () => void;
 }): ReactNode {
   return (
     <div className="flex flex-col gap-[14px]">
@@ -328,11 +336,6 @@ function BackgroundControls({
         <Slider label="Zoom" value={settings.backgroundScale} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundScale} min={100} max={180} unit="%" onChange={(value) => setSettings({ backgroundScale: value })} />
         <Slider label="Shift horizontal" value={settings.backgroundX} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundX} min={-100} max={100} onChange={(value) => setSettings({ backgroundX: value })} />
         <Slider label="Shift vertical" value={settings.backgroundY} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundY} min={-100} max={100} onChange={(value) => setSettings({ backgroundY: value })} />
-      </div>
-      <div className="mt-auto flex justify-end">
-        <Button variant="ghost" size="sm" icon={<RotateCcw size={13} />} onClick={onReset}>
-          Reset
-        </Button>
       </div>
     </div>
   );

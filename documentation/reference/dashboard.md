@@ -171,7 +171,7 @@ click landed.
 `useRoutingStrategy` reads `GET` provider routing and writes it back through
 `useUpdateProviderRouting`. Round robin is a boolean over the `round_robin`
 strategy. Fallback is the other value. `rotateCount`, `maxInflight`,
-`bypassProxy`, and `userAgent` save through `useDebouncedSave`, so a slider
+`skipProxy`, and `userAgent` save through `useDebouncedSave`, so a slider
 does not send one request per pixel.
 
 User-agent editing is gated by `allowUserAgent`. Providers that must keep a

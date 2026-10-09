@@ -409,6 +409,7 @@ export async function quotaRefreshSweep(deps: QuotaRefreshSweepDeps): Promise<vo
           : undefined;
         const fetcher = pooled ?? deps.checkinFetcher;
         const pass = await attemptDailyGrowthPass({
+          db: deps.db,
           redis: deps.redis,
           providerId: entry.target.providerId as ProviderId,
           accountId: entry.target.accountId,

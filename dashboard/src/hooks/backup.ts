@@ -1,4 +1,4 @@
-import { consoleBytes, consoleRequest, consoleUpload } from "../data/api";
+import { consoleRequest, consoleUpload } from "../data/api";
 import type { TransferProgress } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import type { BackupExportResponse, BackupImportResponse } from "../data/contracts";

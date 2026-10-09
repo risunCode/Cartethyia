@@ -15,7 +15,10 @@
 // pass instead of forfeiting that day's grant.
 //
 
+import { and, eq } from "drizzle-orm";
 import type { RedisClient } from "../persistence/redis";
+import type { CartethyiaDatabase } from "../persistence/db-handle";
+import { dailyCheckinLedger } from "../persistence/schema";
 import type { ProviderId } from "../providers/contracts";
 import { log } from "../observability/logger";
 import { buddyAccountUid } from "../providers/integrations/buddy/buddy-oauth-shared";
@@ -44,20 +47,78 @@ export function ledgerKey(dayKey: string, accountId: string): string {
   return `${LEDGER_KEY_PREFIX}:${dayKey}:${accountId}`;
 }
 
-/** True when this pass won the account's day slot and must do the work. */
+/**
+ * True when this pass won the account's day slot and must do the work.
+ *
+ * Two guards, because the deployment shape decides which one is authoritative.
+ * With Redis the `SET NX EX` is the cross-process guard (two gateway instances
+ * cannot both attempt the same account). Without it the ledger *table* is the
+ * guard, and its composite PK makes the insert atomic — so Lite records the
+ * attempt it just made instead of silently returning `true`, which is what left
+ * the console unable to answer "attempted today" and showing "Check-in due"
+ * forever.
+ */
 async function reserveDaySlot(
+  db: CartethyiaDatabase | undefined,
   redis: RedisClient | undefined,
   dayKey: string,
   accountId: string,
 ): Promise<boolean> {
-  // Memory backend: one process needs no distributed guard — the slot is
-  // always won, and the sweep's once-a-day cadence is the only throttle.
-  if (redis === undefined) return true;
-  // `SET NX EX` is the whole coordination mechanism: one Redis round trip that
-  // is atomic across processes, so two gateway instances cannot both attempt
-  // the same account on the same day.
+  if (redis === undefined) {
+    if (db === undefined) {
+      // No ledger at all: one process needs no distributed guard, so the slot is
+      // always won and the sweep's once-a-day cadence is the only throttle.
+      return true;
+    }
+    try {
+      await db
+        .insert(dailyCheckinLedger)
+        .values({ dayKey, accountId })
+        .onConflictDoNothing();
+      return true;
+    } catch (error) {
+      // A failed ledger write must not stop the claim: the day marker is only
+      // bookkeeping, and losing it costs a possible duplicate claim tomorrow
+      // rather than forfeiting today's grant.
+      log.warn(`[daily-checkin] ledger reserve failed for account=${accountId}`, error as Error);
+      return true;
+    }
+  }
   const set = await redis.set(ledgerKey(dayKey, accountId), "1", "EX", LEDGER_TTL_SECONDS, "NX");
   return set !== null;
+}
+
+/**
+ * Releases today's slot so a later pass can retry.
+ *
+ * Only transient outcomes release: `error` is a network/5xx failure and
+ * `unavailable` means the probe could not be read — both are worth another
+ * attempt, and holding the slot until tomorrow is what made an account look
+ * "done" when nothing had been claimed. Terminal states keep the slot.
+ */
+async function releaseDaySlot(
+  db: CartethyiaDatabase | undefined,
+  redis: RedisClient | undefined,
+  dayKey: string,
+  accountId: string,
+): Promise<void> {
+  if (redis !== undefined) {
+    await redis.del(ledgerKey(dayKey, accountId)).catch(() => undefined);
+    return;
+  }
+  if (db === undefined) return;
+  try {
+    await db
+      .delete(dailyCheckinLedger)
+      .where(
+        and(
+          eq(dailyCheckinLedger.dayKey, dayKey),
+          eq(dailyCheckinLedger.accountId, accountId),
+        ),
+      );
+  } catch (error) {
+    log.warn(`[daily-checkin] ledger release failed for account=${accountId}`, error as Error);
+  }
 }
 
 /** Providers whose billing facade exposes the daily check-in routes. */
@@ -87,6 +148,7 @@ export type DailyGrowthPassResult = {
  * Returns `null` when no slot could be reserved (already settled today).
  */
 export async function attemptDailyGrowthPass(args: {
+  readonly db: CartethyiaDatabase | undefined;
   readonly redis: RedisClient | undefined;
   readonly providerId: ProviderId;
   readonly accountId: string;
@@ -95,12 +157,12 @@ export async function attemptDailyGrowthPass(args: {
   readonly fetcher?: typeof fetch;
   readonly now?: () => Date;
 }): Promise<DailyGrowthPassResult | null> {
-  const { redis, providerId, accountId, resolveCredential } = args;
+  const { db, redis, providerId, accountId, resolveCredential } = args;
   const dayKey = checkinDayKey(args.now?.() ?? new Date());
 
   let reserved = false;
   try {
-    reserved = await reserveDaySlot(redis, dayKey, accountId);
+    reserved = await reserveDaySlot(db, redis, dayKey, accountId);
   } catch (error) {
     log.warn(`[daily-checkin] ledger unavailable for account=${accountId}`, error as Error);
     reserved = true;
@@ -111,7 +173,7 @@ export async function attemptDailyGrowthPass(args: {
   try {
     credential = await resolveCredential(providerId, accountId);
   } catch (error) {
-    if (redis !== undefined) await redis.del(ledgerKey(dayKey, accountId)).catch(() => undefined);
+    await releaseDaySlot(db, redis, dayKey, accountId);
     return {
       checkin: {
         providerId,
@@ -156,7 +218,7 @@ export async function attemptDailyGrowthPass(args: {
     // worth another attempt, and holding the slot until tomorrow is what made
     // an account look "done" when nothing had been claimed. `already_claimed`,
     // `not_eligible`, and `event_ended` are terminal for the day and keep it.
-    if (redis !== undefined) await redis.del(ledgerKey(dayKey, accountId)).catch(() => undefined);
+    await releaseDaySlot(db, redis, dayKey, accountId);
     return {
       checkin,
       report: { providerId, accountId, state: "error", error: "Skipped (check-in failed)." },

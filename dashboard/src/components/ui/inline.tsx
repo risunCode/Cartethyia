@@ -32,6 +32,32 @@ const JUSTIFY: Record<string, string> = {
   "space-evenly": "justify-evenly",
 };
 
+/**
+ * The action cluster for a card header.
+ *
+ * Right alignment comes from `.card-header-action` on the parent
+ * (`styles/base.css`), which already sets `margin-left: auto` and
+ * `justify-content: flex-end`. This exists so every page names the same
+ * primitive for its header actions instead of hand-rolling an `<Inline>`, and
+ * so wrapping is consistent: a narrow viewport drops the cluster below the
+ * title while keeping it flush right.
+ */
+export function CardActions({
+  children,
+  gap = "6px",
+  align = "center",
+  justify,
+  wrap = true,
+  style,
+  className = "",
+}: InlineProps): ReactNode {
+  return (
+    <Inline gap={gap} align={align} justify={justify} wrap={wrap} style={style} className={className}>
+      {children}
+    </Inline>
+  );
+}
+
 export function Inline({
   children,
   gap = "8px",

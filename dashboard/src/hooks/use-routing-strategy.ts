@@ -11,16 +11,17 @@ export const ROUTING_ACTIVE_LABEL = {
 } as const;
 
 // Providers known to not reliably support plain HTTP/S proxying — routing
-// for these defaults to bypassProxy on the backend. Dashboard copy of the
-// backend `DEFAULT_PROXY_BYPASS_PROVIDER_IDS` (`src/providers/metadata.ts`).
+// for these defaults to skipProxy on the backend. Dashboard copy of the
+// backend `DEFAULT_PROXY_SKIP_PROVIDER_IDS` (`src/providers/metadata.ts`).
 // Intentionally duplicated, not imported: importing the backend value would
 // bundle the backend module graph (Elysia + `node:crypto`) into the browser
 // build and break Vite dev with "Module node:crypto has been externalized".
 // Same precedent as the dashboard `isRecord` copy in `lib/api.ts`.
 // This set only decides whether the UI shows an explanatory tip; the backend
 // constant is what actually enforces the default. Keep in sync.
-export const PROXY_UNSUPPORTED_HINT_PROVIDERS: ReadonlySet<string> = new Set([
+export const PROXY_SKIP_HINT_PROVIDERS: ReadonlySet<string> = new Set([
   "inferhub",
+  "cline",
 ]);
 
 export interface RoutingStrategyState {
@@ -33,7 +34,7 @@ export interface RoutingStrategyState {
   readonly usageFloor: number | null;
   readonly usageFloorUnit: "credit" | "percent";
   readonly setUsageFloor: (floor: number | null, unit: "credit" | "percent") => void;
-  readonly bypassProxy: boolean;
+  readonly skipProxy: boolean;
   readonly userAgent: string;
   readonly setUserAgent: (next: string) => void;
   readonly isLoading: boolean;
@@ -42,7 +43,7 @@ export interface RoutingStrategyState {
   readonly saveFailed: boolean;
   readonly refetch: () => void;
   readonly setMaxInflight: (next: number | null) => void;
-  readonly setBypassProxy: (next: boolean) => void;
+  readonly setSkipProxy: (next: boolean) => void;
 }
 
 export function useRoutingStrategy(providerId: string, allowUserAgent: boolean): RoutingStrategyState {
@@ -53,7 +54,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
   const [maxInflight, setMaxInflightState] = useState<number | null>(null);
   const [usageFloor, setUsageFloorState] = useState<number | null>(null);
   const [usageFloorUnit, setUsageFloorUnitState] = useState<"credit" | "percent">("percent");
-  const [bypassProxy, setBypassProxyState] = useState(false);
+  const [skipProxy, setSkipProxyState] = useState(false);
   const [userAgent, setUserAgentState] = useState("codex_cli_rs/0.156.1");
 
   useEffect(() => {
@@ -63,7 +64,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     setMaxInflightState(query.data.maxInflight);
     setUsageFloorState(query.data.usageFloor);
     setUsageFloorUnitState(query.data.usageFloorUnit);
-    setBypassProxyState(query.data.bypassProxy);
+    setSkipProxyState(query.data.skipProxy);
     setUserAgentState(query.data.userAgent);
   }, [query.data]);
 
@@ -73,7 +74,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     maxInflight: number | null;
     usageFloor: number | null;
     usageFloorUnit: "credit" | "percent";
-    bypassProxy: boolean;
+    skipProxy: boolean;
     userAgent: string;
   }) => {
     mutation.mutate(
@@ -86,7 +87,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           maxInflight: next.maxInflight,
           usageFloor: next.usageFloor,
           usageFloorUnit: next.usageFloorUnit,
-          bypassProxy: next.bypassProxy,
+          skipProxy: next.skipProxy,
           ...(allowUserAgent ? { userAgent: next.userAgent } : {}),
         },
       },
@@ -95,7 +96,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           if (!query.data) return;
           setStrategyState(query.data.strategy);
           setRotateCountState(query.data.rotateCount);
-          setBypassProxyState(query.data.bypassProxy);
+          setSkipProxyState(query.data.skipProxy);
           setUserAgentState(query.data.userAgent);
         },
       },
@@ -108,7 +109,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       maxInflight: next,
       usageFloor,
       usageFloorUnit,
-      bypassProxy,
+      skipProxy,
       userAgent,
     }),
   );
@@ -119,7 +120,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       maxInflight,
       usageFloor,
       usageFloorUnit,
-      bypassProxy,
+      skipProxy,
       userAgent,
     }),
   );
@@ -130,7 +131,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       maxInflight,
       usageFloor,
       usageFloorUnit,
-      bypassProxy,
+      skipProxy,
       userAgent: next,
     }),
   );
@@ -143,9 +144,9 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
     setUsageFloor: (floor, unit) => {
       setUsageFloorState(floor);
       setUsageFloorUnitState(unit);
-      save({ strategy, rotateCount, maxInflight, usageFloor: floor, usageFloorUnit: unit, bypassProxy, userAgent });
+      save({ strategy, rotateCount, maxInflight, usageFloor: floor, usageFloorUnit: unit, skipProxy, userAgent });
     },
-    bypassProxy,
+    skipProxy,
     userAgent,
     isLoading: query.isPending,
     isError: query.isError,
@@ -160,15 +161,15 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
       setUserAgentState(next);
       scheduleUserAgentSave(next);
     },
-    setBypassProxy: (next) => {
-      setBypassProxyState(next);
+    setSkipProxy: (next) => {
+      setSkipProxyState(next);
       save({
         strategy,
         rotateCount,
         maxInflight,
         usageFloor,
         usageFloorUnit,
-        bypassProxy: next,
+        skipProxy: next,
         userAgent,
       });
     },
@@ -182,7 +183,7 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
         maxInflight,
         usageFloor,
         usageFloorUnit,
-        bypassProxy,
+        skipProxy,
         userAgent,
       });
     },

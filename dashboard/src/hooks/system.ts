@@ -113,6 +113,11 @@ export function useUsageRequests(
         { signal: querySignal(context) },
       ).then(assertUsageRequests),
     ...DASHBOARD_QUERY_OPTIONS,
+    // Keep the previous page's rows visible while a larger `limit` loads. The
+    // key includes the limit, so without this a scroll-triggered page bump is
+    // treated as a brand-new query with no data: the table empties, the scroll
+    // container collapses, and the operator is thrown back to the top.
+    placeholderData: (previous) => previous,
     refetchInterval: POLL.live,
   });
 }

@@ -167,6 +167,7 @@ function PoolEditForm({
   const updatePool = useUpdateNetworkPool();
   const healthCheck = useHealthCheckNetworkPool();
   const [label, setLabel] = useState(pool.label ?? "");
+  const [family, setFamily] = useState(pool.family ?? "");
   const [endpoint, setEndpoint] = useState(pool.endpoint ?? "");
   const [cap, setCap] = useState(String(pool.maxInflight ?? 10));
   const [weight, setWeight] = useState(String(pool.weight ?? 100));
@@ -206,6 +207,9 @@ function PoolEditForm({
       poolId: pool.id,
       request: {
         ...(label.trim() !== pool.label ? { label: label.trim() || undefined } : {}),
+        // An emptied box clears the tag, so compare against the raw stored
+        // value rather than a trimmed one.
+        ...(family.trim() !== (pool.family ?? "") ? { family: family.trim() || null } : {}),
         ...(endpoint.trim() !== pool.endpoint && endpoint.trim() !== ""
           ? { endpoint: endpoint.trim() }
           : {}),
@@ -236,6 +240,15 @@ function PoolEditForm({
           label="Name"
           value={label}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLabel(e.target.value)}
+          style={inputStyle}
+        />
+      </div>
+      <div>
+        <Input
+          label="Family"
+          value={family}
+          placeholder="e.g. residential-id"
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFamily(e.target.value)}
           style={inputStyle}
         />
       </div>
@@ -325,6 +338,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
   const createPool = useCreateNetworkPool();
   const probeBatch = useProbeNetworkPoolBatch();
   const [text, setText] = useState("");
+  const [family, setFamily] = useState("");
   const [quotaGb, setQuotaGb] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
@@ -385,6 +399,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
           kind: detectProxyKind(line),
           endpoint: line,
           ...(quotaBytes === null ? {} : { quotaBytes }),
+          ...(family.trim() !== "" ? { family: family.trim() } : {}),
         });
         ok++;
       } catch (err) {
@@ -455,6 +470,15 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
           resize: "vertical",
         }}
       />
+      <div>
+        <Input
+          label="Family (blank = untagged)"
+          value={family}
+          placeholder="e.g. residential-id"
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFamily(e.target.value)}
+          style={{ width: "100%" }}
+        />
+      </div>
       <div>
         <Input
           label="Bandwidth quota per pool (GB, blank = unmetered)"
@@ -1103,6 +1127,18 @@ const PoolRow = memo(function PoolRow({
       </td>
       <td style={{ minWidth: 0, maxWidth: "300px" }}>
         <PoolTitleBlock pool={pool} view={view} maskValues={maskValues} />
+      </td>
+      <td style={{ minWidth: 0, maxWidth: "180px" }}>
+        {pool.family ? (
+          <span
+            className="truncate text-[12px] font-semibold text-text-secondary"
+            title={pool.family}
+          >
+            {pool.family}
+          </span>
+        ) : (
+          <span className="text-[11.5px] text-text-tertiary">—</span>
+        )}
       </td>
       <td style={{ maxWidth: "220px" }}>
         <PoolAddressBlock
@@ -1765,6 +1801,7 @@ export default function Proxy(): ReactNode {
                 headers={[
                   "",
                   { key: "name", label: "Proxy", sortable: true },
+                  { key: "family", label: "Family", sortable: true },
                   { key: "address", label: "Address", sortable: true },
                   { key: "load", label: "Load", sortable: true },
                   "Actions",

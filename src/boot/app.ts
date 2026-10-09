@@ -45,6 +45,7 @@ import type { TrustedProxyBoundary } from "../config/network";
 import { resolveClientIdentity } from "../security/ip-boundary";
 import type { ValidatedNetworkBindingFactory } from "../network/pool/resolver";
 import { metrics } from "../observability/metrics";
+import type { RuntimeMetricsSampler } from "../observability/runtime-metrics";
 import { API_CONTENT_SECURITY_POLICY, X_FRAME_OPTIONS } from "../security/outbound-headers";
 import type { ModelStrikeService } from "../security/model-abuse";
 
@@ -78,6 +79,12 @@ export interface GatewayShellDeps {
    * hand-maintained copy of the whole `ShutdownCoordinator`.
    */
   readonly shutdownCoordinator?: ShutdownDrainSource;
+  /**
+   * Memory sampler when the caller owns one. The shell never constructs it, so
+   * it stays optional; production always supplies it and binds its in-flight
+   * source to the request store below.
+   */
+  readonly runtimeMetricsSampler?: RuntimeMetricsSampler;
 }
 
 /**
@@ -120,6 +127,8 @@ export interface ProductionAppDeps {
    * backstop is not mounted.
    */
   readonly scheduledTasks?: ScheduledTaskRegistry;
+  /** Memory sampler; bound to the request store created below. */
+  readonly runtimeMetricsSampler?: RuntimeMetricsSampler;
   /** The real coordinator: production wires its abort hook and tracks requests. */
   readonly shutdownCoordinator: ShutdownCoordinator;
   readonly dashboardDist?: string;
@@ -219,6 +228,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
   const requestStateStore = new ProxyRequestStateStore(
     deps.mode === "production" ? deps.shutdownCoordinator : undefined,
   );
+  deps.runtimeMetricsSampler?.bindInFlight(() => requestStateStore.inFlightCount());
   // Shutdown ordering: abort in-flight proxy controllers first so the
   // bounded drain observes cancellation and finalizers run before
   // telemetry flush and pool close. The reason is threaded through so the

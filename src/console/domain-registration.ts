@@ -104,7 +104,7 @@ export interface ConsoleDomainContext {
 import { and, eq, isNull, or } from "drizzle-orm";
 import { networkPools, providerRoutingSettings } from "../persistence/schema";
 import { resolveTenantOverride } from "../persistence/tenant-scope";
-import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../providers/metadata";
+import { DEFAULT_PROXY_SKIP_PROVIDER_IDS } from "../providers/metadata";
 import type { ProbeOutboundBinding } from "../providers/discovery/probing-service";
 
 
@@ -135,7 +135,7 @@ export function registerConsoleDomains(
         const rows = await ctx.db
           .select({
             tenantId: providerRoutingSettings.tenantId,
-            bypassProxy: providerRoutingSettings.bypassProxy,
+            skipProxy: providerRoutingSettings.skipProxy,
           })
           .from(providerRoutingSettings)
           .where(
@@ -147,12 +147,12 @@ export function registerConsoleDomains(
               ),
             ),
           );
-        const tenantSetting = rows.find((row) => row.tenantId === tenantId)?.bypassProxy;
-        const globalSetting = rows.find((row) => row.tenantId === null)?.bypassProxy;
+        const tenantSetting = rows.find((row) => row.tenantId === tenantId)?.skipProxy;
+        const globalSetting = rows.find((row) => row.tenantId === null)?.skipProxy;
         bypass = resolveTenantOverride(
           tenantSetting,
           globalSetting,
-          DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
+          DEFAULT_PROXY_SKIP_PROVIDER_IDS.has(providerId),
         );
       }
 

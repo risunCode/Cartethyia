@@ -3,7 +3,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../../persistence/db-handle";
 import { providerRoutingSettings } from "../../../persistence/schema";
 import { resolveTenantOverride } from "../../../persistence/tenant-scope";
-import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../../../providers/metadata";
+import { DEFAULT_PROXY_SKIP_PROVIDER_IDS } from "../../../providers/metadata";
 import type { ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../catalog/contracts";
 import { DEFAULT_PROVIDER_MAX_INFLIGHT, DEFAULT_PROVIDER_USER_AGENT } from "../../../persistence/schema";
 import type { ProviderDetailStore } from "./contracts";
@@ -17,7 +17,7 @@ function mapRow(row: typeof providerRoutingSettings.$inferSelect): ProviderRouti
     usageFloor: row.usageFloor,
     usageFloorUnit: row.usageFloorUnit === "credit" ? "credit" : "percent",
     enabled: row.enabled,
-    bypassProxy: row.bypassProxy,
+    skipProxy: row.skipProxy,
     userAgent: row.userAgent,
   };
 }
@@ -69,7 +69,7 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       usageFloor: null,
       usageFloorUnit: "percent",
       enabled: false,
-      bypassProxy: DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
+      skipProxy: DEFAULT_PROXY_SKIP_PROVIDER_IDS.has(providerId),
       userAgent: DEFAULT_PROVIDER_USER_AGENT,
     };
   }
@@ -90,7 +90,7 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       usageFloor: patch.usageFloor ?? null,
       usageFloorUnit: patch.usageFloorUnit ?? "percent",
       enabled: patch.enabled ?? false,
-      bypassProxy: patch.bypassProxy ?? DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
+      skipProxy: patch.skipProxy ?? DEFAULT_PROXY_SKIP_PROVIDER_IDS.has(providerId),
       userAgent: patch.userAgent ?? DEFAULT_PROVIDER_USER_AGENT,
     };
     const setClause: Record<string, unknown> = {};
@@ -100,7 +100,7 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
     if (patch.usageFloor !== undefined) setClause.usageFloor = patch.usageFloor;
     if (patch.usageFloorUnit !== undefined) setClause.usageFloorUnit = patch.usageFloorUnit;
     if (patch.enabled !== undefined) setClause.enabled = patch.enabled;
-    if (patch.bypassProxy !== undefined) setClause.bypassProxy = patch.bypassProxy;
+    if (patch.skipProxy !== undefined) setClause.skipProxy = patch.skipProxy;
     if (patch.userAgent !== undefined) setClause.userAgent = patch.userAgent;
     const upserted = await this.db
       .insert(providerRoutingSettings)

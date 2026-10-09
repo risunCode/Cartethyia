@@ -28,6 +28,8 @@ const createPoolBody = t.Object({
   config: t.Optional(t.Record(t.String(), t.Unknown())),
   /** Egress allowance in bytes; `null` clears it back to unmetered. */
   quotaBytes: t.Optional(t.Union([t.Number({ minimum: 1 }), t.Null()])),
+  /** Operator-set family/tag naming which family this node belongs to. */
+  family: t.Optional(t.Union([t.String(), t.Null()])),
 });
 const deployRelayBody = t.Object({
   target: literalUnion(RELAY_TARGETS),

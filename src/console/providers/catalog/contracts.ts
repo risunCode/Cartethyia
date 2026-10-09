@@ -686,10 +686,10 @@ export interface ProviderRoutingResponse {
   /** When true, this provider's requests always dial direct. When false,
    * dispatch automatically picks the least-loaded, non-cooldown pool among
    * every active network pool the tenant owns — never an admin-pinned
-   * single pool. Some providers (see `DEFAULT_PROXY_BYPASS_PROVIDER_IDS`)
-   * default to bypass because their transport can't route through an HTTP
+   * single pool. Some providers (see `DEFAULT_PROXY_SKIP_PROVIDER_IDS`)
+   * default to skipping because their transport can't route through an HTTP
    * CONNECT proxy; it stays a real, per-tenant-overridable setting. */
-  readonly bypassProxy: boolean;
+  readonly skipProxy: boolean;
   /** Built-in API-key upstream User-Agent; OAuth and custom providers retain their own identity. */
   readonly userAgent: string;
 }
@@ -718,7 +718,7 @@ export interface UpdateProviderRoutingRequest {
   readonly usageFloorUnit?: "credit" | "percent";
   readonly enabled?: boolean;
   /** When true, this provider's requests always dial direct. */
-  readonly bypassProxy?: boolean;
+  readonly skipProxy?: boolean;
   /** Built-in API-key upstream User-Agent. */
   readonly userAgent?: string;
 }

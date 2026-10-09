@@ -86,20 +86,20 @@ export interface ProviderRoutingSetting {
   readonly userAgent?: string;
   /** When true, this (tenant, provider) dispatches direct — candidates
    * never carry `network_pool_ids` regardless of pool availability. */
-  readonly bypassProxy: boolean;
+  readonly skipProxy: boolean;
 }
 
 /**
- * Providers whose routing defaults to `bypassProxy: true` when no explicit
+ * Providers whose routing defaults to `skipProxy: true` when no explicit
  * settings row exists yet for a given (tenant, provider) pair. Not a hard
- * lock — an explicit `bypassProxy: false` row overrides this same as any
+ * lock — an explicit `skipProxy: false` row overrides this same as any
  * other provider. Picks the starting value for providers that commonly
  * don't work through a plain HTTP/S proxy; route them via a SOCKS5 or
  * proxy pool instead if proxying is required. Consumed by both the
  * console API default (`console/domains/provider-detail.ts`) and the real
  * `transport/routing/route-catalog.ts` so the two never drift.
  *
- * Single owner is the manifest `defaultBypassProxy` flags in
+ * Single owner is the manifest `defaultSkipProxy` flags in
  * `providers/metadata.ts`; consumers import it directly from there.
  */
 

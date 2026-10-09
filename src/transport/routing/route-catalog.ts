@@ -28,7 +28,7 @@ import {
   type RouteSnapshot,
   type SnapshotBuilder,
 } from "./route-model";
-import { DEFAULT_PROXY_BYPASS_PROVIDER_IDS } from "../../providers/metadata";
+import { DEFAULT_PROXY_SKIP_PROVIDER_IDS } from "../../providers/metadata";
 import { isBundledProviderId } from "../../providers/contracts";
 import type { ServiceKind, WireFamily } from "../../protocol/canonical-model";
 import { providerHasAdapterUserAgent, providerSupportsWebSearch, providerUsesBespokeWire } from "../../providers/metadata";
@@ -257,7 +257,7 @@ const ROUTING_COLUMNS = {
   usageFloor: providerRoutingSettings.usageFloor,
   usageFloorUnit: providerRoutingSettings.usageFloorUnit,
   enabled: providerRoutingSettings.enabled,
-  bypassProxy: providerRoutingSettings.bypassProxy,
+  skipProxy: providerRoutingSettings.skipProxy,
   userAgent: providerRoutingSettings.userAgent,
 } as const;
 
@@ -373,7 +373,7 @@ class RouteCatalogRepository {
     }
 
     // Build per-tenant per-provider routing preferences before the
-    // candidates loop below, since bypassProxy has to be known while
+    // candidates loop below, since skipProxy has to be known while
     // deciding each candidate's network pool set. Global settings
     // (tenant_id IS NULL) are stored under sentinel "__global__".
     const providerRouting: Record<string, Record<string, ProviderRoutingMap[string][string]>> = {};
@@ -387,23 +387,23 @@ class RouteCatalogRepository {
         usageFloor: row.usageFloor,
         usageFloorUnit: row.usageFloorUnit === "credit" ? "credit" : "percent",
         enabled: row.enabled,
-        bypassProxy: row.bypassProxy,
+        skipProxy: row.skipProxy,
         userAgent: row.userAgent,
       };
     }
     /** Tenant-specific setting wins over global; an unconfigured provider
-     * falls back to `DEFAULT_PROXY_BYPASS_PROVIDER_IDS`, mirroring the same
+     * falls back to `DEFAULT_PROXY_SKIP_PROVIDER_IDS`, mirroring the same
      * default `DrizzleProviderDetailStore.getRouting` reports to the API —
      * so the dashboard's displayed default and the real dispatch decision
      * never disagree. */
-    function resolveBypassProxy(providerId: string, rowTenantId: string | null): boolean {
+    function resolveSkipProxy(providerId: string, rowTenantId: string | null): boolean {
       const effectiveTenantId = rowTenantId;
       const tenantSetting = effectiveTenantId ? providerRouting[effectiveTenantId]?.[providerId] : undefined;
       const globalSetting = providerRouting.__global__?.[providerId];
       return resolveTenantOverride(
-        tenantSetting?.bypassProxy,
-        globalSetting?.bypassProxy,
-        DEFAULT_PROXY_BYPASS_PROVIDER_IDS.has(providerId),
+        tenantSetting?.skipProxy,
+        globalSetting?.skipProxy,
+        DEFAULT_PROXY_SKIP_PROVIDER_IDS.has(providerId),
       );
     }
     function resolveUserAgent(providerId: string, rowTenantId: string | null): string | undefined {
@@ -413,7 +413,7 @@ class RouteCatalogRepository {
     }
 
     /** Provider-wide concurrency ceiling shared by every account of the provider.
-     * Tenant setting wins over global, mirroring bypassProxy. A stored `null`
+     * Tenant setting wins over global, mirroring skipProxy. A stored `null`
      * is the explicit unlimited choice; a provider with no routing row at all
      * falls back to `DEFAULT_PROVIDER_MAX_INFLIGHT` rather than unlimited. */
     function resolveMaxInflight(
@@ -443,7 +443,7 @@ class RouteCatalogRepository {
           routing?: PoolRoutingSetting & { tenantId: string };
         }
       | undefined {
-      if (!rowTenantId || resolveBypassProxy(providerId, rowTenantId)) return undefined;
+      if (!rowTenantId || resolveSkipProxy(providerId, rowTenantId)) return undefined;
       if (!configuredPoolTenants.has(rowTenantId)) return undefined;
       const pools = activePoolsByTenant.get(rowTenantId) ?? [];
       const limits: Record<string, number> = {};

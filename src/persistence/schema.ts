@@ -339,6 +339,13 @@ export const networkPools = pgTable("network_pools", {
   id: uuid("id").primaryKey().defaultRandom(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   kind: networkPoolKind("kind").notNull(),
+  /**
+   * Operator-set family/tag for this pool, e.g. `residential-id` or
+   * `datacenter-sg`. Purely organisational: it names which family the node
+   * belongs to and nothing in routing or dispatch reads it. Null when the
+   * operator has not tagged the pool.
+   */
+  family: text("family"),
   endpointConfig: jsonb("endpoint_config").notNull(),
   credentialCiphertext: bytea("credential_ciphertext"),
   maxInflight: integer("max_inflight"),
@@ -372,6 +379,7 @@ export const networkPools = pgTable("network_pools", {
   (table) => [
     index("network_pools_tenant_id_idx").on(table.tenantId),
     index("network_pools_status_cooldown_idx").on(table.status, table.cooldownUntil),
+    index("network_pools_family_idx").on(table.family),
   ],
 );
 
@@ -511,7 +519,7 @@ export const providerRoutingSettings = pgTable(
     // When true, this provider's requests always dial direct. When false,
     // dispatch automatically selects among every active network pool the
     // tenant owns (least-loaded/non-cooldown) — never an admin-pinned pool.
-    bypassProxy: boolean("bypass_proxy").notNull().default(false),
+    skipProxy: boolean("skip_proxy").notNull().default(false),
   },
   (table) => ({
     tenantProviderUnique: uniqueIndex("provider_routing_settings_tenant_provider_idx").on(
@@ -1090,4 +1098,24 @@ export const studioSessions = pgTable(
     ...timestampColumns(),
   },
   (table) => [index("studio_sessions_tenant_updated_idx").on(table.tenantId, table.updatedAt)],
+);
+
+// Daily check-in ledger: one row per (account, calendar day) once the sweep has
+// attempted that account's claim.
+//
+// The day-scoped composite PK is the claim guard — an insert that conflicts is
+// exactly the "already settled today" answer — so it replaces the Redis
+// `SET NX EX` the Lite backend never had. The console reads the same table to
+// answer "was this attempted today", which is what makes the Quota page show
+// the real state instead of a permanent "Check-in due" when Redis is absent.
+export const dailyCheckinLedger = pgTable(
+  "daily_checkin_ledger",
+  {
+    dayKey: text("day_key").notNull(),
+    accountId: uuid("account_id").notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.dayKey, table.accountId] }),
+  ],
 );

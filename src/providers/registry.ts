@@ -31,7 +31,7 @@ export interface ProviderModule {
   readonly compatibility?: CompatibilityProfile;
   readonly wireFamilyDefault: WireFamily;
   readonly requiresAccount: boolean;
-  readonly defaultBypassProxy?: boolean;
+  readonly defaultSkipProxy?: boolean;
 }
 
 /**

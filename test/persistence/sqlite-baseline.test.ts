@@ -46,7 +46,7 @@ test("the committed SQLite baseline matches the generator output", () => {
 test("the derived baseline builds and enforces the PostgreSQL constraints", () => {
   const db = migratedDatabase();
   const tables = db.prepare("SELECT count(*) AS c FROM sqlite_master WHERE type = 'table'").get() as { c: number };
-  expect(tables.c).toBe(26);
+  expect(tables.c).toBe(27);
 
   db.exec("INSERT INTO tenants (id, name, status) VALUES ('t1', 'A', 'active')");
   expect(() => db.exec("INSERT INTO tenants (id, name, status) VALUES ('t2', 'A', 'nope')")).toThrow();

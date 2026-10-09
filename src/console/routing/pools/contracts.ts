@@ -24,6 +24,9 @@ export interface CreateNetworkPoolRequest {
   /** Operators may enable/disable pools; health policy also disables them on proxy HTTP 402/407. */
   status?: "active" | "disabled";
   config?: Record<string, unknown>;
+  /** Operator-set family/tag naming which family this node belongs to.
+   * Purely organisational; `null` clears the tag. */
+  family?: string | null;
 }
 export interface NetworkPoolResponse {
   id: string;
@@ -45,6 +48,8 @@ export interface NetworkPoolResponse {
   lastError?: string;
   cooldownUntil?: string;
   tenantId: string;
+  /** Operator-set family/tag; absent or null when untagged. */
+  family?: string | null;
   /** Non-secret transport settings (e.g. timeout); never contains credential material. */
   config?: Record<string, unknown>;
   /** True when an encrypted credential is stored for this pool; never the credential itself. */
@@ -245,6 +250,9 @@ export function sanitizePoolResponse(pool: unknown): NetworkPoolResponse {
     ...(typeof p.lastError === "string" ? { lastError: p.lastError } : {}),
     ...(typeof p.cooldownUntil === "string" ? { cooldownUntil: p.cooldownUntil } : {}),
     tenantId: requiredPoolString(p.tenantId, "tenantId"),
+    // Organisational tag; an empty string reads as untagged rather than as a
+    // family literally named "".
+    ...(typeof p.family === "string" && p.family.length > 0 ? { family: p.family } : {}),
     ...(config ? { config } : {}),
     ...(p.hasCredential === true ? { hasCredential: true } : {}),
     // An observed address, not a secret: it is the pool's public egress.

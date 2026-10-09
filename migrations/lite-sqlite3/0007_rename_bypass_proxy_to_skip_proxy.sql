@@ -1,0 +1,12 @@
+-- Renames provider_routing_settings.bypass_proxy to skip_proxy.
+--
+-- SQLite cannot express a conditional rename, and ALTER TABLE RENAME COLUMN
+-- needs SQLite >= 3.25. The runner (src/persistence/db-sqlite.ts) applies the
+-- same idempotency rule it already uses for ADD COLUMN: it probes
+-- pragma_table_info for the target column and skips the statement when that
+-- column already exists. A fresh database is built from a baseline that already
+-- names skip_proxy, so this forward file is a no-op there; an older database
+-- still carries bypass_proxy and gets the rename. One statement per breakpoint,
+-- because the runner splits the file on the breakpoint marker.
+--> statement-breakpoint
+ALTER TABLE provider_routing_settings RENAME COLUMN bypass_proxy TO skip_proxy;

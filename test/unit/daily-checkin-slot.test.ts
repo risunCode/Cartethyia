@@ -167,6 +167,7 @@ describe("attemptDailyGrowthPass — a non-terminal check-in releases the day sl
     // `unavailable`. Holding the slot here meant the account was "done" for
     // the day without anything having been claimed.
     const first = await attemptDailyGrowthPass({
+      db: undefined,
       redis,
       providerId: "cbcn",
       accountId: "acct-1",
@@ -179,6 +180,7 @@ describe("attemptDailyGrowthPass — a non-terminal check-in releases the day sl
 
     // The next pass must be able to reserve the slot again.
     const second = await attemptDailyGrowthPass({
+      db: undefined,
       redis,
       providerId: "cbcn",
       accountId: "acct-1",
@@ -192,6 +194,7 @@ describe("attemptDailyGrowthPass — a non-terminal check-in releases the day sl
   test("a settled claim keeps the slot, so the day is not re-attempted", async () => {
     const redis = fakeRedis();
     const pass = await attemptDailyGrowthPass({
+      db: undefined,
       redis,
       providerId: "cbcn",
       accountId: "acct-2",
@@ -206,6 +209,7 @@ describe("attemptDailyGrowthPass — a non-terminal check-in releases the day sl
     expect(redis.store.has(ledgerKey(checkinDayKey(NOW), "acct-2"))).toBe(true);
 
     const again = await attemptDailyGrowthPass({
+      db: undefined,
       redis,
       providerId: "cbcn",
       accountId: "acct-2",

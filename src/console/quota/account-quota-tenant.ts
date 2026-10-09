@@ -26,6 +26,7 @@ import {
   checkinDayKey,
   ledgerKey,
 } from "../../workers/daily-checkin";
+import { dailyCheckinLedger } from "../../persistence/schema";
 import {
   fetchBuddyActivityReport,
   fetchDailyCheckin,
@@ -71,21 +72,39 @@ async function runAccountCheckin(
 }
 
 /**
- * Reads the sweep ledger for today's check-in slot: a present marker means the
- * sweep already attempted this account today, so the card can show the state
- * without spending an upstream request. Absent (or unreadable) means unknown —
- * never "not claimed", since the sweep may simply not have reached it yet.
+ * Reads today's check-in attempt from the ledger.
+ *
+ * With Redis the day marker is the source; without it the `daily_checkin_ledger`
+ * row is, which is what makes Lite answer the same question the console asks.
+ * Absent (or unreadable) means unknown — never "not claimed", since the sweep
+ * may simply not have reached it yet.
  */
 async function todayCheckinAttempted(
+  db: AccountQuotaRoutesDeps["db"] | undefined,
   redis: AccountQuotaRoutesDeps["redis"],
   accountId: string,
 ): Promise<boolean> {
-  // Memory backend: no shared ledger exists, so "unknown" is the only honest
-  // answer — and unknown never reads as "not claimed".
-  if (redis === undefined) return false;
+  if (redis !== undefined) {
+    try {
+      const marker = await redis.get(ledgerKey(checkinDayKey(), accountId));
+      return marker !== null;
+    } catch {
+      return false;
+    }
+  }
+  if (db === undefined) return false;
   try {
-    const marker = await redis.get(ledgerKey(checkinDayKey(), accountId));
-    return marker !== null;
+    const rows = await db
+      .select({ dayKey: dailyCheckinLedger.dayKey })
+      .from(dailyCheckinLedger)
+      .where(
+        and(
+          eq(dailyCheckinLedger.dayKey, checkinDayKey()),
+          eq(dailyCheckinLedger.accountId, accountId),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
   } catch {
     return false;
   }
@@ -198,7 +217,7 @@ export function registerAccountQuotaTenantRoutes(
       const checkinAttempted = new Map<string, boolean>();
       await Promise.all(
         checkinCandidates.map(async (row) => {
-          checkinAttempted.set(row.id, await todayCheckinAttempted(redis, row.id));
+          checkinAttempted.set(row.id, await todayCheckinAttempted(db, redis, row.id));
         }),
       );
       const accounts = rows.map((row) => {
