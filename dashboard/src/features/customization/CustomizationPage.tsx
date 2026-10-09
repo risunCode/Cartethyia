@@ -421,7 +421,7 @@ function BlurSlider({
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="text-[13px] font-semibold text-text-primary">{item.label}</span>
-          <span className="text-[11.5px] text-text-tertiary">{item.description}</span>
+          <span className="text-[10.5px] text-text-tertiary">{item.description}</span>
         </span>
         <button
           type="button"

@@ -21,6 +21,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { RelayDeployModal } from "../../components/RelayDeployPanel";
+import { useMaskIp, usePrivacyMode } from "../../lib/privacy-mode";
 import { Dialog } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { DataTable, StatCard } from "../../components/ui/layout";
@@ -62,16 +63,7 @@ import { getErrorMessage } from "../../lib/helpers";
 const transportKinds = ["http", "https", "socks5"] as const;
 type TransportKind = (typeof transportKinds)[number];
 
-function maskProxyValue(value: string): string {
-  if (!value) return "***";
-  try {
-    const url = new URL(value.includes("://") ? value : `https://${value}`);
-    const port = url.port ? `:${url.port}` : "";
-    return `${url.protocol}//***${port}`;
-  } catch {
-    return "***";
-  }
-}
+const MYSTERIOUS_PROXY = "Mysterious Proxy";
 
 
 /** Averages are only meaningful once something has been measured; say so
@@ -798,9 +790,9 @@ function PoolTitleBlock({
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
         }}
-        title={maskValues ? "Proxy name masked" : view.poolLabel}
+        title={maskValues ? MYSTERIOUS_PROXY : view.poolLabel}
       >
-        {maskValues ? maskProxyValue(view.poolLabel) : view.poolLabel}
+        {maskValues ? MYSTERIOUS_PROXY : view.poolLabel}
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "3px", minWidth: 0, flexWrap: "wrap" }}>
         {pool.status === "disabled" ? (
@@ -829,12 +821,14 @@ function PoolAddressBlock({
   maskValues,
   speedResult,
   isSpeedTesting,
+  maskIp,
 }: {
   readonly pool: NetworkPoolResponse;
   readonly view: PoolView;
   readonly maskValues: boolean;
   readonly speedResult?: StoredSpeedResult;
   readonly isSpeedTesting: boolean;
+  readonly maskIp: boolean;
 }): ReactNode {
   return (
     <>
@@ -845,9 +839,9 @@ function PoolAddressBlock({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap" }}
-          title={maskValues ? "Proxy address masked" : `egress ${pool.egressIp} · ${view.display.endpoint}`}
+          title={maskIp ? "IP masked" : `egress ${pool.egressIp} · ${view.display.endpoint}`}
         >
-          {pool.egressIp}
+          {maskIp ? "IP masked" : pool.egressIp}
         </span>
       ) : (
         <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }} title="Test the pool to read its egress address">
@@ -1094,6 +1088,7 @@ const PoolRow = memo(function PoolRow({
   speedResult,
   isSpeedTesting,
   maskValues,
+  maskIp,
 }: {
   readonly pool: NetworkPoolResponse;
   readonly isSelected: boolean;
@@ -1107,6 +1102,7 @@ const PoolRow = memo(function PoolRow({
   readonly speedResult?: StoredSpeedResult;
   readonly isSpeedTesting: boolean;
   readonly maskValues: boolean;
+  readonly maskIp: boolean;
 }): ReactNode {
   // Read live usage here rather than as a prop: the parent would otherwise have
   // to hand every row a fresh value on each stream tick, which is exactly the
@@ -1135,6 +1131,7 @@ const PoolRow = memo(function PoolRow({
           maskValues={maskValues}
           speedResult={speedResult}
           isSpeedTesting={isSpeedTesting}
+          maskIp={maskIp}
         />
       </td>
       <td style={{ minWidth: "110px" }}>
@@ -1174,6 +1171,7 @@ const PoolCard = memo(function PoolCard({
   speedResult,
   isSpeedTesting,
   maskValues,
+  maskIp,
 }: {
   readonly pool: NetworkPoolResponse;
   readonly isSelected: boolean;
@@ -1187,6 +1185,7 @@ const PoolCard = memo(function PoolCard({
   readonly speedResult?: StoredSpeedResult;
   readonly isSpeedTesting: boolean;
   readonly maskValues: boolean;
+  readonly maskIp: boolean;
 }): ReactNode {
   const live = useContext(PoolUsageContext);
   const usage = live.live ? live.byId.get(pool.id) : undefined;
@@ -1212,6 +1211,7 @@ const PoolCard = memo(function PoolCard({
           maskValues={maskValues}
           speedResult={speedResult}
           isSpeedTesting={isSpeedTesting}
+          maskIp={maskIp}
         />
         <PoolUsageBars pool={pool} view={view} />
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", alignItems: "center" }}>
@@ -1398,7 +1398,10 @@ export default function Proxy(): ReactNode {
   const [showRelayDeploy, setShowRelayDeploy] = useState(false);
   const [editingPool, setEditingPool] = useState<NetworkPoolResponse | null>(null);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
-  const [maskValues, setMaskValues] = useState(false);
+  const privacy = usePrivacyMode();
+  const maskValues = privacy.enabled;
+  const ipMask = useMaskIp();
+  const maskIp = ipMask.enabled;
   const [testingIds, setTestingIds] = useState<ReadonlySet<string>>(new Set());
   const speedTest = useSpeedTestNetworkPool();
   const [speedBytes, setSpeedBytes] = useState(SPEED_TEST_DEFAULT_BYTES);
@@ -1424,37 +1427,7 @@ export default function Proxy(): ReactNode {
       return next;
     });
   }, []);
-  const [checkResults, setCheckResults] = useState<Record<string, HealthCheckResult>>(() => {
-    try {
-      const saved = localStorage.getItem("cartethyia_proxy_check_results");
-      const cached: Record<string, HealthCheckResult> = saved ? JSON.parse(saved) : {};
-      return Object.fromEntries(
-        Object.entries(cached).map(([poolId, result]) => {
-          const errorMessage = result.errorMessage;
-          const savedStatus = String(result.status);
-          const savedHttpStatus =
-            savedStatus === "exhausted"
-              ? 402
-              : errorMessage?.startsWith("HTTP 402 ")
-                ? 402
-                : errorMessage?.startsWith("HTTP 407 ")
-                  ? 407
-                  : undefined;
-          const normalized: HealthCheckResult =
-            savedHttpStatus === undefined
-              ? result
-              : {
-                  ...result,
-                  status: "reachable",
-                  httpStatus: savedHttpStatus,
-                };
-          return [poolId, normalized] as const;
-        }),
-      );
-    } catch {
-      return {};
-    }
-  });
+  const [checkResults, setCheckResults] = useState<Record<string, HealthCheckResult>>({});
   const [sort, setSort] = useState<{ key: PoolSortKey; direction: "asc" | "desc" }>({
     key: "name",
     direction: "asc",
@@ -1492,21 +1465,16 @@ export default function Proxy(): ReactNode {
     });
   }, []);
 
-  const testedCount = Object.keys(checkResults).length;
-  const successCount = Object.values(checkResults).filter((r) => r.status === "healthy").length;
-  const errorCount = Object.values(checkResults).filter((r) => r.status !== "healthy").length;
+  const results = Object.values(checkResults);
+  const testedCount = results.length;
+  const successCount = results.filter((r) => r.status === "healthy" || r.status === "reachable").length;
+  const errorCount = results.filter((r) => r.status !== "healthy" && r.status !== "reachable").length;
 
   const runCheck = useCallback((pool: NetworkPoolResponse) => {
     setTestingIds((prev) => new Set(prev).add(pool.id));
     healthCheck.mutate(pool.id, {
       onSuccess: (result) => {
-        setCheckResults((prev) => {
-          const next = { ...prev, [pool.id]: result };
-          try {
-            localStorage.setItem("cartethyia_proxy_check_results", JSON.stringify(next));
-          } catch {}
-          return next;
-        });
+        setCheckResults((prev) => ({ ...prev, [pool.id]: result }));
         const label = poolName(pool);
         if (result.status === "healthy") {
           toast.success(`${label}: connected`, `${result.latencyMs ?? 0}ms`);
@@ -1533,8 +1501,8 @@ export default function Proxy(): ReactNode {
     });
   }, [healthCheck]);
 
-  // Batch "Test all" with bounded concurrency (two workers) so the pool
-  // endpoints are not flooded and the UI receives one summary update.
+  // Eight at a time: a health check is a small probe, so a wider batch finishes
+  // the list without flooding the endpoints the way an unbounded fan-out would.
   const runAllChecks = async () => {
     const targets = pools;
     if (targets.length === 0) return;
@@ -1549,13 +1517,7 @@ export default function Proxy(): ReactNode {
         setTestingIds((prev) => new Set(prev).add(pool.id));
         try {
           const result = await healthCheck.mutateAsync(pool.id);
-          setCheckResults((prev) => {
-            const next = { ...prev, [pool.id]: result };
-            try {
-              localStorage.setItem("cartethyia_proxy_check_results", JSON.stringify(next));
-            } catch {}
-            return next;
-          });
+          setCheckResults((prev) => ({ ...prev, [pool.id]: result }));
           if (result.status === "healthy") healthy += 1;
           else failed += 1;
         } catch (err) {
@@ -1565,13 +1527,7 @@ export default function Proxy(): ReactNode {
             status: "timeout",
             errorMessage: getErrorMessage(err, "Health check failed"),
           };
-          setCheckResults((prev) => {
-            const next = { ...prev, [pool.id]: result };
-            try {
-              localStorage.setItem("cartethyia_proxy_check_results", JSON.stringify(next));
-            } catch {}
-            return next;
-          });
+          setCheckResults((prev) => ({ ...prev, [pool.id]: result }));
         } finally {
           setTestingIds((prev) => {
             const next = new Set(prev);
@@ -1581,12 +1537,12 @@ export default function Proxy(): ReactNode {
         }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(2, targets.length) }, () => worker()));
+    await Promise.all(Array.from({ length: Math.min(8, targets.length) }, () => worker()));
     toast.success(`Tested ${targets.length} pools · ${healthy} healthy · ${failed} failed`);
   };
 
-  // Speed tests run two at a time: each one pulls 5 MB, and a wide fan-out
-  // would saturate the operator's own uplink and make every measurement wrong.
+  // One at a time. Each test pulls several megabytes, and two running together
+  // share the operator's uplink, so neither number is the pool's real speed.
   const runSpeedTestSelected = async () => {
     const targets = pools.filter((p) => selectedIds.has(p.id));
     if (targets.length === 0) return;
@@ -1617,7 +1573,7 @@ export default function Proxy(): ReactNode {
         }
       }
     };
-    await Promise.all(Array.from({ length: Math.min(2, targets.length) }, () => worker()));
+    await worker();
     toast.success(`Speed tested ${targets.length} pool(s)`);
   };
 
@@ -1741,14 +1697,14 @@ export default function Proxy(): ReactNode {
                 display: "flex",
                 flexWrap: "wrap",
                 alignItems: "center",
-                justifyContent: "space-between",
-                gap: "10px",
-                padding: "8px 12px",
+                justifyContent: "flex-start",
+                padding: "8px",
                 borderRadius: "10px",
                 border: "1px solid var(--inner-border)",
                 background: "var(--surface-2)",
                 marginBottom: "12px",
                 fontSize: "11px",
+                overflowX: "auto",
               }}
             >
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
@@ -1787,10 +1743,19 @@ export default function Proxy(): ReactNode {
                   variant="ghost"
                   size="sm"
                   icon={maskValues ? <EyeOff size={12} /> : <Eye size={12} />}
-                  onClick={() => setMaskValues((current) => !current)}
-                  title={maskValues ? "Show proxy names and URLs" : "Mask proxy names and URLs"}
+                  onClick={() => privacy.setEnabled(!maskValues)}
+                  title={maskValues ? "Show proxy names and addresses" : "Hide proxy names and addresses"}
                 >
                   {maskValues ? "Unmask" : "Mask"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={maskIp ? <EyeOff size={12} /> : <Eye size={12} />}
+                  onClick={() => ipMask.setEnabled(!maskIp)}
+                  title={maskIp ? "Show egress addresses" : "Hide egress addresses"}
+                >
+                  {maskIp ? "Show IP" : "Mask IP"}
                 </Button>
                 <Button
                   variant="secondary"
@@ -1933,6 +1898,7 @@ export default function Proxy(): ReactNode {
                     speedResult={newerSpeedResult(speedResults[pool.id], serverSpeedResult(pool))}
                     isSpeedTesting={speedTestingIds.has(pool.id)}
                     maskValues={maskValues}
+                    maskIp={maskIp}
                   />
                 ))}
               </DataTable>
@@ -1955,6 +1921,7 @@ export default function Proxy(): ReactNode {
                   speedResult={newerSpeedResult(speedResults[pool.id], serverSpeedResult(pool))}
                   isSpeedTesting={speedTestingIds.has(pool.id)}
                   maskValues={maskValues}
+                  maskIp={maskIp}
                 />
               ))}
             </div>

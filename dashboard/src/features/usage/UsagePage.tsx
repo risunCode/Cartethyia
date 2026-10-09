@@ -136,8 +136,8 @@ function periodLabel(period: Period): string {
 
 /**
  * The card headline. The period alone read as a label with nothing under it,
- * so it carries the period's own totals: how many requests, how many failed,
- * and what they cost.
+ * so it carries what moved in the period: how many calls, how many tokens,
+ * and how long a call took on average.
  */
 function usageHeadline(
   period: Period,
@@ -146,9 +146,8 @@ function usageHeadline(
 ): string {
   const label = periodLabel(period);
   if (pending || totals === undefined) return label;
-  const requests = formatNumber(totals.requests);
-  const failed = totals.errors > 0 ? ` · ${formatNumber(totals.errors)} failed` : "";
-  return `${label} · ${requests} requests${failed} · ${formatUsd(totals.estimatedCostUsd)}`;
+  const tokens = totals.inputTokens + totals.cachedTokens + totals.outputTokens;
+  return `${label} · ${formatNumber(totals.requests)} calls · ${formatTokens(tokens)} tokens · avg ${formatDuration(totals.avgDurationMs)}`;
 }
 
 function asPeriod(value: string | null): Period {

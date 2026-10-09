@@ -1,9 +1,10 @@
 import { useMemo, useEffect, useRef, useState, type ReactNode } from "react";
-import { Gauge } from "lucide-react";
+import { EyeOff, Gauge } from "lucide-react";
 import { Switch } from "../../../components/ui/switch";
 import { useRoutingStrategy } from "../../../hooks/use-routing-strategy";
 import { useQuotaOverview } from "../../../hooks/quota";
 import { useProviderAccountInflight } from "../../../hooks/routing";
+import { usePrivacyMode } from "../../../lib/privacy-mode";
 /**
  * The provider-wide usage floor, shown above the account list.
  *
@@ -49,6 +50,7 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
   };
 
   return (
+    <div className="account-controls">
     <div className="usage-floor">
       <div className="usage-floor-copy">
         <div className="usage-floor-title">
@@ -102,6 +104,27 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
             <option value="credit">credits</option>
           </select>
         </label>
+      </div>
+    </div>
+    <PrivacyModeControl />
+    </div>
+  );
+}
+
+/** Hides account emails and proxy addresses behind one label. */
+function PrivacyModeControl(): ReactNode {
+  const { enabled, setEnabled } = usePrivacyMode();
+  return (
+    <div className="usage-floor">
+      <div className="usage-floor-copy">
+        <div className="usage-floor-title">
+          <EyeOff size={14} />
+          <span>Privacy mode</span>
+        </div>
+        <p>Hide email or username. Accounts and proxies read as mysterious.</p>
+      </div>
+      <div className="usage-floor-control">
+        <Switch checked={enabled} aria-label="Privacy mode" onChange={setEnabled} />
       </div>
     </div>
   );

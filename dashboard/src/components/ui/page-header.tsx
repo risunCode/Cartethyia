@@ -1,6 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/cn";
 
 export interface BackLinkProps {
@@ -9,15 +9,17 @@ export interface BackLinkProps {
 }
 
 /** Consistent detail-page back link. */
-export function BackLink({ to, label }: BackLinkProps): ReactNode {
+export function BackLink({ label }: BackLinkProps): ReactNode {
+  const navigate = useNavigate();
   return (
-    <Link
-      to={to}
-      className="inline-flex items-center gap-[6px] text-accent text-[12px] no-underline"
+    <button
+      type="button"
+      onClick={() => navigate(-1)}
+      className="inline-flex items-center gap-[6px] text-accent text-[12px] bg-transparent border-0 p-0 cursor-pointer"
     >
       <ArrowLeft size={14} aria-hidden="true" />
       {label}
-    </Link>
+    </button>
   );
 }
 

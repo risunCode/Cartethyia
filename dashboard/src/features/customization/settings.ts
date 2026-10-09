@@ -59,7 +59,7 @@ export const CUSTOMIZATION_DEFAULTS: CustomizationSettings = {
   backgroundSet: false,
   backgroundEnabled: false,
   backgroundRevision: 0,
-  backgroundOpacity: 40,
+  backgroundOpacity: 20,
   backgroundScale: 100,
   backgroundX: 0,
   backgroundY: 0,
@@ -67,7 +67,7 @@ export const CUSTOMIZATION_DEFAULTS: CustomizationSettings = {
   // The console already ships frosted; a fresh profile keeps that look.
   blurCards: "frosted",
   blurChrome: "frosted",
-  blurCardsAmount: 50,
+  blurCardsAmount: 70,
   blurChromeAmount: 67,
   blurCardsDepth: 5,
   blurChromeDepth: 67,

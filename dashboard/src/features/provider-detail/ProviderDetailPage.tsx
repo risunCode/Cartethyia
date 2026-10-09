@@ -383,7 +383,7 @@ export default function ProviderDetail(): ReactNode {
   return (
     <Stack gap="16px">
       <PageHeader
-        title={(provider.label || provider.displayName)}
+        title={`${provider.label || provider.displayName}${activeService ? ` (${serviceLabel(activeService)})` : ""}`}
         description={`${provider.providerId}/${provider.baseUrl ? ` · ${provider.baseUrl}` : ""}`}
         icon={
           <ProviderIcon
@@ -427,23 +427,6 @@ export default function ProviderDetail(): ReactNode {
         }
 
       />
-      {activeService ? (
-        <Inline gap="6px" style={{ flexWrap: "wrap" }}>
-          <span
-            style={{
-              padding: "3px 8px",
-              borderRadius: "999px",
-              fontSize: "10px",
-              fontWeight: 700,
-              color: "var(--text-secondary)",
-              background: "var(--surface-2)",
-              border: "1px solid var(--inner-border)",
-            }}
-          >
-            {serviceLabel(activeService)}
-          </span>
-        </Inline>
-      ) : null}
       {/* Where to obtain this provider's credential */}
       <CredentialNotice provider={provider} />
       {activeService === "llm" ? (

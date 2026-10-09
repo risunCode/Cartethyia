@@ -346,6 +346,16 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
       .set({
         lastHealthCheckAt: now,
         lastLatencyMs: result.latencyMs ?? null,
+        // The outcome is the last known state, so it has to live on the row.
+        // A browser cache cannot: it dies with the browser, and another
+        // machine never sees it.
+        ...(result.status === "healthy" || result.status === "reachable"
+          ? { lastSuccessAt: now, lastError: null, lastErrorCategory: null, lastErrorAt: null }
+          : {
+              lastError: result.errorMessage ?? result.status,
+              lastErrorCategory: result.status,
+              lastErrorAt: now,
+            }),
         // Keep the previous address when this probe could not read one.
         ...(result.egressIp ? { egressIp: result.egressIp } : {}),
         ...(delta.sent > 0 || delta.received > 0

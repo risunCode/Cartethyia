@@ -1768,6 +1768,11 @@ main.route-enter .state-viewport {
   min-width: 0;
 }
 
+.account-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 /* Usage floor — one row above the account list. The control stays one piece
    and wraps under the copy once the card is too narrow to hold both. */
 .usage-floor {
@@ -2616,6 +2621,10 @@ main.route-enter .console-log-toolbar {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--inner-border);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
 }
 
 .account-search {
@@ -2643,8 +2652,6 @@ main.route-enter .console-log-toolbar {
   flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
-  padding-left: 12px;
-  border-left: 1px solid var(--inner-border);
   min-width: 0;
 }
 
@@ -2653,6 +2660,10 @@ main.route-enter .console-log-toolbar {
    read as a different control family. */
 .account-sort,
 .account-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
   font-size: 11.5px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -2760,9 +2771,10 @@ main.route-enter .console-log-toolbar {
 .account-row-status {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
   min-width: 0;
+  overflow: hidden;
 }
 
 /* One compact line of square chips under the status badge. */

@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { consoleRequest } from "../../../data/api";
 import { accountErrorLabel } from "../../../shared/account-error-labels";
+import { usePrivacyMode } from "../../../lib/privacy-mode";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
@@ -75,16 +76,25 @@ function credentialExpiryLabel(expiresAt: string | undefined): string | undefine
  */
 function ModelCooldownChip({
   cooldowns,
+  reason,
 }: {
   readonly cooldowns: { count: number; modelId: string; until: string } | undefined;
+  readonly reason?: string;
 }): ReactNode {
   if (!cooldowns) return null;
   const distance = formatResetDistance(cooldowns.until);
+  const soonest = `Soonest: ${cooldowns.modelId} — ${distance}`;
   return (
-    <Badge tone="warn" dot title={`Soonest: ${cooldowns.modelId} — ${distance}`}>
+    <Badge tone="warn" dot title={reason ? `${reason} — ${soonest}` : soonest}>
       {cooldowns.count} model{cooldowns.count === 1 ? "" : "s"} cooling · {distance}
     </Badge>
   );
+}
+
+function credentialFamily(account: ProviderAccountResponse): string | undefined {
+  if (account.credentialKind === "oauth") return "OAuth";
+  if (account.credentialMode === "jwt") return "JWT";
+  return undefined;
 }
 
 export function AccountStatusBadge({
@@ -103,22 +113,23 @@ export function AccountStatusBadge({
     // A rejected credential is not a cooldown: it cannot clear on its own, so
     // the row says what the operator must actually do. The raw category is kept
     // in the tooltip so the reason is still inspectable.
+    const family = credentialFamily(account);
     const revoked = account.lastErrorCategory === "auth_invalidated";
     return (
       <Inline gap="4px">
         <Badge tone="disabled" dot title={account.lastError}>
-          Disabled
+          Disabled{family ? ` - ${family}` : ""}
         </Badge>
         {revoked ? (
           <Badge tone="warn" title={account.lastError}>
             Re-login required
           </Badge>
-        ) : account.lastErrorCategory ? (
+        ) : account.lastErrorCategory && !(account.lastErrorCategory === "quota_exhausted" && modelCooldowns) ? (
           <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
             {accountErrorLabel(account.lastErrorCategory)}
           </Badge>
         ) : null}
-        <ModelCooldownChip cooldowns={modelCooldowns} />
+        <ModelCooldownChip cooldowns={modelCooldowns} reason={account.lastErrorCategory === "quota_exhausted" ? account.lastError : undefined} />
       </Inline>
     );
   }
@@ -132,14 +143,14 @@ export function AccountStatusBadge({
     return (
       <Inline gap="4px">
         <Badge tone="ok" dot>
-          Active
+          Active{credentialFamily(account) ? ` - ${credentialFamily(account)}` : ""}
         </Badge>
-        {account.lastErrorCategory ? (
+        {account.lastErrorCategory && !(account.lastErrorCategory === "quota_exhausted" && modelCooldowns) ? (
           <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
             {accountErrorLabel(account.lastErrorCategory)}
           </Badge>
         ) : null}
-        <ModelCooldownChip cooldowns={modelCooldowns} />
+        <ModelCooldownChip cooldowns={modelCooldowns} reason={account.lastErrorCategory === "quota_exhausted" ? account.lastError : undefined} />
       </Inline>
     );
   }
@@ -147,37 +158,20 @@ export function AccountStatusBadge({
     return (
       <Inline gap="4px">
         <Badge tone="warn" dot>
-          Cooldown{" "}
+          Cooldown{credentialFamily(account) ? ` - ${credentialFamily(account)}` : ""}{" "}
           {account.cooldownUntil ? `(${formatResetDistance(account.cooldownUntil)})` : ""}
         </Badge>
-        {account.lastErrorCategory ? (
+        {account.lastErrorCategory && !(account.lastErrorCategory === "quota_exhausted" && modelCooldowns) ? (
           <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
             {accountErrorLabel(account.lastErrorCategory)}
           </Badge>
         ) : null}
-        <ModelCooldownChip cooldowns={modelCooldowns} />
+        <ModelCooldownChip cooldowns={modelCooldowns} reason={account.lastErrorCategory === "quota_exhausted" ? account.lastError : undefined} />
       </Inline>
     );
   return <Badge tone="disabled">Disabled</Badge>;
 }
 
-/**
- * The credential line under an account's label. Status is shown in the badge,
- * while this line identifies the credential family without calling API keys
- * static.
- */
-function accountDetail(account: ProviderAccountResponse): string {
-  // `credentialMode === "jwt"` only says the access token is a JWT, and an
-  // OAuth account's access token usually is one. Whether it is static is
-  // `staticToken`, the same flag the Health dialog reads, so the card and the
-  // dialog agree.
-  if (account.credentialKind === "oauth") {
-    return account.staticToken ? "Static OAuth" : "OAuth";
-  }
-  if (account.credentialMode === "jwt" || account.staticToken) return "Static JWT";
-  if (account.credentialKind === "api_key") return "API key";
-  return "No credential";
-}
 
 /**
  * One chip for the account's allowance: summed remaining credits when the
@@ -254,7 +248,9 @@ function AccountRow({
   const [, setTick] = useState(0);
   const [renaming, setRenaming] = useState(false);
   const [draftLabel, setDraftLabel] = useState("");
-  const label = account.label || account.id.slice(0, 8);
+  const privacy = usePrivacyMode();
+  const shown = (account.label?.match(/[^\s@]+@[^\s@]+/)?.[0] ?? account.label) || account.id.slice(0, 8);
+  const label = privacy.enabled ? "Mysterious accounts" : shown;
   // The countdown re-renders on a timer. It must be armed by the per-model
   // backoffs too, not only by `cooldownUntil`: a model-scoped 429 writes
   // `modelCooldowns` and deliberately leaves `cooldownUntil` untouched (the
@@ -377,13 +373,6 @@ function AccountRow({
           </div>
           <div className="account-row-status">
             <AccountStatusBadge account={account} />
-            <span className="account-chip" title={accountDetail(account)}>
-              {accountDetail(account)}
-            </span>
-            <span className="account-chip" title={`Today: ${account.usageToday.totalTokens.toLocaleString()} tokens, ${account.usageToday.requests.toLocaleString()} requests`}>
-              <span className="account-chip-label">Today</span>
-              {account.usageToday.totalTokens.toLocaleString()} tok · {account.usageToday.requests.toLocaleString()} req
-            </span>
           </div>
           <div className="account-row-chips">
             {credentialExpiryLabel(account.tokenExpiresAt) ? (
@@ -391,6 +380,10 @@ function AccountRow({
                 {credentialExpiryLabel(account.tokenExpiresAt)}
               </span>
             ) : null}
+            <span className="account-chip" title={`Today: ${account.usageToday.totalTokens.toLocaleString()} tokens, ${account.usageToday.requests.toLocaleString()} requests`}>
+              <span className="account-chip-label">Today</span>
+              {account.usageToday.totalTokens.toLocaleString()} tok · {account.usageToday.requests.toLocaleString()} req
+            </span>
             <span
               className="account-chip"
               title="Lifetime totals are backfilled from telemetry still retained when tracking starts; new totals survive telemetry cleanup."
@@ -783,7 +776,6 @@ export function AccountsList({
         </div>
         <div className="account-toolbar-actions">
         <label className="account-sort">
-          <span>Sort</span>
           <Select
             size="sm"
             value={sort}
