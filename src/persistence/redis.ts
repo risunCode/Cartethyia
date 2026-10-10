@@ -120,10 +120,6 @@ export async function closeRedis(options: CloseRedisOptions = {}): Promise<void>
   }
 }
 
-export function setRedisForTesting(testClient: RedisClient): void {
-  globalThis.__cartethyiaRedis = testClient;
-}
-
 /**
  * Runs a Lua script and returns its result as a finite number, or throws.
  *

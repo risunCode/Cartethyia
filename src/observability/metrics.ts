@@ -259,7 +259,6 @@ export class PrometheusRegistry {
   readonly cartethyia_routing_roundrobin_entries: GaugeMetric;
   readonly cartethyia_ip_abuse_keys: GaugeMetric;
   readonly cartethyia_quota_cache_entries: GaugeMetric;
-  readonly cartethyia_pool_agent_entries: GaugeMetric;
   readonly cartethyia_proxy_dial_dns_fallback_total: CounterMetric;
   readonly proxy_provider_adapter_load_ms: HistogramMetric;
   readonly pool_cooldown_record_failed: CounterMetric;
@@ -336,10 +335,6 @@ export class PrometheusRegistry {
     this.cartethyia_quota_cache_entries = this.gauge(
       "cartethyia_quota_cache_entries",
       "Entries in the in-process provider quota cache",
-    );
-    this.cartethyia_pool_agent_entries = this.gauge(
-      "cartethyia_pool_agent_entries",
-      "Cached per-pool egress agents",
     );
     this.cartethyia_proxy_dial_dns_fallback_total = this.counter(
       "cartethyia_proxy_dial_dns_fallback_total",

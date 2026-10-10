@@ -44,7 +44,6 @@ import {
   wireContextFrom,
   type ProbeProviderRow,
 } from "./probe-phases";
-import { createDefaultProviderRegistry } from "../default-registry";
 import { createProbeFetch } from "../operations/probe-fetch";
 import { authHeaders } from "../compatible-adapter";
 import {
@@ -89,34 +88,6 @@ interface ProviderProbingDeps {
   readonly outboundFetchFor: ProbeOutboundResolver;
   readonly snapshotInvalidator: { invalidate(): unknown };
   readonly providerRegistry: ProviderRegistry;
-}
-
-interface ProviderProbingTestDeps {
-  readonly db: CartethyiaDatabase;
-  readonly telemetryBuffer?: TelemetryBatchBuffer;
-  readonly defaultEndpoints?: Record<WireFamily, string>;
-  readonly bundledModelCatalog?: ReadonlyMap<string, readonly ModelDefinition[]>;
-  readonly outboundFetchFor?: ProbeOutboundResolver;
-  readonly snapshotInvalidator?: { invalidate(): unknown };
-  readonly providerRegistry?: ProviderRegistry;
-}
-
-export function createProviderProbingServiceForTests(deps: ProviderProbingTestDeps): ProviderProbingService {
-  return new ProviderProbingService({
-    db: deps.db,
-    telemetryBuffer: deps.telemetryBuffer,
-    defaultEndpoints: deps.defaultEndpoints ?? {
-      chat: "/v1/chat/completions",
-      responses: "/v1/responses",
-      messages: "/v1/messages",
-    },
-    bundledModelCatalog: deps.bundledModelCatalog ?? new Map(),
-    outboundFetchFor:
-      deps.outboundFetchFor ??
-      (() => ({ fetch: (async () => new Response("{}", { status: 500 })) as ValidatedOutboundFetch })),
-    snapshotInvalidator: deps.snapshotInvalidator ?? { invalidate: () => 0 },
-    providerRegistry: deps.providerRegistry ?? createDefaultProviderRegistry(),
-  });
 }
 
 /**

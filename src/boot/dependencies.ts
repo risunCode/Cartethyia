@@ -280,7 +280,6 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   // observability layer never holds direct references to routing/pool state.
   const runtimeMetricsSampler = new RuntimeMetricsSampler({
     routingRoundRobinEntries: () => routingEngine.roundRobinEntries(),
-    poolAgentEntries: () => poolAgentResolver.agentCount(),
     ipAbuseKeys: () => (ipStore instanceof InMemoryIpAbuseStore ? ipStore.keyCount() : 0),
     quotaCacheEntries: () => quotaCacheSize(),
     // Late-bound via bindInFlight once the request state store exists.

@@ -517,23 +517,6 @@ export function buildKiroSsoUserAgent(): string {
 }
 
 /**
- * Builds the browser-shaped `user-agent` the vendor portal expects.
- *
- * The portal's approval endpoints are same-origin XHRs issued by the SSO start
- * page, so they are only ever reached by a browser.
- */
-export function buildKiroBrowserUserAgent(): string {
-  const platform = KIRO_SYSTEM_VERSION.split("#")[0];
-  const os =
-    platform === "darwin"
-      ? "Macintosh; Intel Mac OS X 10_15_7"
-      : platform === "linux"
-        ? "X11; Linux x86_64"
-        : "Windows NT 10.0; Win64; x64";
-  return `Mozilla/5.0 (${os}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36`;
-}
-
-/**
  * Builds the `user-agent` the model-catalog and usage surfaces expect.
  *
  * Their observed client identifies as `codewhispererruntime` rather than

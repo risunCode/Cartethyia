@@ -478,7 +478,7 @@ export function coalesceConsecutiveUserMessages(messages: Array<Record<string, u
  * assistant message so the reasoning trace accompanies every call in the
  * batch; tool results or user turns always end the batch.
  */
-export function coalesceConsecutiveAssistantMessages(messages: Array<Record<string, unknown>>): void {
+function coalesceConsecutiveAssistantMessages(messages: Array<Record<string, unknown>>): void {
   let write = 0;
   for (const message of messages) {
     const previous = messages[write - 1];
@@ -570,7 +570,7 @@ export function ensureBuddyLeadingSystem(
  * (`11151`), then guarantee a leading system turn (`11128`). The system text
  * is the variant's own prompt, so each pre-payload hook passes its prompt in.
  */
-export function finalizeBuddyMessages(
+function finalizeBuddyMessages(
   messages: Array<Record<string, unknown>>,
   systemPrompt: string,
 ): void {

@@ -84,38 +84,3 @@ export function boundedUpstreamArray(
   const items = value as readonly unknown[];
   return items.length > maxItems ? items.slice(0, maxItems) : items;
 }
-
-export interface UpstreamBaseUrlOptions {
-  /** Allow `http:` in addition to `https:` (private/dev upstreams only). */
-  readonly allowHttp?: boolean;
-  /** When set, the URL host must be one of these exact hosts. */
-  readonly allowedHosts?: readonly string[];
-}
-
-/**
- * Validates an upstream-supplied absolute base URL. Only `https:` (or `http:`
- * when explicitly allowed) is accepted; embedded credentials and fragments are
- * rejected so a malicious upstream cannot redirect authenticated requests to a
- * different origin or downgrade transport. Returns the normalized URL without a
- * trailing slash, or `undefined` when invalid.
- */
-export function validateUpstreamBaseUrl(
-  value: unknown,
-  options: UpstreamBaseUrlOptions = {},
-): string | undefined {
-  const raw = sanitizeUpstreamLabel(value, 2_048);
-  if (!raw) return undefined;
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return undefined;
-  }
-  if (url.username.length > 0 || url.password.length > 0) return undefined;
-  if (url.protocol !== "https:" && !(options.allowHttp === true && url.protocol === "http:")) {
-    return undefined;
-  }
-  if (options.allowedHosts && !options.allowedHosts.includes(url.hostname)) return undefined;
-  url.hash = "";
-  return url.toString().replace(/\/+$/, "");
-}

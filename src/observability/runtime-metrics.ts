@@ -16,7 +16,6 @@ import { resolveMemoryLimitOverrideBytes } from "../config/timeouts";
 /** Live collection sizes sampled alongside process memory. */
 export interface RuntimeMetricSources {
   readonly routingRoundRobinEntries: () => { readonly combo: number; readonly provider: number };
-  readonly poolAgentEntries: () => number;
   /**
    * Tracked keys in the in-memory IP abuse store, or 0 when the store is
    * Redis-backed. Unlike the routing maps this one is fed by client-supplied

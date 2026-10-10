@@ -29,8 +29,6 @@ import { log } from "../../observability/logger";
 import { clampReasoningEffort, claudeUsesAdaptiveThinking, LEVEL_TO_BUDGET, resolveSupportedReasoningEfforts } from "../../transport/translation/thinking";
 import { claudeResponseToEvents, parseClaudeSseStream } from "../response/messages";
 
-export const OAUTH_MESSAGES_MAX_OUTPUT_TOKENS = WIRE_TOKEN_BOUNDS["messages"]?.oauthCeiling ?? 64_000;
-
 /**
  * Gateway default when the caller sent no max_tokens (Anthropic requires
  * the field). Explicit and warned at the call site — never silent.
