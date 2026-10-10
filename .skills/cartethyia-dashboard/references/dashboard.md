@@ -3,6 +3,33 @@
 Procedure detail for the share page, social-metadata injection, and verification
 choice. Summary rules live in `../SKILL.md`.
 
+## Styling migration
+
+The dashboard styling is being rebuilt onto one dialect — token → utility →
+primitive. The end state and the current inventory:
+
+- CSS is three files: `styles/tokens.css` (tokens), `styles/base.css`
+  (reset/elements), `styles/app.css` (irreducible + shell frame). The old
+  `console.css`, `landing.css`, and `share.css` are dissolved into utilities and
+  components.
+- Repeated visuals become `components/ui/` atoms or `components/patterns/`
+  blocks. A page composes them; it does not restyle them.
+
+Order of work, so a step never lands blind:
+
+1. `test/style-guard.test.ts` + `style-guard.json` hold the ratchet.
+2. `scripts/dev/visual-baseline.ts` must cover the console pages (it measures
+   the built dashboard in a real browser). Extend it before migrating pages.
+3. Build or revise the `ui/` atom, then the `patterns/` block, before the pages
+   that use it.
+4. Migrate one page per commit, worst-first; lower its `style-guard.json` entry
+   in the same commit.
+
+Verification per step: `bun run dashboard:typecheck`, `bun run dashboard:test`,
+and `bun scripts/dev/visual-baseline.ts compare` (which must stay green while a
+step only re-expresses styling, and is re-captured in the scale-normalization
+step that intentionally changes pixels).
+
 ## Share page
 
 Keep share data and token units sourced from one provider. Public recipients may

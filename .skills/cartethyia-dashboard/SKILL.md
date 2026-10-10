@@ -38,6 +38,39 @@ the backend.
 Read `references/dashboard.md` for the social-metadata and share-page
 procedure, and the verification choice matrix.
 
+## Styling contract
+
+One styling dialect: **token → utility → primitive**. A visual decision lives in
+exactly one place, so changing a token in `styles/tokens.css` restyles every
+page. The layer that owns a fact decides where a change goes.
+
+| Need | Use | Never |
+|---|---|---|
+| Colour, spacing, radius, type, shadow, z-index | the token → its utility (`bg-surface-1`, `gap-4`, `rounded-card`, `text-text-secondary`) | a hex, `rgba()`, or `Npx` literal |
+| A repeated visual (toolbar, stat, list row, form field, banner, …) | the `ui/` atom or `patterns/` block that owns it | flex/grid hand-rolled in the page |
+| A value computed at runtime (a bar width from state, a colour from data) | an inline `style` | — |
+| Something a utility cannot express (keyframe, `backdrop-filter: blur(calc())`, `@container`, scroll region) | a named class in `styles/app.css` whose values are tokens | a utility forced to fit |
+
+Layers, and what each may contain:
+
+- `styles/tokens.css` — `--*` definitions only. No selectors, no classes.
+- `styles/base.css` — reset and element defaults (`html`, `body`, `#root`, scrollbars, `::selection`, `:focus-visible`). No feature class.
+- `styles/app.css` — only the irreducible set above, plus the shell frame (topbar/sidebar grid).
+- `components/ui/` — atoms with variant props; utility-only, no page styling.
+- `components/patterns/` — composed blocks built from atoms.
+- `features/` — composition of atoms and blocks plus data. No local styling.
+
+Spacing is `--spacing: 2px`, so `gap-N` is `2N`px: `gap-[8px]` is `gap-4`,
+`gap-[12px]` is `gap-6`. Radius literals map to `rounded-control` (10px) and
+`rounded-card` (14px). Do not add a second style beside one that exists; extend
+the atom or block that owns the pattern.
+
+`test/style-guard.test.ts` enforces this as a ratchet: no file may exceed the
+static-inline or arbitrary-utility count recorded for it in
+`style-guard.json`, and a file absent from the manifest must be at zero. Lower
+the number in the same commit that migrates the file, with
+`STYLE_GUARD_UPDATE=1 bun test test/style-guard.test.ts`.
+
 ## Social metadata
 
 There is one `dashboard/index.html` for landing, console, and share routes.
