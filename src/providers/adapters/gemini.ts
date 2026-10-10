@@ -6,13 +6,14 @@ import { mapUpstreamHttpError } from "../../transport/failure-policy";
 import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../../protocol/canonical-model";
 import { decodeSseEvents } from "../../protocol/sse-decoder";
 import { usageFromProvider } from "../usage";
-import { readCredentialSecret, type ProviderDispatchTarget, type ProviderAdapter, type ProviderDispatchContext, type WebSearchOutcome, type WebSearchResult } from "../contracts";
+import { readCredentialSecret, type ImageGenerationOutcome, type ProviderDispatchTarget, type ProviderAdapter, type ProviderDispatchContext, type WebSearchOutcome, type WebSearchResult } from "../contracts";
 import type { ModelDefinition } from "../model-definition";
 import { fetchOpenAICompatibleModels } from "../discovery/openai-model-discovery";
 import { isRecord } from "../../protocol/codecs";
 import { providerBaseUrl } from "../metadata";
 import { abortGatewayError, createUpstreamDeadlineLifecycle } from "../operations/upstream-deadline";
 import { geminiModelUrl, buildGeminiPayload } from "../../protocol/request/gemini";
+import { geminiInlineImages, imageCreatedSeconds, imagePrompt } from "../../protocol/image-generation";
 import {
   decodeGeminiStreamEvent,
   geminiCandidate,
@@ -32,22 +33,42 @@ export const GEMINI_SEARCH_MODEL = "gemini-2.5-flash" as const;
 import { defineModel } from "../model-definition";
 
 export const GEMINI_MODELS: readonly ModelDefinition[] = [
-  "gemini-3.1-pro-preview",
-  "gemini-3.1-flash-lite-preview",
-  "gemini-3-flash-preview",
-  "gemini-2.5-pro",
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-].map((id) =>
-  defineModel({
-    id,
-    endpoint: "/v1beta/models",
-    ctx: 1_000_000,
-    out: 32768,
-    vision: true,
-    reasoning: true,
-  }),
-);
+  ...[
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-flash-preview",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+  ].map((id) =>
+    defineModel({
+      id,
+      endpoint: "/v1beta/models",
+      ctx: 1_000_000,
+      out: 32768,
+      vision: true,
+      reasoning: true,
+    }),
+  ),
+  // 9router's Gemini image catalog. These answer `:generateContent` with
+  // `inlineData`, not the chat text path.
+  ...[
+    "gemini-3.1-flash-image-preview",
+    "gemini-3-pro-image-preview",
+    "gemini-2.5-flash-image",
+  ].map((id) =>
+    defineModel({
+      id,
+      endpoint: "/v1beta/models",
+      ctx: 1_000_000,
+      out: 32_768,
+      vision: true,
+      serviceKind: "imageGeneration",
+      output: ["image"],
+      toolCall: false,
+    }),
+  ),
+];
 
 import type { DiscoveryInput } from "../discovery/discovery-types";
 
@@ -311,6 +332,61 @@ class GeminiAdapter implements ProviderAdapter {
     if (results.length === 0)
       throw new GatewayError("platform_unavailable", 502, "Gemini search returned no grounded results");
     return { results, total_results: results.length };
+  }
+
+  async generateImage(
+    body: Record<string, unknown>,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<ImageGenerationOutcome> {
+    const prompt = imagePrompt(body);
+    const model = candidate.model_id.length > 0 ? candidate.model_id : typeof body.model === "string" ? body.model : "";
+    if (model.length === 0) throw new GatewayError("invalid_request", 400, "model is required");
+    const apiKey = readCredentialSecret(context.credential, "Gemini API key is required");
+    const outboundFetch = context.outbound_fetch ?? this.fetchFn;
+    const lifecycle = createUpstreamDeadlineLifecycle(context);
+    let response: Response;
+    try {
+      // oh-my-pi's Gemini image client asks for IMAGE only. TEXT+IMAGE lets
+      // the model answer in prose and skip the inline image part.
+      response = await outboundFetch(geminiModelUrl(this.baseUrl, model, "generateContent"), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ["IMAGE"] },
+        }),
+        signal: lifecycle.signal,
+      });
+    } catch (error: unknown) {
+      const abortError = abortGatewayError(lifecycle, error, context.abort_signal);
+      if (abortError) throw abortError;
+      throw new GatewayError(
+        "platform_unavailable",
+        502,
+        `Gemini image generation unreachable: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        "upstream",
+      );
+    } finally {
+      lifecycle.release();
+    }
+    if (!response.ok) throw await mapUpstreamHttpError(response, "gemini");
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      throw new GatewayError("platform_unavailable", 502, "Gemini image generation returned invalid JSON", {}, "upstream");
+    }
+    const images = geminiInlineImages(data);
+    if (images.length === 0) {
+      throw new GatewayError("platform_unavailable", 502, "Gemini image generation returned no image", {}, "upstream");
+    }
+    return { created: imageCreatedSeconds(), data: images };
   }
 
 }

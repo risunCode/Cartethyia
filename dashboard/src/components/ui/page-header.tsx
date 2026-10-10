@@ -4,17 +4,23 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/cn";
 
 export interface BackLinkProps {
+  /** Used only when this page was opened directly and there is no history entry to return to. */
   readonly to: string;
   readonly label: string;
 }
 
-/** Consistent detail-page back link. */
-export function BackLink({ label }: BackLinkProps): ReactNode {
+/** Consistent detail-page back link. Goes to the previous page, not a fixed route. */
+export function BackLink({ to, label }: BackLinkProps): ReactNode {
   const navigate = useNavigate();
   return (
     <button
       type="button"
-      onClick={() => navigate(-1)}
+      onClick={() => {
+        // A direct open (bookmark, pasted URL) has no in-app page to return to.
+        // `history.length` counts the current entry, so 1 means this is the first.
+        if (window.history.length > 1) navigate(-1);
+        else navigate(to);
+      }}
       className="inline-flex items-center gap-[6px] text-accent text-[12px] bg-transparent border-0 p-0 cursor-pointer"
     >
       <ArrowLeft size={14} aria-hidden="true" />

@@ -24,15 +24,17 @@
 import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonical-model";
 import { GatewayError, capabilityUnsupported } from "../../../protocol/gateway-error";
 import { getCodexVersion } from "../../operations/client-versions";
+import { buildCodexUserAgent } from "../../operations/cli-platform";
 import { randomUUID } from "node:crypto";
 import { resolvePromptCacheKey } from "../../operations/session-resolution";
 import { decodeSseEvents } from "../../../protocol/sse-decoder";
-
-import { joinUrl } from "../../../protocol/codecs";
+import { imageCreatedSeconds, imagePrompt, responsesImageResult } from "../../../protocol/image-generation";
+import { isRecord, joinUrl } from "../../../protocol/codecs";
 import { postUpstreamJson } from "../../../protocol/upstream/post-json";
-import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext, ResolvedCredential, WebSearchOutcome, WebSearchResult } from "../../contracts";
+import type { ImageGenerationOutcome, ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext, ResolvedCredential, WebSearchOutcome, WebSearchResult } from "../../contracts";
 import {
   createCodexIdentity,
+  getCodexAccountId,
   getCodexInstallId,
   getCodexResidency,
 } from "./codex-identity";
@@ -62,6 +64,7 @@ function codexResponsesModel(
   modelId: string,
   contextLimit: number,
   outputLimit: number,
+  image = false,
 ): ModelDefinition {
   return defineModel({
     id: modelId,
@@ -70,8 +73,10 @@ function codexResponsesModel(
     ctx: contextLimit,
     out: outputLimit,
     vision: true,
-    reasoning: true,
-    toolCall: true,
+    reasoning: !image,
+    ...(image
+      ? { serviceKind: "imageGeneration" as const, output: ["image"] as const, toolCall: false }
+      : { toolCall: true }),
   });
 }
 
@@ -97,6 +102,17 @@ export const CODEX_MODELS: readonly ModelDefinition[] = [
   codexResponsesModel("gpt-5.6-terra", 1_000_000, 128_000),
   codexResponsesModel("gpt-5.6-luna", 1_000_000, 128_000),
   codexResponsesModel("gpt-5.5", 272_000, 128_000),
+  // 9router's Codex image catalog. Dedicated image tools plus the `-image`
+  // variants of the chat models, all served on the same Responses endpoint.
+  codexResponsesModel("gpt-image-2.5", 400_000, 128_000, true),
+  codexResponsesModel("gpt-image-2.5-flare", 400_000, 128_000, true),
+  codexResponsesModel("gpt-image-2.5-sunburst", 400_000, 128_000, true),
+  codexResponsesModel("gpt-image-2", 400_000, 128_000, true),
+  codexResponsesModel("gpt-image-1.5", 400_000, 128_000, true),
+  codexResponsesModel("gpt-5.6-sol-image", 1_000_000, 128_000, true),
+  codexResponsesModel("gpt-5.6-terra-image", 1_000_000, 128_000, true),
+  codexResponsesModel("gpt-5.6-luna-image", 1_000_000, 128_000, true),
+  codexResponsesModel("gpt-5.5-image", 272_000, 128_000, true),
 ];
 const CODEX_SEARCH_UPSTREAM_MODEL = "gpt-5.6-sol";
 
@@ -490,6 +506,113 @@ export function createCodexAdapter(
           ? Math.min(Math.max(1, Math.floor(rawMax)), 50)
           : 10;
       return { results: results.slice(0, maxResults), total_results: Math.min(results.length, maxResults) };
+    },
+    async generateImage(
+      body: Record<string, unknown>,
+      candidate: ProviderDispatchTarget,
+      context: ProviderDispatchContext,
+    ): Promise<ImageGenerationOutcome> {
+      assertCodexOAuthCredential(context.credential);
+      const prompt = imagePrompt(body);
+      const requested =
+        candidate.model_id.length > 0 ? candidate.model_id : typeof body.model === "string" ? body.model : "";
+      if (requested.length === 0) throw new GatewayError("invalid_request", 400, "model is required");
+      // A `-image` id is the chat model with the suffix removed. Dedicated
+      // image tools still need a chat carrier, and the account's visible 5.6
+      // models are the current ones.
+      const toolModel = requested.endsWith("-image") ? undefined : requested;
+      const carrier = toolModel === undefined ? requested.slice(0, -"-image".length) : "gpt-5.6-terra";
+      const outputFormat = typeof body.output_format === "string" && body.output_format.length > 0
+        ? body.output_format.toLowerCase()
+        : "png";
+      const tool: Record<string, unknown> = {
+        type: "image_generation",
+        action: "generate",
+        output_format: outputFormat,
+        ...(typeof body.size === "string" && body.size.length > 0 ? { size: body.size } : {}),
+        ...(typeof body.quality === "string" && body.quality.length > 0 ? { quality: body.quality } : {}),
+        ...(toolModel === undefined ? {} : { model: toolModel }),
+      };
+      const identity = createCodexIdentity();
+      const token = new TextDecoder().decode(context.credential.secret ?? new Uint8Array());
+      const residency = token.length === 0 ? undefined : getCodexResidency({ accessToken: token });
+      const accountId = context.credential.account_id ?? (token.length === 0 ? undefined : getCodexAccountId(token));
+      // Hosted image generation is not a Codex chat turn. Do not reuse the chat
+      // identity envelope: turn metadata, routing hints, and client metadata
+      // belong to the agentic text path and make this endpoint drop `tools`.
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        ...authHeadersForCodex(context.credential),
+        "user-agent": buildCodexUserAgent(version()),
+        originator: "codex_cli_rs",
+        version: version(),
+        "OpenAI-Beta": "responses=experimental",
+        session_id: identity.session_id,
+        conversation_id: identity.session_id,
+        ...(accountId === undefined || accountId.length === 0 ? {} : { "chatgpt-account-id": accountId }),
+        ...(residency === undefined || residency.length === 0
+          ? {}
+          : { "x-openai-internal-codex-residency": residency }),
+      };
+      const payload: Record<string, unknown> = {
+        model: carrier,
+        instructions:
+          "You are an AI image generator. Generate images based on user descriptions. Focus on creating high-quality, visually appealing images that match the user's request.",
+        input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
+        tools: [tool],
+        // The hosted image contract names the tool. A string choice is the chat
+        // contract and is rejected here once the chat envelope is absent.
+        tool_choice: { type: "image_generation" },
+        store: false,
+        stream: true,
+      };
+      const endpointPath = candidate.endpoint_path.length > 0 ? candidate.endpoint_path : "/backend-api/codex/responses";
+      const { res, release } = await postUpstreamJson(
+        joinUrl(chatgptBase, endpointPath),
+        headers,
+        payload,
+        context,
+        context.outbound_fetch ?? fetchFn,
+      );
+      try {
+        if (!res.ok) await mapCodexErrorResponse(res);
+        let image: string | undefined;
+        for await (const event of decodeSseEvents(res.body, {
+          signal: context.abort_signal,
+          maxEventBytes: 32 * 1024 * 1024,
+        })) {
+          const data = event.data.trim();
+          if (data.length === 0 || data === "[DONE]") continue;
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(data);
+          } catch {
+            throw new GatewayError("platform_unavailable", 502, "Codex image stream returned malformed JSON", {}, "upstream");
+          }
+          if (isRecord(parsed) && (parsed.type === "error" || parsed.type === "response.failed")) {
+            const message = isRecord(parsed.error) && typeof parsed.error.message === "string"
+              ? parsed.error.message
+              : isRecord(parsed.response) && isRecord(parsed.response.error) && typeof parsed.response.error.message === "string"
+                ? parsed.response.error.message
+                : "Codex image generation failed";
+            throw new GatewayError("platform_unavailable", 502, message, {}, "upstream");
+          }
+          image = responsesImageResult(parsed) ?? image;
+        }
+        if (image === undefined) {
+          throw new GatewayError(
+            "platform_unavailable",
+            502,
+            "Codex did not return an image. Account may not be entitled.",
+            {},
+            "upstream",
+          );
+        }
+        return { created: imageCreatedSeconds(), data: [{ b64_json: image }] };
+      } finally {
+        release();
+      }
     },
     async *dispatch(
       request: CanonicalRequest,

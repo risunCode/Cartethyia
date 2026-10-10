@@ -1,5 +1,12 @@
 ## Unreleased
 
+- Image generation now has a provider-owned wire for Gemini, Antigravity, and
+  Codex. Gemini asks `:generateContent` for `IMAGE` only. Antigravity streams
+  its agent envelope and reads `inlineData`. Codex sends a Responses
+  `image_generation` tool on its own path, without the chat turn envelope, so
+  the agentic text path is unchanged. A Codex catalog row is not an
+  entitlement: a ChatGPT account can still reject the tool.
+
 - `documentation/` is no longer one flat pile of ten pages beside a `features/`
   folder. The eight "how it is built" pages — `architecture`, `backend`,
   `protocol-and-translation`, `providers`, `console-api`, `dashboard`,

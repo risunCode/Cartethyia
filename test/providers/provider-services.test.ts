@@ -4,8 +4,9 @@ import { sanitizeProviderResponse } from "../../src/console/providers/catalog/pr
 describe("provider service taxonomy", () => {
   test("declares real search surfaces and keeps bundled providers explicit", () => {
     expect(providerServiceKinds("openai")).toEqual(["llm"]);
-    expect(providerServiceKinds("gemini")).toEqual(["llm", "websearch"]);
-    expect(providerServiceKinds("codex")).toEqual(["llm", "websearch"]);
+    expect(providerServiceKinds("gemini")).toEqual(["llm", "websearch", "imageGeneration"]);
+    expect(providerServiceKinds("codex")).toEqual(["llm", "websearch", "imageGeneration"]);
+    expect(providerServiceKinds("antigravity")).toEqual(["llm", "imageGeneration"]);
     expect(providerServiceKinds("exa")).toEqual(["websearch"]);
     // A bundled provider without a declaration serves LLM only — the
     // declaration is authoritative, so `llm` is not read as "everything".

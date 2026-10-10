@@ -195,11 +195,11 @@ protocol instead of going through a canonical codec (`metadata.ts:316`).
 | kiro | Bespoke (`metadata.ts:112`). AWS EventStream wire over `q.us-east-1.amazonaws.com`, no chat-shaped endpoint; reasoning arrives either as its own event or as `<thinking>` markers inside text (`kiro-stream.ts:1`). Device + PKCE. |
 | cursor | Bespoke (`metadata.ts:118`). Connect-RPC over HTTP/2: unary calls send `application/proto`, the turn is a bidirectional `application/connect+proto` frame stream opened on `node:http2` because `fetch` cannot hold it (`cursor-transport.ts:1-9`). Catalog is per-account. |
 | github | Base URL is only a fallback: the real host is read from the Copilot token's `proxy-ep` claim per dispatch (`github.ts:5`). Short-lived token, real refresher. |
-| antigravity | Google OAuth, but the wire is a Gemini payload wrapped in an agent envelope POSTed to `v1internal:{generate,stream}GenerateContent` — no per-model path (`antigravity.ts:1-12`). |
+| antigravity | Google OAuth, but the wire is a Gemini payload wrapped in an agent envelope POSTed to `v1internal:{generate,stream}GenerateContent` — no per-model path (`antigravity.ts:1-12`). Image generation streams that same envelope with `responseModalities: ["IMAGE"]` and reads `inlineData`. |
 | muse | Device-code login yields an OAuth token, which a follow-up `POST /muse-code/key` exchanges for the `api_key` the model backend accepts; the stored `oauth` secret is a `{oauthAccessToken, apiKey}` JSON blob (`muse.ts:1-12`). |
 | meta | The *other* Meta surface: a plain developer-dashboard API key, no OAuth (`default-registry.ts:172`). |
-| claude / codex | Subscription OAuth on Messages / Responses. Codex also serves websearch (`metadata.ts:43`). |
-| gemini | `x-goog-api-key` header, per-model `:generateContent`/`:streamGenerateContent` paths; not OpenAI-shaped (`adapters/gemini.ts:2-3`). |
+| claude / codex | Subscription OAuth on Messages / Responses. Codex also serves websearch (`metadata.ts:43`). Its image path is separate from the chat turn: a Responses `image_generation` tool on a chat carrier, without the chat identity envelope. A catalog row is not an entitlement; a ChatGPT account can reject the tool. |
+| gemini | `x-goog-api-key` header, per-model `:generateContent`/`:streamGenerateContent` paths; not [OI]-shaped (`adapters/gemini.ts:2-3`). Image generation uses the same path and asks for `responseModalities: ["IMAGE"]` only. |
 | xai / grok | Same issuer and JWKS, different surfaces: `grok` is the free Grok Build CLI proxy, `xai` is the paid API (`metadata.ts:64-78`). |
 | kilo | Resells the OpenRouter catalog behind a `{accessToken, orgId}` JSON credential decoded at the auth boundary (`kilo.ts:1-14`). No refresh grant. |
 | qoder | Device flow whose refresh endpoint answers 403; no refresher (`default-registry.ts:369`). |

@@ -26,6 +26,7 @@ import type { CanonicalEvent, CanonicalRequest, CanonicalStopReason } from "../.
 import { GatewayError } from "../../../protocol/gateway-error";
 import { firstUserText } from "../../../protocol/canonical-model";
 import { decodeSseEvents } from "../../../protocol/sse-decoder";
+import { geminiInlineImages, imageAspectRatio, imageCreatedSeconds, imagePrompt } from "../../../protocol/image-generation";
 import { mapUpstreamHttpError } from "../../../transport/failure-policy";
 import { usageFromProvider } from "../../usage";
 import { isRecord } from "../../../protocol/codecs";
@@ -44,7 +45,7 @@ import {
   getAntigravityUserAgent,
   loadAntigravityProject,
 } from "./antigravity-protocol";
-import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../../contracts";
+import type { ImageGenerationOutcome, ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../../contracts";
 import { providerBaseUrl } from "../../metadata";
 import { abortGatewayError, createUpstreamDeadlineLifecycle } from "../../operations/upstream-deadline";
 
@@ -60,6 +61,7 @@ const antigravityModel = (
   contextLimit: number,
   outputLimit: number,
   reasoning: boolean,
+  image = false,
 ): ModelDefinition =>
   defineModel({
     id: modelId,
@@ -69,7 +71,9 @@ const antigravityModel = (
     out: outputLimit,
     vision: true,
     reasoning,
-    toolCall: true,
+    ...(image
+      ? { serviceKind: "imageGeneration" as const, output: ["image"] as const, toolCall: false }
+      : { toolCall: true }),
   });
 
 export const ANTIGRAVITY_MODELS: readonly ModelDefinition[] = [
@@ -78,7 +82,7 @@ export const ANTIGRAVITY_MODELS: readonly ModelDefinition[] = [
   antigravityModel("claude-opus-4-6", 250_000, 64_000, true),
   // Gemini
   antigravityModel("gemini-3-flash", 1_048_576, 65_536, true),
-  antigravityModel("gemini-3.1-flash-image", 200_000, 64_000, false),
+  antigravityModel("gemini-3.1-flash-image", 200_000, 64_000, false, true),
   antigravityModel("gemini-3.1-pro", 1_048_576, 65_535, true),
   antigravityModel("gemini-3.6-flash", 1_048_576, 65_536, true),
   antigravityModel("gemini-3.7-flash", 1_048_576, 65_536, true),
@@ -418,6 +422,127 @@ class AntigravityAdapter implements ProviderAdapter {
     } finally {
       lifecycle.release();
     }
+  }
+
+  async generateImage(
+    body: Record<string, unknown>,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<ImageGenerationOutcome> {
+    if (context.credential.credential_kind !== "oauth") {
+      throw new GatewayError(
+        "invalid_request",
+        400,
+        `antigravity: Google OAuth credential required (got credential_kind=${context.credential.credential_kind})`,
+      );
+    }
+    const accessToken = context.credential.secret
+      ? new TextDecoder().decode(context.credential.secret).trim()
+      : "";
+    if (!accessToken) {
+      throw new GatewayError("authentication_failed", 401, "antigravity: OAuth access token is required");
+    }
+    const prompt = imagePrompt(body);
+    const model = candidate.model_id.length > 0 ? candidate.model_id : typeof body.model === "string" ? body.model : "";
+    if (model.length === 0) throw new GatewayError("invalid_request", 400, "model is required");
+    const outboundFetch: typeof fetch = (context.outbound_fetch as unknown as typeof fetch) ?? this.fetchFn;
+    const projectId = await loadAntigravityProject(accessToken, {
+      baseUrl: this.baseUrl,
+      fetcher: outboundFetch,
+      signal: context.abort_signal,
+    });
+    const aspectRatio = imageAspectRatio(body.size);
+    const count = typeof body.n === "number" && Number.isFinite(body.n) ? Math.max(1, Math.floor(body.n)) : 1;
+    // oh-my-pi's Antigravity image client streams the agent envelope and asks
+    // for IMAGE only. The chat envelope (tools, thinking, identity turn) makes
+    // Cloud Code answer as an agent instead of returning inline image bytes.
+    const payload: Record<string, unknown> = {
+      model: antigravityWireModelId(model),
+      request: {
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        systemInstruction: {
+          parts: [
+            {
+              text: "You are an AI image generator. Generate images based on user descriptions. Focus on creating high-quality, visually appealing images that match the user's request.",
+            },
+          ],
+        },
+        generationConfig: {
+          responseModalities: ["IMAGE"],
+          candidateCount: count,
+          ...(aspectRatio === undefined ? {} : { imageConfig: { aspectRatio } }),
+        },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+          { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_ONLY_HIGH" },
+        ],
+      },
+      requestType: "agent",
+      requestId: `agent-${Date.now()}-${randomUUID().slice(0, 9)}`,
+      userAgent: "antigravity",
+      ...(projectId === undefined ? {} : { project: projectId }),
+    };
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+      authorization: `Bearer ${accessToken}`,
+      "user-agent": getAntigravityUserAgent(),
+    };
+    const lifecycle = createUpstreamDeadlineLifecycle(context);
+    const url = `${this.baseUrl}${STREAM_GENERATE_PATH}`;
+    let response: Response;
+    try {
+      const attempt = (target: string): Promise<Response> =>
+        outboundFetch(target, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          signal: lifecycle.signal,
+        });
+      response = await attempt(url);
+      if (!response.ok && isFailoverStatus(response.status)) {
+        const sandboxUrl = failoverAntigravityUrl(url, this.baseUrl);
+        if (sandboxUrl !== undefined) response = await attempt(sandboxUrl);
+      }
+    } catch (error: unknown) {
+      const abortError = abortGatewayError(lifecycle, error, context.abort_signal);
+      if (abortError) throw abortError;
+      throw new GatewayError(
+        "platform_unavailable",
+        502,
+        `Antigravity image generation unreachable: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        "upstream",
+      );
+    }
+    if (!response.ok) {
+      lifecycle.release();
+      throw await mapUpstreamHttpError(response, "antigravity");
+    }
+    lifecycle.release();
+    const images: Record<string, unknown>[] = [];
+    // One generated image is already several megabytes of base64, so the
+    // shared 4 MiB SSE cap would reject a successful generation.
+    for await (const event of decodeSseEvents(response.body, {
+      signal: context.abort_signal,
+      maxEventBytes: 32 * 1024 * 1024,
+    })) {
+      if (event.data.trim().length === 0 || event.data.trim() === "[DONE]") continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(event.data);
+      } catch {
+        throw new GatewayError("platform_unavailable", 502, "Antigravity image stream returned malformed JSON", {}, "upstream");
+      }
+      images.push(...geminiInlineImages(parsed));
+    }
+    if (images.length === 0) {
+      throw new GatewayError("platform_unavailable", 502, "Antigravity image generation returned no image", {}, "upstream");
+    }
+    return { created: imageCreatedSeconds(), data: images };
   }
 }
 

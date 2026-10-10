@@ -35,6 +35,7 @@ const BUDDY_IMAGE_MODEL_IDS: readonly { id: string; endpoint: string; ctx: numbe
   { id: "gemini-3.0-pro-image", endpoint: "/chat/completions", ctx: 1_000_000, out: 64_000 },
   { id: "gemini-3.1-flash-image", endpoint: "/chat/completions", ctx: 1_000_000, out: 64_000 },
   { id: "gpt-image-2", endpoint: "/chat/completions", ctx: 400_000, out: 128_000 },
+  { id: "gpt-image-2.5", endpoint: "/chat/completions", ctx: 400_000, out: 128_000 },
 ];
 
 /**
@@ -98,15 +99,17 @@ export function makeBuddyModel(
   endpoint?: string,
 ): ModelDefinition {
   if (!entry[0]) throw new GatewayError("invalid_request", 400, "invalid model");
+  const image = BUDDY_IMAGE_MODEL_ID_SET.has(entry[0]);
   return defineModel({
     id: entry[0],
     providerId,
+    ...(image ? { serviceKind: "imageGeneration" as const, output: ["image"] as const } : {}),
     ...(endpoint === undefined ? {} : { endpoint }),
     reasoning: entry[2],
     vision: entry[3],
     ctx: entry[4],
     out: entry[5],
-    ...(entry[6] === undefined ? {} : { toolCall: entry[6] }),
+    ...(image ? { toolCall: false } : entry[6] === undefined ? {} : { toolCall: entry[6] }),
   });
 }
 
@@ -150,6 +153,7 @@ export const BUDDY_SHARED_RAW: readonly BuddyRawEntry[] = [
   ["gpt-6-astra", "GPT-6 Astra", true, true, 1_050_000, 128_000],
   ["gpt-6.1-sol", "GPT-6.1 Sol", true, true, 1_050_000, 128_000],
   ["gpt-image-2", "GPT-Image-2", true, true, 400_000, 128_000],
+  ["gpt-image-2.5", "GPT-Image-2.5", true, true, 400_000, 128_000],
   ["grok-4.6", "Grok 4.6", true, true, 500_000, 500_000],
   ["grok-4.7", "Grok 4.7", true, true, 500_000, 500_000],
   ["hy3", "Hy3", true, false, 1_000_000, 64_000, true],

@@ -1,7 +1,7 @@
 import { ChevronDown, Eye, EyeOff, Plus, Server, Trash2 } from "lucide-react";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   HeaderPairsEditor,
   pairsToHeaders,
@@ -50,7 +50,7 @@ import { getErrorMessage } from "../../lib/helpers";
 
 const wireFamilies = ["chat", "responses", "messages"] as const;
 type WireFamily = (typeof wireFamilies)[number];
-type DashboardServiceKind = "llm" | "websearch";
+type DashboardServiceKind = "llm" | "websearch" | "imageGeneration" | "videoGeneration";
 
 const SEARCH_PROVIDER_ORDER = ["exa", "gemini", "codex"] as const;
 
@@ -900,7 +900,27 @@ export default function Providers(): ReactNode {
     () => allProviders.filter((p) => providerServiceKinds(p).includes("llm")),
     [allProviders],
   );
-  const [tab, setTab] = useState<"llm" | "search">("llm");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab: "llm" | "search" | "media" =
+    requestedTab === "search" || requestedTab === "media" ? requestedTab : "llm";
+  const setTab = (next: "llm" | "search" | "media") => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (next === "llm") params.delete("tab");
+      else params.set("tab", next);
+      return params;
+    });
+  };
+  const mediaProviders = useMemo(
+    () =>
+      allProviders.filter(
+        (p) =>
+          providerServiceKinds(p).includes("imageGeneration") ||
+          providerServiceKinds(p).includes("videoGeneration"),
+      ),
+    [allProviders],
+  );
   const orderedSearch = useMemo(() => {
     const rank = new Map<string, number>(SEARCH_PROVIDER_ORDER.map((id, index) => [id, index]));
     return [...searchProviders].sort((a, b) => {
@@ -917,6 +937,15 @@ export default function Providers(): ReactNode {
     return (a.label || a.displayName).localeCompare(b.label || b.displayName);
   };
   const sections = useMemo(() => {
+    if (tab === "media") {
+      return [
+        {
+          title: "Media Generation",
+          subtitle: "Providers that can return an image or a video",
+          providers: mediaProviders,
+        },
+      ].filter((s) => s.providers.length > 0);
+    }
     if (tab === "search") {
       return [
         {
@@ -931,7 +960,7 @@ export default function Providers(): ReactNode {
       ...section,
       providers: source.filter(section.filter).sort(sortFn),
     })).filter((section) => section.providers.length > 0);
-  }, [llmProviders, orderedSearch, tab]);
+  }, [llmProviders, orderedSearch, mediaProviders, tab]);
 
   const state = q.isPending && !q.data
     ? <LoadingState label="Loading providers..." />
@@ -959,7 +988,7 @@ export default function Providers(): ReactNode {
         <CardBody className="flex flex-col gap-[16px]">
       <div className="flex items-center gap-[8px] flex-wrap">
         <div className="flex gap-[4px]">
-          {(["llm", "search"] as const).map((t) => (
+          {(["llm", "search", "media"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -970,15 +999,23 @@ export default function Providers(): ReactNode {
                   : "border-inner-border bg-surface-1 text-text-secondary",
               )}
             >
-              {t === "llm" ? "LLM" : "Search"}
-              {t === "search" ? ` (${searchProviders.length})` : ` (${llmProviders.length})`}
+              {t === "llm" ? "LLM" : t === "search" ? "Search" : "Media"}
+              {t === "search"
+                ? ` (${searchProviders.length})`
+                : t === "media"
+                  ? ` (${mediaProviders.length})`
+                  : ` (${llmProviders.length})`}
             </button>
           ))}
         </div>
         <span
           className="ml-auto text-[10.5px] text-text-tertiary"
         >
-          {tab === "search" ? "Automatic order: Exa → Gemini → Codex" : "Connected pinned first · A–Z"}
+          {tab === "search"
+            ? "Automatic order: Exa → Gemini → Codex"
+            : tab === "media"
+              ? "Image and video generation"
+              : "Connected pinned first · A–Z"}
         </span>
       </div>
       
@@ -1014,7 +1051,15 @@ export default function Providers(): ReactNode {
                 <ProviderCard
                   key={p.providerId}
                   provider={p}
-                  serviceKind={tab === "search" ? "websearch" : "llm"}
+                  serviceKind={
+                    tab === "search"
+                      ? "websearch"
+                      : tab === "media"
+                        ? providerServiceKinds(p).includes("imageGeneration")
+                          ? "imageGeneration"
+                          : "videoGeneration"
+                        : "llm"
+                  }
                 />
               ))}
             </ProviderCardGrid>
