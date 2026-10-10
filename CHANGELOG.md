@@ -7,6 +7,12 @@
   the agentic text path is unchanged. A Codex catalog row is not an
   entitlement: a ChatGPT account can still reject the tool.
 
+- The image-generation wire and its replay traps now live in the owning skills:
+  `cartethyia-provider-catalog` owns the provider bodies, and
+  `cartethyia-trace-replay` owns the stale-process and false-200 checks. A
+  later session should replay those steps instead of rediscovering them.
+
+
 - `documentation/` is no longer one flat pile of ten pages beside a `features/`
   folder. The eight "how it is built" pages — `architecture`, `backend`,
   `protocol-and-translation`, `providers`, `console-api`, `dashboard`,

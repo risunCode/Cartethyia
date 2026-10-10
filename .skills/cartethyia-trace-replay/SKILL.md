@@ -71,6 +71,26 @@ unreachable. That is the shape of this bug class.
 Fix the owner, not the adapter that reported it, so every upstream on that wire
 gets the guard.
 
+## Image generation replay
+
+For `POST /v1/images/generations`, identify the listener before bisecting the
+body. `Get-NetTCPConnection -LocalPort 12800` must show `bun run --hot
+src/main.ts` after a source edit. `dist/cartethyia.exe` and a hot process
+started before the edit can answer with the old payload. Do not assign `$pid`
+in PowerShell; it is read-only.
+
+Capture the body at the last boundary that still owns it. For Codex, compare
+the object passed to `postUpstreamJson` with the string inside
+`pinnedFetch`. If both contain `tools` and the upstream still says
+`tool_choice` must be specified with `tools`, the body is not the cause.
+Replay that same body directly to the provider before editing another choice
+or header.
+
+Do not treat a 200 chat response as an image. The proof is an
+`image_generation_call` or `inlineData` whose decoded bytes start with
+`89 50 4E 47` or `FF D8 FF`. The wire owners and the known account-boundary
+errors are in `cartethyia-provider-catalog`.
+
 ## Wire bytes and payload capture
 
 When the failure needs the actual bytes rather than a bisect, read
