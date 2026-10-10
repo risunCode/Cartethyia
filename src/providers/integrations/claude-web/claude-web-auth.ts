@@ -17,34 +17,21 @@ function cookieValue(cookie: string, name: string): string {
   return "";
 }
 
-function cookieFromExtension(value: unknown): ClaudeWebCredentials | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const pairs = value.flatMap((entry) => {
-    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return [];
-    const record = entry as Record<string, unknown>;
-    return typeof record.name === "string" && typeof record.value === "string" ? [[record.name, record.value] as const] : [];
-  });
-  const sessionKey = pairs.find(([name]) => name === "sessionKey")?.[1]?.trim() ?? "";
-  if (!sessionKey) return undefined;
-  return { sessionKey, cookie: pairs.map(([name, item]) => `${name}=${item}`).join("; ") };
-}
-
-/** Parses a session key, normalized JSON, Cookie header, or extension cookie export. */
+/** Parses a session key, normalized JSON, or Cookie header. */
 export function parseClaudeWebCredential(raw: string): ClaudeWebCredentials {
   const trimmed = raw.trim();
   if (!trimmed) throw new GatewayError("invalid_request", 400, "Claude Web credential cannot be empty");
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+  if (trimmed.startsWith("{")) {
     let parsed: unknown;
     try { parsed = JSON.parse(trimmed); } catch { parsed = undefined; }
-    const exported = cookieFromExtension(parsed);
-    if (exported) return exported;
     if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
       const record = parsed as Record<string, unknown>;
-      const nested = cookieFromExtension(record.cookies);
-      if (nested) return nested;
       if (typeof record.sessionKey === "string" && record.sessionKey.trim()) {
         const sessionKey = record.sessionKey.trim();
-        return { sessionKey, cookie: typeof record.cookie === "string" && record.cookie.trim() ? record.cookie : `sessionKey=${sessionKey}` };
+        return {
+          sessionKey,
+          cookie: typeof record.cookie === "string" && record.cookie.trim() ? record.cookie : `sessionKey=${sessionKey}`,
+        };
       }
     }
   }

@@ -6,25 +6,32 @@ import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget }
 import { readCredentialSecret } from "../../contracts";
 import { defineModel, type ModelDefinition } from "../../model-definition";
 import { claudeWebCookieHeader, parseClaudeWebCredential, type ClaudeWebCredentials } from "./claude-web-auth";
-import { createChromeFetch } from "./chrome-fetch";
 
-const HOST = ["claude", "ai"].join(".");
-const BASE_URL = `https://${HOST}`;
+const BASE_URL = "https://claude.ai";
 const ROOT_MESSAGE = "00000000-0000-4000-8000-000000000000";
-const COMPLETION_PATH = "/api/organizations/{organization_uuid}/chat_conversations/{conversation_uuid}/completion";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 
-const MODEL_PREFIX = ["cla", "ude"].join("");
 const MODEL_ROWS = [
-  { name: "opus-5-5", ctx: 1000000, out: 128000 },
-  { name: "sonnet-5-5", ctx: 1000000, out: 128000 },
-  { name: "haiku-5-5", ctx: 1000000, out: 128000 },
-  { name: "sonnet-4-6", ctx: 200000, out: 64000 },
-].map((row) => ({ id: `${MODEL_PREFIX}-${row.name}`, ctx: row.ctx, out: row.out }));
+  { id: "claude-sonnet-4-5", ctx: 200000, out: 64000 },
+  { id: "claude-opus-4-1", ctx: 200000, out: 32000 },
+  { id: "claude-haiku-4-5", ctx: 200000, out: 64000 },
+  { id: "claude-3-7-sonnet", ctx: 200000, out: 64000 },
+] as const;
 
 /** Static Claude web-session catalog. */
-export const CLAUDE_WEB_MODELS: readonly ModelDefinition[] = MODEL_ROWS.map((row) => defineModel({
-  id: row.id, providerId: "claude-web", wireFamily: "chat", endpoint: COMPLETION_PATH, ctx: row.ctx, out: row.out,
-  vision: true, reasoning: true, toolCall: true,
+export const CLAUDE_WEB_MODELS: readonly ModelDefinition[] = MODEL_ROWS.map((row) => ({
+  ...defineModel({
+    id: row.id,
+    providerId: "claude-web",
+    wireFamily: "chat",
+    endpoint: "/api/organizations",
+    ctx: row.ctx,
+    out: row.out,
+    vision: true,
+    reasoning: true,
+    toolCall: true,
+  }),
+  cost: { input: null, output: null, pricing_model: "subscription" as const },
 }));
 
 function textOf(part: ContentPart): string {
@@ -34,13 +41,12 @@ function textOf(part: ContentPart): string {
     const content = typeof part.content === "string" ? part.content : part.content.map(textOf).filter(Boolean).join("\n");
     return `tool_result ${part.call_id}: ${content}`;
   }
-  if (part.kind === "toolCall") return `tool_call ${part.name}: ${JSON.stringify(part.arguments)}`;
   return "";
 }
 
 function renderPrompt(request: CanonicalRequest): string {
   const lines: string[] = [];
-  for (const part of [...(request.system ?? []), ...(request.instructions ?? [])]) {
+  for (const part of request.system ?? []) {
     const text = textOf(part);
     if (text) lines.push(`system: ${text}`);
   }
@@ -55,12 +61,16 @@ function renderMessage(message: CanonicalMessage): string[] {
 
 function webTools(tools: readonly ToolDefinition[] | undefined): unknown[] | undefined {
   if (!tools || tools.length === 0) return undefined;
-  return tools.map((tool) => ({ name: tool.name, ...(tool.description === undefined ? {} : { description: tool.description }), input_schema: tool.jsonSchema }));
+  return tools.map((tool) => ({
+    name: tool.name,
+    ...(tool.description === undefined ? {} : { description: tool.description }),
+    input_schema: tool.jsonSchema,
+  }));
 }
 
 /** Confirms the stored session can read an organization. */
 export async function validateClaudeWebSession(encoded: string, fetchFn: typeof fetch = globalThis.fetch): Promise<void> {
-  await new ClaudeWebAdapter({ fetch: fetchFn }).organization(parseClaudeWebCredential(encoded));
+  await new ClaudeWebAdapter(fetchFn).organization(parseClaudeWebCredential(encoded));
 }
 
 /** Direct HTTP adapter for the Claude web session. */
@@ -68,27 +78,34 @@ export class ClaudeWebAdapter implements ProviderAdapter {
   readonly provider_id = "claude-web" as const;
   readonly #fetch: typeof fetch;
   readonly #organizations = new Map<string, string>();
-  constructor(options: { readonly fetch?: typeof fetch } = {}) { this.#fetch = options.fetch ?? createChromeFetch(); }
+
+  constructor(fetchFn: typeof fetch = globalThis.fetch) {
+    this.#fetch = fetchFn;
+  }
 
   async *dispatch(request: CanonicalRequest, candidate: ProviderDispatchTarget, context: ProviderDispatchContext): AsyncIterable<CanonicalEvent> {
     const creds = parseClaudeWebCredential(readCredentialSecret(context.credential));
     const org = await this.organization(creds, context.abort_signal);
-    const created = await this.request(creds, "POST", `/api/organizations/${org}/chat_conversations`, { name: "", organization_uuid: org }, context.abort_signal);
+    const created = await this.request(creds, "POST", `/api/organizations/${org}/chat_conversations`, { name: "Cartethyia", organization_uuid: org }, context.abort_signal);
     const conversation = record(created).uuid;
     if (typeof conversation !== "string" || !conversation) throw new GatewayError("transport_unavailable", 502, "Claude Web did not return a conversation");
     try {
       const tools = webTools(request.tools);
-      const effort = webEffort(request.reasoning?.effort);
-      const body = {
-        prompt: renderPrompt(request), parent_message_uuid: ROOT_MESSAGE, timezone: "UTC", locale: "en-US",
-        model: candidate.model_id || request.model, ...(tools === undefined ? {} : { tools }),
-        ...(effort === undefined ? {} : { effort, thinking_mode: "extended" }),
+      const response = await this.request(creds, "POST", `/api/organizations/${org}/chat_conversations/${conversation}/completion`, {
+        prompt: renderPrompt(request),
+        parent_message_uuid: ROOT_MESSAGE,
+        timezone: "UTC",
+        locale: "en-US",
+        model: candidate.model_id || request.model,
+        ...(tools === undefined ? {} : { tools }),
         turn_message_uuids: { human_message_uuid: randomUUID(), assistant_message_uuid: randomUUID() },
-        attachments: [], files: [], sync_sources: [], rendering_mode: "messages",
-      };
-      const response = await this.request(creds, "POST", `/api/organizations/${org}/chat_conversations/${conversation}/completion`, body, context.abort_signal, "text/event-stream");
+        attachments: [],
+        files: [],
+        sync_sources: [],
+        rendering_mode: "messages",
+      }, context.abort_signal, "text/event-stream");
       if (!(response instanceof Response) || !response.body) throw new GatewayError("transport_unavailable", 502, "Claude Web completion returned no response");
-      yield* parseClaudeSse(response.body, renderPrompt(request));
+      yield* parseClaudeSse(response.body);
     } finally {
       await this.request(creds, "DELETE", `/api/organizations/${org}/chat_conversations/${conversation}`, undefined, context.abort_signal).catch(() => undefined);
     }
@@ -107,13 +124,22 @@ export class ClaudeWebAdapter implements ProviderAdapter {
 
   private async request(creds: ClaudeWebCredentials, method: string, path: string, body: unknown, signal?: AbortSignal, accept = "application/json"): Promise<unknown> {
     const response = await this.#fetch(`${BASE_URL}${path}`, {
-      method, ...(signal === undefined ? {} : { signal }),
-      headers: { Cookie: claudeWebCookieHeader(creds), Origin: BASE_URL, Referer: `${BASE_URL}/`, Accept: accept, "Content-Type": "application/json" },
+      method,
+      ...(signal === undefined ? {} : { signal }),
+      headers: {
+        Cookie: claudeWebCookieHeader(creds),
+        Origin: BASE_URL,
+        Referer: `${BASE_URL}/new`,
+        "User-Agent": USER_AGENT,
+        Accept: accept,
+        "Content-Type": "application/json",
+      },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) throw new GatewayError("authentication_failed", 401, "Claude Web session is not signed in");
       const label = path.endsWith("/completion") ? "completion" : path.endsWith("/organizations") ? "organizations" : "conversation";
-      throw new GatewayError(label === "organizations" && response.status === 401 ? "authentication_failed" : "transport_unavailable", response.status, `Claude Web ${label} returned HTTP ${response.status}`);
+      throw new GatewayError("transport_unavailable", response.status, `Claude Web ${label} returned HTTP ${response.status}`);
     }
     if (accept === "text/event-stream") return response;
     if (method === "DELETE") return undefined;
@@ -125,19 +151,20 @@ function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-async function* parseClaudeSse(body: ReadableStream<Uint8Array>, prompt: string): AsyncIterable<CanonicalEvent> {
+async function* parseClaudeSse(body: ReadableStream<Uint8Array>): AsyncIterable<CanonicalEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let sequence = 1;
-  let outputChars = 0;
   let callId = "";
   let callName = "";
   let callArgs = "";
   const flushCall = (): CanonicalEvent | undefined => {
     if (!callId) return undefined;
     const event: CanonicalEvent = { type: "tool_call_delta", sequence_number: sequence++, call_id: callId, name: callName, arguments_delta: callArgs };
-    callId = ""; callName = ""; callArgs = "";
+    callId = "";
+    callName = "";
+    callArgs = "";
     return event;
   };
   while (true) {
@@ -152,20 +179,7 @@ async function* parseClaudeSse(body: ReadableStream<Uint8Array>, prompt: string)
       const event = JSON.parse(data) as Record<string, unknown>;
       const delta = record(event.delta);
       const block = record(event.content_block);
-      if (event.type === "content_block_start" && block.type === "thinking" && typeof block.thinking === "string" && block.thinking.length > 0) {
-        outputChars += block.thinking.length;
-        yield { type: "content_delta", sequence_number: sequence++, content: { kind: "reasoning", payload: null, summary: block.thinking } };
-      } else if (event.type === "content_block_delta" && delta.type === "thinking_delta" && typeof delta.thinking === "string") {
-        outputChars += delta.thinking.length;
-        yield { type: "content_delta", sequence_number: sequence++, content: { kind: "reasoning", payload: null, summary: delta.thinking } };
-      } else if (event.type === "content_block_delta" && delta.type === "thinking_summary_delta") {
-        const summary = typeof delta.summary === "string" ? delta.summary : record(delta.summary).summary;
-        if (typeof summary === "string" && summary.length > 0) {
-          outputChars += summary.length;
-          yield { type: "content_delta", sequence_number: sequence++, content: { kind: "reasoning", payload: null, summary } };
-        }
-      } else if (event.type === "content_block_delta" && delta.type === "text_delta" && typeof delta.text === "string") {
-        outputChars += delta.text.length;
+      if (event.type === "content_block_delta" && delta.type === "text_delta" && typeof delta.text === "string") {
         yield { type: "content_delta", sequence_number: sequence++, content: { kind: "text", text: delta.text } };
       } else if (event.type === "content_block_start" && block.type === "tool_use") {
         const pending = flushCall();
@@ -174,7 +188,6 @@ async function* parseClaudeSse(body: ReadableStream<Uint8Array>, prompt: string)
         callName = typeof block.name === "string" ? block.name : "";
       } else if (event.type === "content_block_delta" && delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
         callArgs += delta.partial_json;
-        outputChars += delta.partial_json.length;
       } else if (event.type === "content_block_stop") {
         const pending = flushCall();
         if (pending) yield pending;
@@ -183,23 +196,10 @@ async function* parseClaudeSse(body: ReadableStream<Uint8Array>, prompt: string)
   }
   const pending = flushCall();
   if (pending) yield pending;
-  const inputTokens = approximateTokens(prompt);
-  const outputTokens = approximateTokens("", outputChars);
-  yield canonicalTerminal({ sequenceNumber: sequence, state: "complete", stopReason: "stop", usage: { input_tokens: inputTokens, cached_input_tokens: "unavailable", cache_write_tokens: "unavailable", uncached_input_tokens: "unavailable", output_tokens: outputTokens, reasoning_tokens: "unavailable", estimated_cost: null, total_tokens: inputTokens + outputTokens } });
-}
-
-function webEffort(effort: NonNullable<CanonicalRequest["reasoning"]>["effort"]): "low" | "medium" | "high" | undefined {
-  if (effort === "minimal" || effort === "low") return "low";
-  if (effort === "medium") return "medium";
-  if (effort === "high" || effort === "xhigh" || effort === "max") return "high";
-  return undefined;
-}
-
-function approximateTokens(text: string, chars = text.length): number {
-  return Math.max(1, Math.ceil(chars / 4));
+  yield canonicalTerminal({ sequenceNumber: sequence, state: "complete", stopReason: "stop" });
 }
 
 /** Registry factory for the Claude web adapter. */
-export function createClaudeWebAdapter(options: { readonly fetch?: typeof fetch } = {}): ClaudeWebAdapter {
-  return new ClaudeWebAdapter(options);
+export function createClaudeWebAdapter(fetchFn?: typeof fetch): ClaudeWebAdapter {
+  return new ClaudeWebAdapter(fetchFn ?? globalThis.fetch);
 }

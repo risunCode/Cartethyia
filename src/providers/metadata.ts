@@ -70,6 +70,16 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     credentialUrl: `https://${["claude", "ai"].join(".")}`,
     credentialHint: `Paste a ${["claude", "ai"].join(".")} sessionKey, or a full Cookie header that contains sessionKey.`,
   },
+
+  {
+    id: "grok-web",
+    displayName: "Grok Web",
+    baseUrl: "https://grok.com",
+    bespokeWire: true,
+    hasAdapterUserAgent: true,
+    credentialUrl: "https://grok.com",
+    credentialHint: "Paste a grok.com Cookie header containing sso and sso-rw, or JSON with those fields.",
+  },
   {
     id: "kimi-web",
     displayName: "Kimi Web",

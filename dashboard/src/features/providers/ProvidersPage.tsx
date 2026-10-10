@@ -598,7 +598,7 @@ const FREE_LIMITED_IDS = new Set([
   "opencodeft",
   "cline",
 ]);
-const WEB_LLM_IDS = new Set(["claude-web", "kimi-web", "mimodesktop", "mimostudio"]);
+const WEB_LLM_IDS = new Set(["claude-web", "grok-web"]);
 /**
  * The providers an operator reaches for first: household names with a
  * published API-key signup. Grouped so the long tail of compatible resellers
@@ -881,7 +881,7 @@ const SECTIONS = [
   },
   {
     title: "Web Session Providers",
-    subtitle: "Signed-in web sessions — no API key. Tool calling may not work reliably here; these providers are best suited to ordinary chat.",
+    subtitle: "Signed-in web sessions — no API key",
     filter: (p: ProviderResponse) => WEB_LLM_IDS.has(p.providerId.toLowerCase()),
   },
   {

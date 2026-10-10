@@ -947,6 +947,16 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             effectiveSecret = encoded;
             oauthHasRefreshToken = true;
+          } else if (request.credentialKind === "oauth" && providerId === "grok-web") {
+            const { parseGrokWebCredential, encodeGrokWebCredential } = await import(
+              "../../../providers/integrations/grok-web/grok-web-auth"
+            );
+            const creds = parseGrokWebCredential(trimmed);
+            const encoded = encodeGrokWebCredential(creds);
+            oauthRefreshCiphertext = encryptCredential(encoded);
+            oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+            effectiveSecret = encoded;
+            oauthHasRefreshToken = true;
           } else if (request.credentialKind === "oauth" && providerId === "kimi-web") {
             const { parseKimiWebCredential, encodeKimiWebCredential } = await import(
               "../../../providers/integrations/kimi-web/kimi-web-auth"

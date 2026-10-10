@@ -395,6 +395,12 @@ export const PROVIDER_CAPABILITIES = {
     loadModels: async () => (await import("./integrations/claude-web/claude-web")).CLAUDE_WEB_MODELS,
     loadAuthentication: oauthCapability(() => import("./integrations/claude-web/claude-web-oauth"), "claudeWebOAuthClient", { withRefresher: true }),
   },
+
+  "grok-web": {
+    loadAdapter: async () => (await import("./integrations/grok-web/grok-web")).createGrokWebAdapter(),
+    loadModels: async () => (await import("./integrations/grok-web/grok-web")).GROK_WEB_MODELS,
+    loadAuthentication: oauthCapability(() => import("./integrations/grok-web/grok-web-oauth"), "grokWebOAuthClient", { withRefresher: true }),
+  },
   "kimi-web": {
     loadAdapter: async () => (await import("./integrations/kimi-web/kimi-web")).createKimiWebAdapter(),
     loadModels: async () => (await import("./integrations/kimi-web/kimi-web")).KIMI_WEB_MODELS,

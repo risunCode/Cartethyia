@@ -20,6 +20,7 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   grok: { file: "grok-build", ext: "webp" },
   "grok-build": { file: "grok-build", ext: "webp" },
   xai: { file: "grok-build", ext: "webp" },
+  "grok-web": { file: "grok-build", ext: "webp" },
   inferhub: { file: "inferhub", ext: "svg" },
   gemini: { file: "gemini", ext: "webp" },
   alibaba: { file: "alibaba", ext: "svg" },

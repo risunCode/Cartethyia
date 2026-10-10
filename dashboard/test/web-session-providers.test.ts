@@ -10,7 +10,7 @@ describe("web session provider section", () => {
     expect(freeAt).toBeGreaterThan(0);
     expect(webAt).toBeGreaterThan(freeAt);
     expect(otherAt).toBeGreaterThan(webAt);
-    expect(source).toContain('const WEB_LLM_IDS = new Set(["claude-web"])');
+    expect(source).toContain('const WEB_LLM_IDS = new Set(["claude-web", "grok-web"])');
     expect(source).toContain("!WEB_LLM_IDS.has(p.providerId.toLowerCase())");
   });
 });
