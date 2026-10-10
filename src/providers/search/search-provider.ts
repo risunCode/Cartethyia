@@ -128,10 +128,14 @@ export function createSearchAdapter(spec: SearchProviderSpec): ProviderAdapter {
           `${spec.provider_id} search error: ${detail.slice(0, 240)}`,
         );
       }
+      const raw = await res.text();
       let data: unknown;
       try {
-        data = await res.json();
+        data = JSON.parse(raw);
       } catch {
+        data = jsonFromEventStream(raw);
+      }
+      if (data === undefined) {
         throw new GatewayError(
           "platform_unavailable",
           502,
@@ -142,6 +146,23 @@ export function createSearchAdapter(spec: SearchProviderSpec): ProviderAdapter {
       return { results, total_results: results.length };
     },
   };
+}
+
+
+/** The last JSON `data:` payload in an SSE search response. */
+function jsonFromEventStream(raw: string): unknown {
+  let parsed: unknown;
+  for (const line of raw.split(/\r?\n/)) {
+    const payload = line.startsWith("data:") ? line.slice(5).trim() : "";
+    if (payload.length === 0 || payload === "[DONE]") continue;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      // A non-JSON event line is not a result. The next data line may be.
+    }
+  }
+  return parsed;
+
 }
 
 export { asRecord, stringField };

@@ -313,6 +313,7 @@ function partToClaudeBlock(
       if (
         part.name === "server_tool_use" ||
         part.name === "search_result" ||
+        part.name === "web_search_tool_result" ||
         part.name === "document" ||
         (part.name.startsWith("messages:") && part.name !== "messages:unknown")
       )

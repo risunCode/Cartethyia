@@ -89,6 +89,43 @@ function spokenTurns(turns: readonly LabTurn[]): readonly LabTurn[] {
   return turns.filter((turn) => turn.text.trim().length > 0 || (turn.images?.length ?? 0) > 0);
 }
 
+
+
+/**
+ * The hosted search tool a Model Lab agentic turn declares.
+ *
+ * A provider proven to serve it natively keeps it. Every other chat route
+ * runs the configured search fallback and answers from those results. No
+ * function tools are declared: the gateway executes only hosted web search,
+ * so any other declared tool ends the turn on `tool_calls` with nobody to
+ * run it — which hides the model's answer.
+ */
+function agentTools(protocol: LabProtocol): readonly Record<string, unknown>[] {
+  return [
+    protocol === "messages"
+      ? { type: "web_search_20250305", name: "web_search" }
+      : { type: "web_search" },
+  ];
+}
+
+function withAgentTools(protocol: LabProtocol, mode: LabMode, body: Record<string, unknown>): Record<string, unknown> {
+  if (mode !== "agentic") return body;
+  return { ...body, tools: agentTools(protocol) };
+}
+
+/** One friendly starter prompt on the Model Lab welcome screen. */
+export interface LabPreset {
+  readonly label: string;
+  readonly prompt: string;
+}
+
+export const MODEL_LAB_PRESETS: readonly LabPreset[] = [
+  { label: "Search", prompt: "Cari di internet siapa itu risuncode, lalu tuliskan satu URL sumber." },
+  { label: "Hello", prompt: "Halo! Perkenalkan dirimu singkat dalam Bahasa Indonesia." },
+  { label: "News", prompt: "Cari berita teknologi terbaru hari ini dan ringkas hasilnya." },
+  { label: "Translate", prompt: "Cari arti kata \"proxy\" di internet dan jelaskan ringkas dalam Bahasa Indonesia." },
+  { label: "Code", prompt: "Cari di internet cara membaca file dengan Bun di TypeScript, lalu berikan contoh singkat." },
+];
 /** The endpoint and JSON body for one send. Empty assistant turns are dropped. */
 export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestSettings): BuiltLabRequest {
   const spoken = spokenTurns(turns);
@@ -99,7 +136,7 @@ export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestS
   if (settings.protocol === "messages") {
     return {
       path: PATH_BY_PROTOCOL.messages,
-      body: {
+      body: withAgentTools("messages", settings.mode, {
         model: settings.model,
         stream: true,
         max_tokens: 4096,
@@ -107,14 +144,14 @@ export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestS
         messages: spoken.map((turn) => ({ role: turn.role, content: userContent("messages", turn) })),
         ...sample,
         ...effort,
-      },
+      }),
     };
   }
 
   if (settings.protocol === "responses") {
     return {
       path: PATH_BY_PROTOCOL.responses,
-      body: {
+      body: withAgentTools("responses", settings.mode, {
         model: settings.model,
         stream: true,
         input: [
@@ -123,13 +160,13 @@ export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestS
         ],
         ...sample,
         ...effort,
-      },
+      }),
     };
   }
 
   return {
     path: PATH_BY_PROTOCOL.chat,
-    body: {
+    body: withAgentTools("chat", settings.mode, {
       model: settings.model,
       stream: true,
       messages: [
@@ -138,7 +175,7 @@ export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestS
       ],
       ...sample,
       ...effort,
-    },
+    }),
   };
 }
 
@@ -246,6 +283,48 @@ export function reasoningDelta(protocol: LabProtocol, eventName: string, payload
   const body = delta as Record<string, unknown>;
   if (body.type !== "thinking_delta") return "";
   return textOf(body.thinking);
+
+}
+
+/** The name of a tool the model started calling in this frame. */
+export function toolCallName(protocol: LabProtocol, eventName: string, payload: unknown): string {
+  if (payload === null || typeof payload !== "object") return "";
+  const record = payload as Record<string, unknown>;
+  if (protocol === "chat") {
+    const choices = record.choices;
+    if (!Array.isArray(choices)) return "";
+    return choices
+      .map((choice) => {
+        if (choice === null || typeof choice !== "object") return "";
+        const delta = (choice as Record<string, unknown>).delta;
+        if (delta === null || typeof delta !== "object") return "";
+        const calls = (delta as Record<string, unknown>).tool_calls;
+        if (!Array.isArray(calls)) return "";
+        return calls
+          .map((call) => {
+            if (call === null || typeof call !== "object") return "";
+            const fn = (call as Record<string, unknown>).function;
+            if (fn === null || typeof fn !== "object") return "";
+            return textOf((fn as Record<string, unknown>).name);
+          })
+          .filter((name) => name.length > 0)
+          .join(", ");
+      })
+      .filter((name) => name.length > 0)
+      .join(", ");
+  }
+  if (protocol === "responses") {
+    const type = eventName.length > 0 ? eventName : record.type;
+    if (type !== "response.output_item.added" && type !== "response.function_call_arguments.delta") return "";
+    const item = record.item;
+    if (item === null || typeof item !== "object") return textOf(record.name);
+    return textOf((item as Record<string, unknown>).name);
+  }
+  if (eventName !== "content_block_start" && record.type !== "content_block_start") return "";
+  const block = record.content_block;
+  if (block === null || typeof block !== "object") return "";
+  if ((block as Record<string, unknown>).type !== "tool_use") return "";
+  return textOf((block as Record<string, unknown>).name);
 }
 
 export interface LabUsageDelta {

@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowDown, ArrowUp, Bot, Brain, Check, ChevronDown, Copy, DatabaseZap, Pencil, Sigma, Timer } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, Bot, Brain, Check, ChevronDown, Copy, DatabaseZap, Gauge, Pencil, Sigma, Timer, Wrench } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -65,6 +65,10 @@ export function ChatBubble({
   const provider = providerName(message.model);
   const totalTokens = (message.usage?.inputTokens ?? 0) + (message.usage?.outputTokens ?? 0);
   const total = message.usage?.inputTokens === undefined && message.usage?.outputTokens === undefined ? null : count(totalTokens);
+  const tokenSpeed =
+    message.usage?.outputTokens !== undefined && message.usage?.completionMs !== undefined && message.usage.completionMs > 0
+      ? `${Math.round(message.usage.outputTokens / (message.usage.completionMs / 1000))}/s`
+      : null;
   const metrics = mine
     ? []
     : [
@@ -73,6 +77,7 @@ export function ChatBubble({
         count(message.usage?.cachedTokens) === null ? null : { icon: <DatabaseZap size={10} />, label: "Cached tokens", value: count(message.usage?.cachedTokens) ?? "" },
         count(message.usage?.outputTokens) === null ? null : { icon: <ArrowDown size={10} />, label: "Output tokens", value: count(message.usage?.outputTokens) ?? "" },
         total === null ? null : { icon: <Sigma size={10} />, label: "Total tokens", value: total },
+        tokenSpeed === null ? null : { icon: <Gauge size={10} />, label: "Token speed", value: tokenSpeed },
         duration(message.usage?.completionMs) === null ? null : { icon: <Check size={10} />, label: "Done", value: duration(message.usage?.completionMs) ?? "" },
       ].filter((item) => item !== null);
 
@@ -146,6 +151,16 @@ export function ChatBubble({
               <div className="mlab-images">
                 {message.images?.map((image) => (
                   <img key={image.dataUrl} src={image.dataUrl} alt={image.name} />
+                ))}
+              </div>
+            ) : null}
+            {(message.tools?.length ?? 0) > 0 ? (
+              <div className="mlab-tools">
+                {message.tools?.map((tool) => (
+                  <span key={tool} className="mlab-tool-pill">
+                    <Wrench size={11} aria-hidden="true" />
+                    <span>{tool}</span>
+                  </span>
                 ))}
               </div>
             ) : null}

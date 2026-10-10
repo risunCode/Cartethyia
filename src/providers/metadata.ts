@@ -212,7 +212,7 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   { id: "perplexity", displayName: "Perplexity", baseUrl: "https://api.perplexity.ai", credentialUrl: "https://www.perplexity.ai/settings/api" },
   // Native web-search providers expose only the search service. Their catalog
   // rows are served by `/v1/search`, never by the canonical chat pipeline.
-  { id: "exa", displayName: "Exa", baseUrl: "https://mcp.exa.ai", serviceKinds: ["websearch"], requiresAccount: false, credentialUrl: "https://dashboard.exa.ai/api-keys", credentialHint: "Optional. Leave empty for the public MCP, or paste an API key for the higher-limit search API." },
+  { id: "exa", displayName: "Exa", baseUrl: "https://mcp.exa.ai", serviceKinds: ["websearch"], requiresAccount: false, credentialHint: "No API key. Search goes through the public MCP." },
   { id: "parallel", displayName: "Parallel", baseUrl: "https://search.parallel.ai", serviceKinds: ["websearch"], requiresAccount: false, credentialUrl: "https://platform.parallel.ai/settings?tab=api-keys", credentialHint: "Optional. Leave empty for the public MCP, or paste an API key for the higher-limit search API." },
 ] as const;
 
@@ -220,40 +220,28 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
  * Providers whose adapter drives a provider-side web-search tool itself.
  *
  * Search capability is a property of the *provider*, not of a model row: the
- * adapter either frames a hosted `web_search` tool / grounding directive or it
- * does not, and every model it serves inherits that. It used to live on the
- * model row, where discovery wrote `false` for models it had no metadata for
- * — so a perfectly capable route was filtered out of native search by a
- * metadata gap.
+ * adapter either frames a hosted `web_search` tool or it does not, and every
+ * model it serves inherits that. Membership is manual and only for a provider
+ * whose hosted search has been proven. An untested provider is not native:
+ * its chat route runs the configured search fallback.
  *
- * Membership here is what marks a route `search_route: "native"`; everything
- * else runs the configured search fallback.
+ * Membership here is what marks a route `search_route: "native"`.
  */
-const WEB_SEARCH_CAPABLE_PROVIDER_IDS: ReadonlySet<string> = new Set([
-  // Hosted Anthropic search tool on the Messages wire.
-  "claude",
-  "anthropic",
-  // Codex Responses hosted search.
-  "codex",
-  // Gemini grounding.
-  "gemini",
-  // Gemini wire with its own search plumbing.
-  "antigravity",
-]);
+const WEB_SEARCH_CAPABLE_PROVIDER_IDS: Readonly<Record<string, true>> = {
+  // Codex Responses hosted search, proven through the search fallback path.
+  codex: true,
+};
 
 /**
- * True when this provider serves a provider-side web-search tool.
+ * True when this provider serves a proven provider-side web-search tool.
  *
  * A provider that is *only* a search provider (`serviceKinds: ["websearch"]`,
- * e.g. Exa) answers `POST /v1/search` but never a chat turn, so
- * it is not a native chat search route — it is a fallback source instead.
+ * e.g. Exa) answers `POST /v1/search` but never a chat turn, so it is not a
+ * native chat search route — it is a fallback source instead. A chat provider
+ * is native only when it is named above. Service kinds do not grant it.
  */
 export function providerSupportsWebSearch(providerId: string): boolean {
-  const id = providerId.toLowerCase();
-  if (WEB_SEARCH_CAPABLE_PROVIDER_IDS.has(id)) return true;
-  const kinds = providerServiceKinds(id);
-  // An adapter that also implements `websearch` speaks search on a chat wire.
-  return kinds.includes("websearch") && kinds.includes("llm");
+  return WEB_SEARCH_CAPABLE_PROVIDER_IDS[providerId.toLowerCase()] === true;
 }
 
 export type BundledProviderId = (typeof RAW_BUNDLED_PROVIDER_METADATA)[number]["id"];

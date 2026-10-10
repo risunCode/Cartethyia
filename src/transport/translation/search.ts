@@ -66,6 +66,10 @@ export interface WebSearchInvocation {
 /** Returns true when a canonical request declares or invokes web search. */
 export function requestUsesWebSearch(request: CanonicalRequest): boolean {
   if (request.tools?.some(isWebSearchTool) === true) return true;
+  // Function-form declarations (Buddy family: `{type:"function", function:{name:"web_search",…}}`)
+  // carry no hosted marker, but a gateway-declared search function is the same
+  // capability. Only names that are actually search tools count.
+  if (request.tools?.some((tool) => isWebSearchToolName(tool.name)) === true) return true;
   return request.messages.some((message) =>
     message.content.some(
       (part) => part.kind === "toolCall" && isWebSearchToolName(part.name),

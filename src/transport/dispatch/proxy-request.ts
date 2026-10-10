@@ -9,6 +9,7 @@ import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver
 import type { ByokUpstreamHost } from "../../providers/operations/provider-catalog-service";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import type { RouteSnapshotService } from "../routing/route-model";
+import type { RouteCandidate } from "../routing/route-model";
 import { chatAdapter } from "../surface/chat/adapter";
 import { responsesAdapter } from "../surface/responses/adapter";
 import { messagesAdapter } from "../surface/messages/adapter";
@@ -34,7 +35,9 @@ import { runAttemptLoop } from "./attempt-loop";
 import { responseShowsWebSearch } from "../translation/search";
 import { projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";
 import { dispatchStreamingAttempt } from "./streaming/stream";
-import { runWebSearchBridge, withServedWebSearch } from "./websearch-bridge";
+import { runWebSearchBridge, servedSearchEvents, pendingWebSearchToolCall, withAnsweredWebSearchToolCall, withServedWebSearch } from "./websearch-bridge";
+import type { WebSearchBridgeResult } from "./websearch-bridge";
+import { BUDDY_PROVIDER_IDS } from "../../providers/metadata";
 
 export interface ProviderProxyHandlerDeps {
   readonly db: CartethyiaDatabase;
@@ -129,7 +132,9 @@ export async function handleProviderProxyRequest(
    * provider could serve it. An unanswered search must never break the turn,
    * so callers keep the original request on `undefined`.
    */
-  const runBridge = async (request: CanonicalRequest): Promise<CanonicalRequest | undefined> => {
+  const runBridge = async (
+    request: CanonicalRequest,
+  ): Promise<{ request: CanonicalRequest; served: WebSearchBridgeResult } | undefined> => {
     if (prepared.webSearch !== true || searchCandidates.length === 0) return undefined;
     const served = await runWebSearchBridge({
       state,
@@ -137,7 +142,7 @@ export async function handleProviderProxyRequest(
       request,
       candidates: searchCandidates,
     });
-    return served === undefined ? undefined : withServedWebSearch(request, served);
+    return served === undefined ? undefined : { request: withServedWebSearch(request, served), served };
   };
   // A web-search request whose selected route cannot serve the tool natively
   // runs the search on a configured search provider first, then continues on
@@ -149,11 +154,54 @@ export async function handleProviderProxyRequest(
   // search itself. If its answer carries no search evidence, the attempt
   // callback below bridges and re-dispatches once.
   const nativeSearch = prepared.candidate.search_route === "native" && canonicalRequest.provider_options?.force_search_providers !== true;
+  // Buddy-family routes (CodeBuddy/WorkBuddy) are non-native: only a function
+  // tool call from the model triggers the loop. Every other non-native route
+  // (e.g. a hosted web_search tool forwarded to an incapable provider) keeps
+  // the old contract: the gateway runs the caller's search first.
+  const fallbackIntent = !nativeSearch && prepared.webSearch === true && searchCandidates.length > 0 &&
+    !BUDDY_PROVIDER_IDS.has(prepared.candidate.provider_id);
   let dispatchRequest = canonicalRequest;
-  if (prepared.webSearch === true && !nativeSearch) {
+  let servedSearch: WebSearchBridgeResult | undefined;
+  if (fallbackIntent) {
     const bridged = await runBridge(canonicalRequest);
-    if (bridged !== undefined) dispatchRequest = bridged;
+    if (bridged !== undefined) {
+      dispatchRequest = bridged.request;
+      servedSearch = bridged.served;
+    }
   }
+  // Search is no longer pre-injected for Buddy routes: that made every
+  // Model Lab turn search, even a plain "ow gitu yah". Instead the model
+  // decides when to call the `web_search` function, and the loop below runs
+  // the search and hands the hits back for the summary.
+  const runSearchToolLoop = async (
+    request: CanonicalRequest,
+    events: readonly CanonicalEvent[],
+    dispatch: (input: CanonicalRequest) => Promise<{ events: CanonicalEvent[] }>,
+    routeCandidate: RouteCandidate,
+  ): Promise<{ events: readonly CanonicalEvent[]; served: boolean }> => {
+    if (nativeSearch || fallbackIntent || prepared.webSearch !== true || searchCandidates.length === 0) {
+      return { events, served: false };
+    }
+    const searchCall = pendingWebSearchToolCall(events);
+    if (searchCall === undefined) return { events, served: false };
+    const served = await runWebSearchBridge({
+      state,
+      deps: bridgeDeps,
+      request,
+      candidates: searchCandidates,
+    });
+    if (served === undefined) return { events, served: false };
+    servedSearch = served;
+    const continued = projectForRoute(
+      withAnsweredWebSearchToolCall(request, searchCall, served),
+      routeCapabilitiesFor(routeCandidate),
+    );
+    const next = await dispatch(continued);
+    return {
+      events: [...servedSearchEvents(served, request.source_surface), ...next.events],
+      served: true,
+    };
+  };
   // Allowlisted once per request, forwarded to every candidate attempt.
   // Guards the grounding-rejection re-dispatch: at most one retry per request,
   // so a route that legitimately answers without citing anything cannot loop.
@@ -239,33 +287,6 @@ export async function handleProviderProxyRequest(
         candidateRequest,
         routeCapabilitiesFor(candidate),
       );
-      if (dispatchRequest.stream) {
-        return dispatchStreamingAttempt({
-          state,
-          deps,
-          prepared,
-          canonicalRequest: dispatchRequest,
-          candidate,
-          credential,
-          adapter,
-          dispatchRequest: attemptRequest,
-          providerRouteCandidate,
-          inboundHeaders,
-          conversationAffinity,
-          lease,
-          reservation,
-          proxySlot,
-          networkPoolId,
-          providerCapture,
-          retainLeases: context.retainLeases,
-          ttfbFields,
-        });
-      }
-      // Pool slot ownership belongs to the candidate attempt: the slot was
-      // acquired atomically with selection above, and `proxySlot` is
-      // released in the `finally` below. Acquiring again here (including
-      // inside the compatibility-fallback `dispatch` callback, which may run
-      // twice) would overwrite `proxySlot` and leak the first handle.
       const dispatchContextBase = buildUpstreamDispatchContext({
         credential,
         deadline: state.deadlineMs,
@@ -289,6 +310,57 @@ export async function handleProviderProxyRequest(
           ? { outboundWebSocket: deps.networkBindingFactory.webSocket(networkPoolId, prepared.authorization.snapshot.tenant_id) }
           : {}),
       });
+      if (dispatchRequest.stream) {
+        const streamDispatch = async (input: CanonicalRequest): Promise<{ events: CanonicalEvent[] }> => {
+          const events: CanonicalEvent[] = [];
+          for await (const event of adapter.dispatch(
+            input,
+            providerRouteCandidate as never,
+            dispatchContextBase as never,
+          )) {
+            events.push(event);
+          }
+          return { events };
+        };
+        return dispatchStreamingAttempt({
+          state,
+          deps,
+          prepared,
+          canonicalRequest: dispatchRequest,
+          candidate,
+          credential,
+          adapter,
+          dispatchRequest: attemptRequest,
+          providerRouteCandidate,
+          inboundHeaders,
+          conversationAffinity,
+          lease,
+          reservation,
+          proxySlot,
+          networkPoolId,
+          providerCapture,
+          ...(servedSearch === undefined
+            ? {}
+            : { servedSearch: servedSearchEvents(servedSearch, dispatchRequest.source_surface) }),
+          ...(nativeSearch || fallbackIntent
+            ? {}
+            : {
+                searchLoop: {
+                  run: async (request, events) => {
+                    const looped = await runSearchToolLoop(request, events, streamDispatch, candidate);
+                    return looped;
+                  },
+                },
+              }),
+          retainLeases: context.retainLeases,
+          ttfbFields,
+        });
+      }
+      // Pool slot ownership belongs to the candidate attempt: the slot was
+      // acquired atomically with selection above, and `proxySlot` is
+      // released in the `finally` below. Acquiring again here (including
+      // inside the compatibility-fallback `dispatch` callback, which may run
+      // twice) would overwrite `proxySlot` and leak the first handle.
       // First-content timing is stamped during iteration: spreading a
       // timestamp onto every event just to scan for it afterwards allocated
       // one object per event for a single number. The streaming path keeps
@@ -325,8 +397,11 @@ export async function handleProviderProxyRequest(
         const bridged = await runBridge(canonicalRequest);
         if (bridged !== undefined) {
           retriedWithoutGrounding = true;
+          servedSearch = bridged.served;
           const retryRequest = projectForRoute(
-            bridged.model === dispatchRequest.model ? bridged : { ...bridged, model: dispatchRequest.model },
+            bridged.request.model === dispatchRequest.model
+              ? bridged.request
+              : { ...bridged.request, model: dispatchRequest.model },
             routeCapabilitiesFor(candidate),
           );
           ({ events, firstContentDeltaAtMs } = await dispatch(retryRequest));
@@ -334,6 +409,37 @@ export async function handleProviderProxyRequest(
           if (retryTerminal === undefined) throw terminalFailure(undefined);
           const retryError = terminalFailure(retryTerminal);
           if (retryError !== undefined) throw retryError;
+        }
+      }
+      if (servedSearch !== undefined) {
+        events = [...servedSearchEvents(servedSearch, dispatchRequest.source_surface), ...events];
+      }
+      // Function-tool loop: a non-native route (e.g. Buddy family) calls the
+      // `web_search` function the gateway declared for it. The gateway runs
+      // the search fallback here and re-dispatches with the hits as a tool
+      // result, so the model writes its summary instead of ending on
+      // `finish_reason: tool_calls` with no answer. Bounded to a few rounds
+      // so a model cannot request search forever.
+      if (!nativeSearch && !fallbackIntent) {
+        for (let round = 0; round < 4; round += 1) {
+          const searchCall = pendingWebSearchToolCall(events);
+          if (searchCall === undefined) break;
+          const served = await runWebSearchBridge({
+            state,
+            deps: bridgeDeps,
+            request: dispatchRequest,
+            candidates: searchCandidates,
+          });
+          if (served === undefined) break;
+          servedSearch = served;
+          const continued = projectForRoute(
+            withAnsweredWebSearchToolCall(dispatchRequest, searchCall, served),
+            routeCapabilitiesFor(candidate),
+          );
+          ({ events, firstContentDeltaAtMs } = await dispatch(continued));
+          if (servedSearch !== undefined) {
+            events = [...servedSearchEvents(servedSearch, dispatchRequest.source_surface), ...events];
+          }
         }
       }
       const terminal = events.find((event) => event.type === "terminal");

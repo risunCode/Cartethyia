@@ -116,9 +116,14 @@ export function blockFromPart(part: ContentPart): MessagesWireObject | undefined
       };
     }
     case "extension": {
-      if (isRecord(part.payload) && part.name === "server_tool_use") return part.payload;
-      if (isRecord(part.payload) && part.name === "search_result") return part.payload;
-      if (isRecord(part.payload) && part.name === "document") return part.payload;
+      if (
+        isRecord(part.payload) &&
+        (part.name === "server_tool_use" ||
+          part.name === "search_result" ||
+          part.name === "web_search_tool_result" ||
+          part.name === "document")
+      )
+        return part.payload;
       // Messages-native unknown types (`messages:*`, e.g. a newer Anthropic
       // block the parser does not know yet) round-trip under their native
       // type. Foreign-surface annotations (`responses:*`, chat `audio`,

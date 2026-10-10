@@ -26,6 +26,7 @@ export interface LabMessage {
   readonly usage?: LabUsage;
   readonly pending?: boolean;
   readonly error?: boolean;
+  readonly tools?: readonly string[];
 }
 
 export interface LabDraft {

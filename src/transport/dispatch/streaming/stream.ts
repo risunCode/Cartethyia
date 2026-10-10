@@ -81,6 +81,12 @@ export interface StreamingDispatchInput {
   readonly proxySlot: { poolId: string; release: () => void } | undefined;
   readonly networkPoolId: string | undefined;
   readonly providerCapture: ProviderExchangeCapture;
+  /** Fallback search hits to echo before the selected model's frames. */
+  readonly servedSearch?: readonly CanonicalEvent[];
+  /** Search-tool loop collaborators, when this attempt may run a function `web_search`. */
+  readonly searchLoop?: {
+    readonly run: (request: CanonicalRequest, events: readonly CanonicalEvent[]) => Promise<{ events: readonly CanonicalEvent[]; served: boolean }>;
+  };
   /** Hands lease ownership to the returned `Response`'s async lifetime. */
   retainLeases: () => void;
   /** First-token latency in the spread shape `completeAttempt` accepts. */
@@ -120,6 +126,8 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
     proxySlot,
     networkPoolId,
     providerCapture,
+    servedSearch,
+    searchLoop,
     retainLeases,
     ttfbFields,
   } = input;
@@ -166,16 +174,31 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
     include_usage: canonicalRequest.generation_controls["extension:include_usage"] === true,
   };
   let iterable = createUpstreamIterable();
-  // Prime the very first upstream event BEFORE committing the HTTP 200
-  // response (which flushes headers). If candidate 0 cannot even produce
-  // its first event, the error propagates to the outer candidate loop
-  // (which advances to the next candidate) instead of firing inside
-  // `start` after the response was already returned.
   let iterator = iterable[Symbol.asyncIterator]();
-  // Mark the moment we actually pull from the upstream adapter; this is
-  // the zero point for time-to-first-token.
   state.upstreamDispatchStartedAtMs = Date.now();
-  const first: IteratorResult<CanonicalEvent> = await iterator.next();
+  let first: IteratorResult<CanonicalEvent> = await iterator.next();
+  // Function-tool search loop: collect the first attempt, and when it ends
+  // in a `web_search` call, run the configured search and dispatch again.
+  // This runs before any client byte is sent, so the stream still shows a
+  // single coherent answer; it only delays the first byte when the model
+  // actually asked for search.
+  let searchLoopEvents: CanonicalEvent[] | undefined;
+  if (searchLoop !== undefined && !first.done) {
+    let collected: CanonicalEvent[] = [first.value];
+    for (;;) {
+      const result = await iterator.next();
+      if (result.done) break;
+      collected.push(result.value);
+    }
+    for (let round = 0; round < 4; round += 1) {
+      const looped = await searchLoop.run(dispatchRequest, collected);
+      if (!looped.served) break;
+      collected = [...looped.events];
+    }
+    searchLoopEvents = collected;
+    // The final loop pass is fully buffered; the stream just replays it.
+    first = { done: true, value: undefined };
+  }
 
   const candidateIdentity: StreamCandidateIdentity = {
     providerId: candidate.provider_id,
@@ -259,8 +282,18 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
   if (state.abortController.signal.aborted) finalizer.onStreamAbort();
 
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
+    async start(controller) {
       finalizer.startClientKeepalive(controller, CLIENT_SSE_KEEPALIVE_INTERVAL_MS);
+      for (const event of servedSearch ?? []) pipeline.enqueueEvent(event, controller);
+      if (searchLoopEvents !== undefined) {
+        for (const event of searchLoopEvents) pipeline.enqueueEvent(event, controller);
+        // The loop already buffered the full answer, so this stream is done
+        // after replay. Await it here: `pull` never runs for a stream whose
+        // `start` closes it, and awaiting keeps completion bookkeeping out of
+        // a fire-and-forget race with the reader.
+        await finalizer.finalizeStream(controller);
+        return;
+      }
       if (!first.done) pipeline.enqueueEvent(first.value, controller);
     },
     async pull(controller) {

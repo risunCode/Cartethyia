@@ -26,7 +26,7 @@ function context(providerId: "exa" | "parallel", secret: string | undefined, fet
 }
 
 describe("authless MCP search providers", () => {
-  test("Exa uses the public MCP without a key and the search API with one", async () => {
+  test("Exa uses the public MCP and ignores an API key", async () => {
     const requests: Array<{ url: string; body: unknown; headers: Headers }> = [];
     const fetcher: ValidatedOutboundFetch = async (input, init) => {
       const url = String(input);
@@ -38,13 +38,22 @@ describe("authless MCP search providers", () => {
     const adapter = createSearchAdapter(SEARCH_PROVIDER_SPECS.exa);
 
     await adapter.websearch!({ query: "cartethyia", max_results: 3 }, target, context("exa", undefined, fetcher));
-    expect(requests[0]?.url).toBe("https://mcp.exa.ai/mcp?tools=web_search_exa");
-    expect(requests[0]?.headers.has("x-api-key")).toBe(false);
-    expect(requests[0]?.body).toMatchObject({ method: "tools/call", params: { name: "web_search_exa" } });
-
     await adapter.websearch!({ query: "cartethyia", max_results: 3 }, target, context("exa", "exa-key", fetcher));
-    expect(requests[1]?.url).toBe("https://api.exa.ai/search");
-    expect(requests[1]?.headers.get("x-api-key")).toBe("exa-key");
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.url === "https://mcp.exa.ai/mcp?tools=web_search_exa")).toBe(true);
+    expect(requests.every((request) => request.headers.has("x-api-key") === false)).toBe(true);
+    expect(requests[0]?.body).toMatchObject({ method: "tools/call", params: { name: "web_search_exa" } });
+  });
+
+  test("an Exa SSE text body still becomes search results", async () => {
+    const fetcher: ValidatedOutboundFetch = async () =>
+      new Response(
+        'event: message\ndata: {"result":{"content":[{"type":"text","text":"Title: BMKG Weather Forecast\\nURL: https://weather.bmkg.go.id/\\nHighlights:\\nCuaca BMKG"}]}}\n\n',
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    const adapter = createSearchAdapter(SEARCH_PROVIDER_SPECS.exa);
+    const outcome = await adapter.websearch!({ query: "jakarta" }, target, context("exa", undefined, fetcher));
+    expect(outcome.results[0]).toMatchObject({ title: "BMKG Weather Forecast", url: "https://weather.bmkg.go.id/", snippet: "Cuaca BMKG" });
   });
 
   test("Parallel uses the public MCP without a key and the beta API with one", async () => {

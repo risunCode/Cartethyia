@@ -22,15 +22,14 @@ describe("buildLabRequest", () => {
       settings({ systemPrompt: "be brief", temperature: "0.4" }),
     );
     expect(built.path).toBe("/v1/chat/completions");
-    expect(built.body).toEqual({
-      model: "openai/gpt-4.1",
-      stream: true,
-      messages: [
-        { role: "system", content: "be brief" },
-        { role: "user", content: "hi" },
-      ],
-      temperature: 0.4,
-    });
+    expect(built.body.model).toBe("openai/gpt-4.1");
+    expect(built.body.stream).toBe(true);
+    expect(built.body.messages).toEqual([
+      { role: "system", content: "be brief" },
+      { role: "user", content: "hi" },
+    ]);
+    expect(built.body.temperature).toBe(0.4);
+    expect(built.body.tools).toEqual(expect.arrayContaining([{ type: "web_search" }]));
   });
 
   test("responses uses input and messages uses a top-level system field", () => {
@@ -52,6 +51,13 @@ describe("buildLabRequest", () => {
     const built = buildLabRequest([{ role: "user", text: "hi" }], settings({ temperature: "  ", topP: "nope" }));
     expect(built.body.temperature).toBeUndefined();
     expect(built.body.top_p).toBeUndefined();
+  });
+
+  test("media mode sends no tools, and agentic mode sends only hosted search", () => {
+    const media = buildLabRequest([{ role: "user", text: "hi" }], settings({ mode: "media" }));
+    expect(media.body.tools).toBeUndefined();
+    const agentic = buildLabRequest([{ role: "user", text: "hi" }], settings());
+    expect(agentic.body.tools).toEqual([{ type: "web_search" }]);
   });
 
   test("an attached image is a wire image part, and a blank turn is kept", () => {

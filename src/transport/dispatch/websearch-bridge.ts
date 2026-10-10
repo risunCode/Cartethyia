@@ -15,9 +15,9 @@
  */
 import { GatewayError } from "../../protocol/gateway-error";
 import { log } from "../../observability/logger";
-import type { CanonicalRequest } from "../../protocol/canonical-model";
+import type { CanonicalEvent, CanonicalRequest, SourceSurface } from "../../protocol/canonical-model";
 import type { RouteCandidate } from "../routing/route-model";
-import { extractWebSearchInvocation, isWebSearchTool } from "../translation/search";
+import { extractWebSearchInvocation, isWebSearchTool, isWebSearchToolName } from "../translation/search";
 import type { ProviderAdapter, ProviderDispatchTarget, WebSearchOutcome } from "../../providers/contracts";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";
@@ -147,7 +147,7 @@ export async function runWebSearchBridge(
 }
 
 /** Formats normalized hits as the text a model can quote from. */
-function formatSearchResults(result: WebSearchBridgeResult): string {
+export function formatSearchResults(result: WebSearchBridgeResult): string {
   const lines: string[] = [`Web search results for "${result.query}":`, ""];
   for (const [index, hit] of result.results.results.entries()) {
     const title = hit.title.length > 0 ? hit.title : hit.url;
@@ -158,6 +158,162 @@ function formatSearchResults(result: WebSearchBridgeResult): string {
   }
   lines.push("Answer the user's question using these results and cite the URLs you used.");
   return lines.join("\n");
+}
+
+/** Stable id for one served search round, shared by the upstream injection and the client echo. */
+export function servedSearchCallId(result: WebSearchBridgeResult): string {
+  return `srvtoolu_${result.providerId}_${result.query.length}_${result.results.results.length}`;
+}
+/** Visible hit list: title and URL only, so a chat client shows the results, not the query. */
+function visibleSearchHits(result: WebSearchBridgeResult): string {
+  return result.results.results
+    .map((hit) => `${hit.title.length > 0 ? hit.title : hit.url} — ${hit.url}`)
+    .join("\n");
+}
+
+/**
+ * The search round the client should see, in the shape its own surface counts
+ * as a completed search. Claude Code counts `web_search_tool_result`; Chat and
+ * Responses clients count a tool call whose arguments are the hits. A text
+ * delta carries the same titles and URLs so a client that only renders answer
+ * text still shows the results. Emitted ahead of the selected model's answer.
+ */
+export function servedSearchEvents(
+  result: WebSearchBridgeResult,
+  surface: SourceSurface,
+): readonly CanonicalEvent[] {
+  const callId = servedSearchCallId(result);
+  const hits = result.results.results.map((hit) => ({
+    type: "web_search_result",
+    title: hit.title.length > 0 ? hit.title : hit.url,
+    url: hit.url,
+  }));
+  const visible = {
+    type: "content_delta" as const,
+    sequence_number: 0,
+    content: { kind: "text" as const, text: `${visibleSearchHits(result)}\n\n` },
+  };
+  if (surface === "messages") {
+    return [
+      visible,
+      {
+        type: "content_delta",
+        sequence_number: 1,
+        content: {
+          kind: "extension",
+          name: "server_tool_use",
+          payload: {
+            type: "server_tool_use",
+            id: callId,
+            name: "web_search",
+            input: { query: result.query },
+          },
+        },
+      },
+      {
+        type: "content_delta",
+        sequence_number: 2,
+        content: {
+          kind: "extension",
+          name: "web_search_tool_result",
+          payload: {
+            type: "web_search_tool_result",
+            tool_use_id: callId,
+            content: hits,
+          },
+        },
+      },
+    ];
+  }
+  return [
+    visible,
+    {
+      type: "tool_call_delta",
+      sequence_number: 1,
+      call_id: callId,
+      name: "web_search",
+      arguments_delta: JSON.stringify({
+        query: result.query,
+        provider: result.providerId,
+        results: hits,
+      }),
+    },
+  ];
+}
+
+/** One completed web-search function call the model asked the gateway to run. */
+export interface WebSearchToolCall {
+  readonly callId: string;
+  readonly name: string;
+  readonly query: string;
+}
+
+/**
+ * Reads a finished `web_search` function call out of a non-stream event
+ * batch. Only the function-tool spelling counts here: a hosted tool never
+ * produces a call the gateway must execute, and matching a hosted name would
+ * feed the fallback into a route that was supposed to search natively.
+ */
+export function pendingWebSearchToolCall(events: readonly CanonicalEvent[]): WebSearchToolCall | undefined {
+  let callId: string | undefined;
+  let name: string | undefined;
+  let argumentsText = "";
+  let sawEnd = false;
+  for (const event of events) {
+    if (event.type === "tool_call_delta") {
+      if (event.name !== undefined) name = event.name;
+      if (event.call_id !== undefined) callId = event.call_id;
+      if (event.arguments_delta !== undefined) argumentsText += event.arguments_delta;
+    } else if (event.type === "tool_result") {
+      continue;
+    } else if (event.type === "terminal") {
+      if (event.state === "complete") sawEnd = true;
+    }
+  }
+  if (!sawEnd || callId === undefined) return undefined;
+  if (name === undefined || !isWebSearchToolName(name)) return undefined;
+  let args: unknown;
+  try {
+    args = argumentsText.length > 0 ? JSON.parse(argumentsText) : {};
+  } catch {
+    args = {};
+  }
+  const query =
+    args !== null && typeof args === "object" && typeof (args as Record<string, unknown>)["query"] === "string"
+      ? ((args as Record<string, unknown>)["query"] as string).trim()
+      : "";
+  if (query.length === 0) return undefined;
+  return { callId, name, query };
+}
+
+/**
+ * Continues a turn whose model called the `web_search` function: the search
+ * round is appended as a completed assistant call + tool result, and the
+ * hosted search tool is removed so the model answers from the hits instead of
+ * calling the tool again.
+ */
+export function withAnsweredWebSearchToolCall(
+  request: CanonicalRequest,
+  call: WebSearchToolCall,
+  result: WebSearchBridgeResult,
+): CanonicalRequest {
+  const { tools: declaredTools, ...rest } = request;
+  const remainingTools = declaredTools?.filter((tool) => !isWebSearchTool(tool));
+  return {
+    ...rest,
+    ...(remainingTools !== undefined && remainingTools.length > 0 ? { tools: remainingTools } : {}),
+    messages: [
+      ...request.messages,
+      {
+        role: "assistant",
+        content: [{ kind: "toolCall", call_id: call.callId, name: call.name, arguments: { query: call.query } }],
+      },
+      {
+        role: "tool",
+        content: [{ kind: "toolResult", call_id: call.callId, content: formatSearchResults(result) }],
+      },
+    ],
+  };
 }
 
 /**
@@ -180,7 +336,7 @@ export function withServedWebSearch(
     request.tool_choice !== undefined &&
     typeof request.tool_choice === "object" &&
     "name" in request.tool_choice &&
-    isWebSearchTool({ name: request.tool_choice.name })
+    isWebSearchToolName(request.tool_choice.name)
       ? "auto"
       : request.tool_choice;
   // Replayed as a completed assistant tool-call + tool-result round, which is
@@ -193,7 +349,7 @@ export function withServedWebSearch(
   // replying in raw DSML tool-call syntax — but the real cause was the tool
   // declaration still reaching the upstream, which is fixed at the source.
   // With the declaration gone, a finished round leaves no pattern to imitate.
-  const callId = `srvtoolu_${result.providerId}_${Date.now().toString(36)}`;
+  const callId = servedSearchCallId(result);
   const searchToolName = declaredTools?.find(isWebSearchTool)?.name ?? "web_search";
   return {
     ...rest,

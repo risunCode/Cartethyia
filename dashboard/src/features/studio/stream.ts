@@ -3,7 +3,7 @@
  * The caller owns the assistant bubble; this only walks the wire.
  */
 
-import { errorMessage, reasoningDelta, takeSseEvents, textDelta, usageDelta, type LabProtocol, type LabUsageDelta } from "./protocol";
+import { errorMessage, reasoningDelta, takeSseEvents, textDelta, toolCallName, usageDelta, type LabProtocol, type LabUsageDelta } from "./protocol";
 
 export async function readLabStream(
   response: Response,
@@ -11,6 +11,7 @@ export async function readLabStream(
   onDelta: (text: string) => void,
   onReasoning: (text: string) => void,
   onUsage: (usage: LabUsageDelta) => void,
+  onTool: (name: string) => void,
   signal: AbortSignal,
 ): Promise<void> {
   if (!response.ok) {
@@ -46,6 +47,9 @@ export async function readLabStream(
         if (usage.inputTokens !== undefined || usage.cachedTokens !== undefined || usage.outputTokens !== undefined || usage.reasoningTokens !== undefined || usage.status !== undefined) {
           onUsage(usage);
         }
+        const tool = toolCallName(protocol, event.event, payload);
+        if (tool.length > 0) onTool(tool);
+
       }
     }
   } finally {

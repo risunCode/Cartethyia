@@ -47,6 +47,35 @@ function normalizedToolName(value: string, index: number, used: Set<string>): st
   return uniqueToolName(base || `tool_${index + 1}`, used);
 }
 
+/**
+ * Buddy's Chat Completions wire has no `web_search_preview` hosted tool; its
+ * search is an ordinary function named `web_search` with a `{query}` schema.
+ * The canonical chat encoder emits `web_search_preview` for a hosted search
+ * tool, which upstream accepted but then answered from the model's weights
+ * ("I cannot access the internet"). Rewriting it here makes the model call
+ * the function so the gateway's tool loop can execute the search and feed the
+ * hits back for the model's summary.
+ */
+function buddyHostedSearchFunction(rawTool: Record<string, unknown>): Record<string, unknown> | undefined {
+  const type = rawTool["type"];
+  if (type !== "web_search" && type !== "web_search_preview") return undefined;
+  return {
+    type: "function",
+    function: {
+      name: "web_search",
+      description: "Search the web for current information.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "The search query." },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
 
 export function normalizeBuddyToolNames(payload: Record<string, unknown>): void {
   if (!Array.isArray(payload["tools"])) return;
@@ -54,6 +83,11 @@ export function normalizeBuddyToolNames(payload: Record<string, unknown>): void 
   const replacements = new Map<string, string>();
   payload["tools"] = payload["tools"].map((rawTool, index) => {
     if (!isRecord(rawTool)) return rawTool;
+    const hostedSearch = buddyHostedSearchFunction(rawTool);
+    if (hostedSearch !== undefined) {
+      used.add("web_search");
+      return hostedSearch;
+    }
     const fn = isRecord(rawTool["function"]) ? rawTool["function"] : undefined;
     const custom = isRecord(rawTool["custom"]) ? rawTool["custom"] : undefined;
     const sourceName = fn?.["name"] ?? custom?.["name"] ?? rawTool["name"];

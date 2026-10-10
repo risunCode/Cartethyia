@@ -246,8 +246,16 @@ dbDescribe("web-search fallback dispatch", () => {
     if (call?.kind === "toolCall" && toolResult?.kind === "toolResult") {
       expect(toolResult.call_id).toBe(call.call_id);
     }
-    const body = (await response.json()) as { content: { type: string; text?: string }[] };
+    const body = (await response.json()) as {
+      content: { type: string; text?: string; tool_use_id?: string }[];
+    };
     expect(body.content.some((block) => block.text?.includes("risuncode is a developer"))).toBe(true);
+    // The client sees the search itself, not only the model's citation.
+    // Claude Code counts this block; a chat UI can render its titles and URLs.
+    expect(body.content.some((block) => block.type === "web_search_tool_result")).toBe(true);
+    expect(body.content.some((block) => block.type === "server_tool_use")).toBe(true);
+    expect(JSON.stringify(body.content)).toContain("https://example.com/risuncode");
+    expect(JSON.stringify(body.content)).toContain("risuncode — https://example.com/risuncode");
   });
 
   test("a search invocation in message content routes to the fallback too", async () => {
@@ -293,6 +301,32 @@ dbDescribe("web-search fallback dispatch", () => {
     expect(response.status).toBe(200);
     // The fallback ran on the model-authored query from the replayed call.
     expect(searchAdapter.searches).toEqual(["siapa risuncode"]);
+  });
+
+  test("a streamed fallback echoes the search hits before the model answer", async () => {
+    routesWithSearchProvider();
+    gateway.adapter(world.providerId, {
+      events: (request): readonly CanonicalEvent[] => [
+        { type: "message_start", sequence_number: 0, model: request.model },
+        { type: "content_delta", sequence_number: 1, content: { kind: "text", text: "answered from hits" } },
+        { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "stop" },
+      ],
+    });
+    gateway.adapter("exa", {
+      searchResults: [
+        { title: "risuncode", url: "https://example.com/risuncode", snippet: "Profile" },
+      ],
+    });
+    const response = await gateway.json(
+      "/v1/messages",
+      { ...messagesSearchRequest(world.qualifiedModel), stream: true },
+      { token: world.token },
+    );
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text.indexOf("web_search_tool_result")).toBeGreaterThan(-1);
+    expect(text.indexOf("https://example.com/risuncode")).toBeLessThan(text.indexOf("answered from hits"));
+    expect(text).toContain("risuncode — https://example.com/risuncode");
   });
 
   test("a failing configured provider advances to the next configured one", async () => {

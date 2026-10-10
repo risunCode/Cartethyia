@@ -30,10 +30,14 @@ describe("provider service taxonomy", () => {
   // Web search is a provider capability, not a per-model flag: the adapter
   // either frames a hosted search tool or it does not.
   test("search-capable providers are declared at the provider level", () => {
-    expect(providerSupportsWebSearch("claude")).toBe(true);
-    expect(providerSupportsWebSearch("gemini")).toBe(true);
     expect(providerSupportsWebSearch("codex")).toBe(true);
-    expect(providerSupportsWebSearch("antigravity")).toBe(true);
+    // Untested chat providers stay on the configured search fallback.
+    expect(providerSupportsWebSearch("claude")).toBe(false);
+    expect(providerSupportsWebSearch("anthropic")).toBe(false);
+    expect(providerSupportsWebSearch("gemini")).toBe(false);
+    expect(providerSupportsWebSearch("antigravity")).toBe(false);
+    expect(providerSupportsWebSearch("grok")).toBe(false);
+    expect(providerSupportsWebSearch("cb")).toBe(false);
     // A pure search provider answers `/v1/search`, never a chat turn.
     expect(providerSupportsWebSearch("exa")).toBe(false);
     expect(providerSupportsWebSearch("parallel")).toBe(false);

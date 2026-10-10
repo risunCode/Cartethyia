@@ -6,7 +6,7 @@ import { Dialog } from "../../components/ui/dialog";
 import { useApiKeys, useRevealApiKey } from "../../hooks/api-keys";
 import { ChatBubble } from "./ChatBubble";
 import { Composer } from "./Composer";
-import { buildLabRequest, type LabEffort, type LabImage } from "./protocol";
+import { buildLabRequest, MODEL_LAB_PRESETS, type LabEffort, type LabImage } from "./protocol";
 import { EMPTY_DRAFT, deleteLabSession, listLabSessions, newLabSession, nextMessageId, readActiveSessionId, readLabDraft, readLabSession, writeActiveSessionId, writeLabSession, type LabDraft, type LabMessage, type LabSession, type LabSessionSummary } from "./session";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { readLabStream } from "./stream";
@@ -134,7 +134,8 @@ export function StudioPage(): ReactNode {
 
     const controller = new AbortController();
     abortRef.current = controller;
-    const paint = (next: { text: string; reasoning: string; status: string; pending?: boolean; usage?: LabMessage["usage"]; error?: boolean }) => {
+    const tools = new Set<string>();
+    const paint = (next: { text: string; reasoning: string; status: string; pending?: boolean; usage?: LabMessage["usage"]; error?: boolean; tools?: readonly string[] }) => {
       replaceMessage(assistantId, {
         id: assistantId,
         role: "assistant",
@@ -145,6 +146,7 @@ export function StudioPage(): ReactNode {
         ...(next.usage === undefined ? {} : { usage: next.usage }),
         ...(next.pending === true ? { pending: true } : {}),
         ...(next.error === true ? { error: true } : {}),
+        ...(next.tools !== undefined && next.tools.length > 0 ? { tools: next.tools } : {}),
       });
     };
     try {
@@ -194,6 +196,11 @@ export function StudioPage(): ReactNode {
             ...(next.outputTokens === undefined ? {} : { outputTokens: next.outputTokens }),
           };
           if (next.status !== undefined) status = next.status;
+
+        },
+        (tool) => {
+          tools.add(tool);
+          paint({ text: accumulated, reasoning, status, pending: true, usage, tools: [...tools] });
         },
         controller.signal,
       );
@@ -237,7 +244,21 @@ export function StudioPage(): ReactNode {
         >
           {draft.messages.length === 0 ? (
             <div className="mlab-empty">
-              <p>Pick a model, then send a message.</p>
+              <p className="mlab-empty-title">Model Lab</p>
+              <p>Pick a model, then try a starter.</p>
+              <div className="mlab-presets">
+                {MODEL_LAB_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    className="mlab-preset"
+                    disabled={draft.model.length === 0 || sending}
+                    onClick={() => setInput(preset.prompt)}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="mlab-thread">

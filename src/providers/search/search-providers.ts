@@ -25,53 +25,33 @@ function domainFilterParams(filter: readonly string[] | undefined): {
   return { includes, excludes };
 }
 
-/** Exa public MCP (`tools/call web_search_exa`) or keyed `POST /search`. */
-function exaRequest(params: SearchParams, token: string): SearchRequestInit {
+/** Exa public MCP (`tools/call web_search_exa`). No API key. */
+function exaRequest(params: SearchParams, _token: string): SearchRequestInit {
   const { includes, excludes } = domainFilterParams(params.domainFilter);
-  if (token.length === 0) {
-    const query = [
-      params.query,
-      ...includes.map((domain) => `site:${domain}`),
-      ...excludes.map((domain) => `-site:${domain}`),
-    ].join(" ");
-    const url = new URL("https://mcp.exa.ai/mcp");
-    url.searchParams.set("tools", "web_search_exa");
-    return {
-      url: url.toString(),
-      init: {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "exa-search",
-          method: "tools/call",
-          params: {
-            name: "web_search_exa",
-            arguments: { query, numResults: params.maxResults },
-          },
-        }),
-      },
-    };
-  }
-  const body: Record<string, unknown> = {
-    query: params.query,
-    numResults: params.maxResults,
-    type: "auto",
-    text: true,
-    highlights: true,
-  };
-  if (includes.length > 0) body.includeDomains = includes;
-  if (excludes.length > 0) body.excludeDomains = excludes;
-  if (params.searchType === "news") body.category = "news";
+  const query = [
+    params.query,
+    ...includes.map((domain) => `site:${domain}`),
+    ...excludes.map((domain) => `-site:${domain}`),
+  ].join(" ");
+  const url = new URL("https://mcp.exa.ai/mcp");
+  url.searchParams.set("tools", "web_search_exa");
   return {
-    url: "https://api.exa.ai/search",
+    url: url.toString(),
     init: {
       method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": token },
-      body: JSON.stringify(body),
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "exa-search",
+        method: "tools/call",
+        params: {
+          name: "web_search_exa",
+          arguments: { query, numResults: params.maxResults },
+        },
+      }),
     },
   };
 }
@@ -97,7 +77,7 @@ function exaResultItems(data: unknown): readonly unknown[] {
 }
 
 function exaNormalize(data: unknown): readonly { title: string; url: string; snippet: string; published_at?: string | null; score?: number | null }[] {
-  return exaResultItems(data).flatMap((raw) => {
+  const structured = exaResultItems(data).flatMap((raw) => {
     const item = asRecord(raw);
     if (!item) return [];
     const url = stringField(item, "url");
@@ -116,6 +96,25 @@ function exaNormalize(data: unknown): readonly { title: string; url: string; sni
         score,
       },
     ];
+  });
+  return structured.length > 0 ? structured : exaTextResults(data);
+}
+
+/** The public MCP returns hits as labeled text, not JSON result objects. */
+function exaTextResults(data: unknown): readonly { title: string; url: string; snippet: string; published_at?: string | null; score?: number | null }[] {
+  const record = asRecord(data);
+  const result = asRecord(record?.result);
+  const content = Array.isArray(result?.content) ? result.content : [];
+  return content.flatMap((part) => {
+    const text = asRecord(part)?.text;
+    if (typeof text !== "string") return [];
+    return text.split("\n\n---\n\n").flatMap((block) => {
+      const title = /^Title:\s*(.+)$/m.exec(block)?.[1]?.trim() ?? "";
+      const url = /^URL:\s*(https?:\/\/\S+)$/m.exec(block)?.[1]?.trim() ?? "";
+      if (!url) return [];
+      const highlights = block.split("Highlights:")[1]?.trim() ?? "";
+      return [{ title: title || url, url, snippet: highlights.slice(0, 500), published_at: null, score: null }];
+    });
   });
 }
 function parallelRequest(params: SearchParams, token: string): SearchRequestInit {
