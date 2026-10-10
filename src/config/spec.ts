@@ -173,8 +173,8 @@ export const CONFIG_SPEC = {
   // address, how long an attempt stays countable, and how long the ban lasts.
   // A valid request does not reset the window.
   CARTETHYIA_MODEL_STRIKE_THRESHOLD: { kind: "int", default: 10, min: 1, max: 100 },
-  CARTETHYIA_MODEL_STRIKE_WINDOW_MS: { kind: "int", default: 300_000, min: 1_000, max: 86_400_000 },
-  CARTETHYIA_MODEL_BAN_TTL_MS: { kind: "int", default: 3_600_000, min: 1_000, max: 604_800_000 },
+  CARTETHYIA_MODEL_STRIKE_WINDOW_MS: { kind: "int", default: 1_800_000, min: 1_000, max: 86_400_000 },
+  CARTETHYIA_MODEL_BAN_TTL_MS: { kind: "int", default: 21_600_000, min: 1_000, max: 604_800_000 },
   CARTETHYIA_ENCRYPTION_KEY: {
     kind: "required",
     error:
