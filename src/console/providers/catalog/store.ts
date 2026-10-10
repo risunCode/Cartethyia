@@ -937,6 +937,26 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             effectiveSecret = encodeMimoStudioCredential(creds);
             oauthHasRefreshToken = true;
+          } else if (request.credentialKind === "oauth" && providerId === "claude-web") {
+            const { parseClaudeWebCredential, encodeClaudeWebCredential } = await import(
+              "../../../providers/integrations/claude-web/claude-web-auth"
+            );
+            const creds = parseClaudeWebCredential(trimmed);
+            const encoded = encodeClaudeWebCredential(creds);
+            oauthRefreshCiphertext = encryptCredential(encoded);
+            oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+            effectiveSecret = encoded;
+            oauthHasRefreshToken = true;
+          } else if (request.credentialKind === "oauth" && providerId === "kimi-web") {
+            const { parseKimiWebCredential, encodeKimiWebCredential } = await import(
+              "../../../providers/integrations/kimi-web/kimi-web-auth"
+            );
+            const creds = parseKimiWebCredential(trimmed);
+            const encoded = encodeKimiWebCredential(creds);
+            oauthRefreshCiphertext = encryptCredential(encoded);
+            oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+            effectiveSecret = encoded;
+            oauthHasRefreshToken = true;
           } else {
             const parts = parsePastedOAuthCredential(trimmed);
             pastedAuthState = parts.authState;

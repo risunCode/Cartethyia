@@ -396,6 +396,16 @@ export const PROVIDER_CAPABILITIES = {
     loadAuthentication: oauthCapability(() => import("./integrations/xiaomi-mimo/mimostudio-oauth"), "mimoStudioOAuthClient", { withRefresher: true }),
     loadQuotaCollector: quotaCapability(() => import("./integrations/xiaomi-mimo/mimostudio-quota"), "fetchMimoStudioQuota"),
   },
+  "claude-web": {
+    loadAdapter: async () => (await import("./integrations/claude-web/claude-web")).createClaudeWebAdapter(),
+    loadModels: async () => (await import("./integrations/claude-web/claude-web")).CLAUDE_WEB_MODELS,
+    loadAuthentication: oauthCapability(() => import("./integrations/claude-web/claude-web-oauth"), "claudeWebOAuthClient", { withRefresher: true }),
+  },
+  "kimi-web": {
+    loadAdapter: async () => (await import("./integrations/kimi-web/kimi-web")).createKimiWebAdapter(),
+    loadModels: async () => (await import("./integrations/kimi-web/kimi-web")).KIMI_WEB_MODELS,
+    loadAuthentication: oauthCapability(() => import("./integrations/kimi-web/kimi-web-oauth"), "kimiWebOAuthClient", { withRefresher: true }),
+  },
   zcode: {
     loadAdapter: async () => createApiKeyAdapter((await import("./specs/zcode")).ZCODE_SPEC),
     loadModels: async () => (await import("./specs/zcode")).ZCODE_MODELS,

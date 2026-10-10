@@ -20,7 +20,8 @@ export function CredentialNotice({
 }): ReactNode {
   const url = provider.credentialUrl;
   const hint = provider.credentialHint;
-  if (!url && !hint) return null;
+  const notice = provider.operatorNotice;
+  if (!url && !hint && !notice) return null;
 
   // A provider that authorizes through its own login flow has no key to paste,
   // so the action is labelled for what it actually does. The login buttons
@@ -40,6 +41,7 @@ export function CredentialNotice({
         <Inline gap="12px" style={{ alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: "var(--text-secondary)" }}>
             {guidance}
+            {notice ? <><br />{notice}</> : null}
           </span>
           {url ? (
             // A real anchor rather than a button with a click handler: the

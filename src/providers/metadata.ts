@@ -62,6 +62,24 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     },
   },
   {
+    id: "claude-web",
+    displayName: "Claude Web",
+    baseUrl: `https://${["claude", "ai"].join(".")}`,
+    bespokeWire: true,
+    hasAdapterUserAgent: true,
+    credentialUrl: `https://${["claude", "ai"].join(".")}`,
+    credentialHint: `Paste a ${["claude", "ai"].join(".")} sessionKey, or a full Cookie header that contains sessionKey.`,
+  },
+  {
+    id: "kimi-web",
+    displayName: "Kimi Web",
+    baseUrl: "https://www.kimi.ai",
+    bespokeWire: true,
+    hasAdapterUserAgent: true,
+    credentialUrl: "https://www.kimi.ai",
+    credentialHint: "Paste the www.kimi.ai access_token from localStorage, or a Cookie header containing kimi-auth.",
+  },
+  {
     // The paid xAI API reached with a SuperGrok / X Premium+ subscription token.
     // Distinct from `grok`, which is the Grok Build free CLI surface: different
     // base URL, different header set, different model roster. Same issuer and
@@ -273,6 +291,8 @@ export interface BundledProviderMetadata {
    * self-explanatory.
    */
   readonly credentialHint?: string;
+  /** Presentation-only limitation shown on the provider detail page. */
+  readonly operatorNotice?: string;
   readonly wireFamilyDefault: WireFamily;
   readonly requiresAccount: boolean;
   readonly defaultSkipProxy: boolean;
@@ -356,6 +376,11 @@ export function providerCredentialUrl(providerId: string): string | undefined {
  */
 export function providerCredentialHint(providerId: string): string | undefined {
   return BUNDLED_PROVIDER_METADATA.find((candidate) => candidate.id === providerId)?.credentialHint;
+}
+
+/** Presentation-only limitation for the provider detail page. */
+export function providerOperatorNotice(providerId: string): string | undefined {
+  return BUNDLED_PROVIDER_METADATA.find((candidate) => candidate.id === providerId)?.operatorNotice;
 }
 
 /** Canonical builtin display name; falls back to the provider id for unknowns. */

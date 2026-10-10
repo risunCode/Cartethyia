@@ -21,7 +21,7 @@ import { isBundledProviderId } from "../../../providers/contracts";
 import type { ProviderRegistry } from "../../../providers/registry";
 import { getProviderClientVersion, getRouteIdentityVersions } from "../../../providers/operations/client-versions";
 import type { OAuthLoginField } from "../../../providers/authentication/oauth-flow-store";
-import { providerCredentialHint, providerCredentialUrl, providerDisplayName, providerHasAdapterUserAgent, providerServiceKinds, providerSupportsWebSearch, type CompatibilityProfile } from "../../../providers/metadata";
+import { providerCredentialHint, providerCredentialUrl, providerDisplayName, providerHasAdapterUserAgent, providerOperatorNotice, providerServiceKinds, providerSupportsWebSearch, type CompatibilityProfile } from "../../../providers/metadata";
 import type { AccountHealthEventRecord } from "../../../providers/operations/account-health-service";
 import { CREDENTIAL_MODES, PROVIDER_READ_SCOPES, PROVIDER_WRITE_SCOPES } from "./contracts";
 import {
@@ -58,6 +58,7 @@ export function sanitizeProviderResponse(
   // always reports the current canonical values.
   const credentialUrl = providerCredentialUrl(p.providerId);
   const credentialHint = providerCredentialHint(p.providerId);
+  const operatorNotice = providerOperatorNotice(p.providerId);
   const clientVersion = getProviderClientVersion(p.providerId);
   const response: ProviderResponse = {
     providerId: p.providerId,
@@ -70,6 +71,7 @@ export function sanitizeProviderResponse(
     supportsWebSearch: providerSupportsWebSearch(p.providerId),
     ...(credentialUrl === undefined ? {} : { credentialUrl }),
     ...(credentialHint === undefined ? {} : { credentialHint }),
+    ...(operatorNotice === undefined ? {} : { operatorNotice }),
     ...(clientVersion === undefined ? {} : { clientVersion }),
     routeIdentityVersions: getRouteIdentityVersions(),
     supportsModelDiscovery: (p.supportsModelDiscovery as boolean | undefined) ?? !p.isBuiltIn,

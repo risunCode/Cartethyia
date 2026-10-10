@@ -597,6 +597,7 @@ const FREE_LIMITED_IDS = new Set([
   "opencodeft",
   "cline",
 ]);
+const WEB_LLM_IDS = new Set(["claude-web", "kimi-web", "mimodesktop", "mimostudio"]);
 /**
  * The providers an operator reaches for first: household names with a
  * published API-key signup. Grouped so the long tail of compatible resellers
@@ -840,7 +841,17 @@ function compareConfiguredProviders(a: ProviderResponse, b: ProviderResponse): n
   return (a.label || a.displayName).localeCompare(b.label || b.displayName);
 }
 
-// ── Sections Definition ───────────────────────────────────────────────────────
+const COLLAPSED_SECTIONS_KEY = "cartethyia.providerSectionsCollapsed";
+
+function readCollapsedSections(): ReadonlySet<string> {
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_SECTIONS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
 
 const SECTIONS = [
   {
@@ -853,13 +864,18 @@ const SECTIONS = [
     filter: (p: ProviderResponse) => FREE_LIMITED_IDS.has(p.providerId.toLowerCase()),
   },
   {
+    title: "Web Session Providers",
+    subtitle: "Signed-in web sessions — no API key. Tool calling may not work reliably here; these providers are best suited to ordinary chat.",
+    filter: (p: ProviderResponse) => WEB_LLM_IDS.has(p.providerId.toLowerCase()),
+  },
+  {
     title: "OAuth & Agent Providers",
     // Membership follows the backend registry rather than a hand-kept id list:
     // `oauthFlows` is present on a provider response exactly when the registry
     // resolves a login client for it, so this section cannot drift from the
     // providers that really support a login flow.
     filter: (p: ProviderResponse) =>
-      p.oauthFlows !== undefined && !FREE_LIMITED_IDS.has(p.providerId.toLowerCase()),
+      p.oauthFlows !== undefined && !FREE_LIMITED_IDS.has(p.providerId.toLowerCase()) && !WEB_LLM_IDS.has(p.providerId.toLowerCase()),
   },
   {
     title: "Well Known API Key Providers",
@@ -869,7 +885,7 @@ const SECTIONS = [
       WELL_KNOWN_API_KEY_IDS.has(p.providerId.toLowerCase()) &&
       !FOUNDING_IDS.has(p.providerId.toLowerCase()) &&
       !FREE_LIMITED_IDS.has(p.providerId.toLowerCase()) &&
-      p.oauthFlows === undefined,
+      p.oauthFlows === undefined && !WEB_LLM_IDS.has(p.providerId.toLowerCase()),
   },
   {
     title: "Other API Key Providers",
@@ -879,13 +895,14 @@ const SECTIONS = [
       !WELL_KNOWN_API_KEY_IDS.has(p.providerId.toLowerCase()) &&
       !FOUNDING_IDS.has(p.providerId.toLowerCase()) &&
       !FREE_LIMITED_IDS.has(p.providerId.toLowerCase()) &&
-      p.oauthFlows === undefined,
+      p.oauthFlows === undefined && !WEB_LLM_IDS.has(p.providerId.toLowerCase()),
   },
 ];
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function Providers(): ReactNode {
+  const [collapsedSections, setCollapsedSections] = useState<ReadonlySet<string>>(readCollapsedSections);
   const q = useProviders();
   const allProviders = useMemo(() => q.data ?? [], [q.data]);
   const customProviders = useMemo(
@@ -1030,22 +1047,39 @@ export default function Providers(): ReactNode {
           </CardBody>
         </Card>
       ) : (
-        sections.map((section) => (
+        sections.map((section) => {
+          const collapsed = collapsedSections.has(section.title);
+          return (
           <section
             key={section.title}
             className="flex flex-col gap-[12px]"
           >
-            <Stack gap="1px">
-              <h2 className="text-[13.5px] font-bold tracking-[-0.01em]">
-                {section.title} ({section.providers.length})
-              </h2>
-              {section.subtitle ? (
-                <p className="form-section-caption">
-                  {section.subtitle}
-                </p>
-              ) : null}
-            </Stack>
+            <button
+              type="button"
+              className="flex items-start gap-[8px] border-0 bg-transparent p-0 text-left text-inherit"
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsedSections((current) => {
+                const next = new Set(current);
+                if (next.has(section.title)) next.delete(section.title);
+                else next.add(section.title);
+                try { window.localStorage.setItem(COLLAPSED_SECTIONS_KEY, JSON.stringify([...next])); } catch {}
+                return next;
+              })}
+            >
+              <ChevronDown size={15} className={cn("mt-[2px] shrink-0 transition-transform", collapsed && "-rotate-90")} />
+              <Stack gap="1px">
+                <h2 className="text-[13.5px] font-bold tracking-[-0.01em]">
+                  {section.title} ({section.providers.length})
+                </h2>
+                {section.subtitle ? (
+                  <p className="form-section-caption">
+                    {section.subtitle}
+                  </p>
+                ) : null}
+              </Stack>
+            </button>
 
+            {collapsed ? null : (
             <ProviderCardGrid>
               {section.providers.map((p) => (
                 <ProviderCard
@@ -1063,8 +1097,10 @@ export default function Providers(): ReactNode {
                 />
               ))}
             </ProviderCardGrid>
+            )}
           </section>
-        ))
+          );
+        })
       )}
         </CardBody>
       </Card>

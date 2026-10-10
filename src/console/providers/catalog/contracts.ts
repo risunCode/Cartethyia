@@ -564,6 +564,8 @@ export interface ProviderResponse {
   credentialUrl?: string;
   /** One line of guidance beside {@link credentialUrl} when the flow is not a plain paste. */
   credentialHint?: string;
+  /** Presentation-only limitation shown on the provider detail page. */
+  operatorNotice?: string;
   capabilityProfile?: Record<string, unknown>;
   baseUrl?: string;
   compatibilityProfile?: CompatibilityProfile;
