@@ -31,8 +31,6 @@ import { createLogRoutes } from "./observability/logs";
 import { createAuditRoutes } from "./audit/routes";
 import { createModelAbuseRoutes } from "./admin/model-abuse/routes";
 import { DrizzleAuditReadStore } from "./audit/store";
-import { createStudioRoutes } from "./studio/routes";
-import { DrizzleStudioSessionStore } from "./studio/store";
 import { createPerformanceRoutes } from "./observability/performance";
 import { createUpdateRoutes } from "./updates/routes";
 import { createBackupRoutes } from "./backup/routes";
@@ -218,13 +216,6 @@ export function registerConsoleDomains(
     poolSelector: ctx.poolSelector,
     db: ctx.db,
     ...(ctx.stateStore ? { stateStore: ctx.stateStore } : {}),
-  }));
-  console.use(createStudioRoutes({
-    sessionStore: new DrizzleStudioSessionStore(ctx.db),
-    keyStore: apiKeyStore,
-    accessResolver: ctx.accessResolver,
-    webFetch: (tenantId) => ctx.networkBindingFactory.fetch(undefined, tenantId),
-    auditSink: ctx.auditRecorder,
   }));
   console.use(createLogRoutes({ accessResolver: ctx.accessResolver, auditSink: ctx.auditRecorder }));
   console.use(createPerformanceRoutes({ accessResolver: ctx.accessResolver }));

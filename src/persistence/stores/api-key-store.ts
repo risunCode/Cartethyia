@@ -24,7 +24,7 @@ export interface ApiKeyRecord {
   readonly isDefault: boolean;
   /** Non-secret prefix configured on a key or used to identify a share child. */
   readonly keyPrefix?: string;
-  /** Encrypted copy exists only for personal keys used by Studio handoff. */
+  /** Encrypted copy exists only for personal keys used by CLI handoff. */
   readonly keyEncrypted?: Buffer;
   readonly notesTitle?: string;
   readonly notesSubtitle?: string;

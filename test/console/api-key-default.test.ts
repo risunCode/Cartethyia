@@ -8,7 +8,7 @@
  *
  * 1. **It was never created.** Seeding was gated on `CARTETHYIA_API_KEY` being
  *    set, so an install that never touched the variable booted with no key and
- *    Studio failed later with "the default gateway API key is missing".
+ *    the CLI failed later with "the default gateway API key is missing".
  * 2. **It could not be renamed.** `label` was accepted and validated by the
  *    PATCH body but never copied into the patch sent to the store, so saving a
  *    new name was a silent no-op.
@@ -117,7 +117,7 @@ describe("default gateway API key", () => {
       });
       await operations.updateKey(owner(tenant.tenantId), key.id, { label: "Renamed" });
 
-      // The Studio lookup matches on the column, so the new label must still
+      // The CLI lookup matches on the column, so the new label must still
       // resolve. A label match here would return nothing.
       const keys = await store.list(tenant.tenantId);
       const found = keys.find((candidate) => candidate.isDefault === true);

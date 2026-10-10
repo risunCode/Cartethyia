@@ -137,7 +137,7 @@ export async function bundledModelCatalog(
       : [];
     modelsByProvider.set(registration.provider_id, definitions);
     // Only a row that contradicts the registration map is a mistake. Two rows
-    // of the same wire family may legitimately serve different paths (Studio
+    // of the same wire family may legitimately serve different paths (a web
     // UltraSpeed is `/fastchat/open-apis/bot/chat` while flash/pro stay on
     // `/open-apis/bot/chat`); dispatch always uses the row's own
     // `ModelDefinition.endpointPath` via `candidate.endpoint_path`.

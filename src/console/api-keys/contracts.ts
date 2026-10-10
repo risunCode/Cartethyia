@@ -180,7 +180,7 @@ export function resolveKeyPrefix(raw: string | undefined): string {
 /** Maximum hint the enroll page accepts; the dashboard caps its input there. */
 export const SHARED_CHILD_HINT_MAX_LENGTH = 20;
 
-/** Hashes an owner-supplied personal key; persistence encrypts it for Studio handoff. */
+/** Hashes an owner-supplied personal key; persistence encrypts it for CLI handoff. */
 export function prepareCustomKey(secret: string): { secret: string; hash: string } {
   if (secret.trim().length === 0) {
     throw new ConsoleDomainError("invalid_key", 400, "Custom key must be a non-empty string");

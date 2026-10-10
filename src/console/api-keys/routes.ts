@@ -352,7 +352,7 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
       const target = await config.store.get(authorized.tenantId, keyId);
       if (!target || target.revokedAt !== undefined)
         throw new ConsoleDomainError("key_not_found", 404, "Key not found");
-      // The gateway routes every request off this key and Studio hands it to
+      // The gateway routes every request off this key and the CLI reads it for
       // the CLI, so removing it would strand the installation with no way to
       // authenticate. Rotation replaces the secret and keeps the key present.
       if (target.isDefault === true)

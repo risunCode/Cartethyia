@@ -11,7 +11,7 @@ import type { CliToolSecretSource, ResolvedApiKeySecret } from "./service";
  * token, and the operator should not have to paste it by hand: the console
  * already stores a recoverable AES-256-GCM copy in `api_keys.key_encrypted`
  * for exactly this kind of server-side handoff (the public share page and the
- * Studio default-key flow read the same column).
+ * default-key flow read the same column).
  *
  * Two properties keep this from widening the secret's exposure:
  * - The plaintext never leaves the server. The console route that uses it

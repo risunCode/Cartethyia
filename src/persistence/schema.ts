@@ -606,7 +606,7 @@ export const apiKeys = pgTable(
     scopes: jsonb("scopes").notNull().$type<readonly string[]>(),
     // Only the non-secret public key prefix is returned to the owner.
     keyPrefix: text("key_prefix"),
-    // Personal keys retain an encrypted copy for the Studio handoff. Shared
+    // Personal keys retain an encrypted copy for the CLI handoff. Shared
     // children are revealed once and persist only their authentication hash.
     keyEncrypted: bytea("key_encrypted"),
     notesTitle: text("notes_title"),
@@ -650,7 +650,7 @@ export const apiKeys = pgTable(
      * The tenant's mandatory gateway key. Seeded at first boot whether or not
      * `CARTETHYIA_API_KEY` was configured, and the one key the console refuses
      * to revoke — it may only be rotated. A column rather than a label match,
-     * so renaming the key cannot break the Studio lookup or let a second
+     * so renaming the key cannot break the CLI lookup or let a second
      * default be created.
      */
     isDefault: boolean("is_default").notNull().default(false),
@@ -1099,24 +1099,6 @@ export const telemetryPayloads = pgTable(
 );
 
 
-// Studio playground sessions: per-tenant saved chats (+ generated-media refs)
-// for the console Studio page. Message/media shapes are validated at the API
-// boundary (console/studio.ts), not in Postgres — rows stay opaque
-// JSONB so the playground can evolve without migrations.
-export const studioSessions = pgTable(
-  "studio_sessions",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    tenantId: tenantRefRequired(),
-    title: text("title").notNull().default("New session"),
-    model: text("model").notNull().default(""),
-    systemPrompt: text("system_prompt").notNull().default(""),
-    messagesJson: jsonb("messages_json").notNull().default([]),
-    mediaJson: jsonb("media_json").notNull().default([]),
-    ...timestampColumns(),
-  },
-  (table) => [index("studio_sessions_tenant_updated_idx").on(table.tenantId, table.updatedAt)],
-);
 
 // Daily check-in ledger: one row per (account, calendar day) once the sweep has
 // attempted that account's claim.

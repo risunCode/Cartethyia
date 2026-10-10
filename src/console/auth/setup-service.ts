@@ -125,7 +125,7 @@ export class FirstBootSetupService {
       await this.createConsoleUser(db, tenantId, password, username, displayName);
       const defaultApiKey = resolveDefaultGatewayApiKey();
       // The gateway key is mandatory, not optional: routing keys every request
-      // off it, and Studio hands it to the CLI. When `CARTETHYIA_API_KEY` is
+      // off it, and the CLI reads it from there. When `CARTETHYIA_API_KEY` is
       // unset the secret is generated here with the same strength as the
       // encryption key, so an install that never touched the variable still
       // boots with a usable key instead of failing later with

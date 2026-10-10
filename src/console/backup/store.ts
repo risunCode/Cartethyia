@@ -55,7 +55,6 @@ import {
   providers,
   shareLinks,
   sharePopups,
-  studioSessions,
   tenantDisabledModels,
   telemetryEvents,
   telemetryUsageTotals,
@@ -671,7 +670,6 @@ export async function deleteAll(
       await remove(modelCombos, direct(modelCombos));
       await remove(consoleUsers, direct(consoleUsers));
       await remove(consoleSettings, direct(consoleSettings));
-      await remove(studioSessions, direct(studioSessions));
     }
   });
 
