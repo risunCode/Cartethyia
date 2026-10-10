@@ -177,6 +177,24 @@ function readImages(value: unknown): readonly LabImage[] | undefined {
   return images.length > 0 ? images : undefined;
 }
 
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readUsage(value: unknown): LabUsage | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const usage: LabUsage = {
+    ...(readNumber(record.inputTokens) === undefined ? {} : { inputTokens: readNumber(record.inputTokens) }),
+    ...(readNumber(record.cachedTokens) === undefined ? {} : { cachedTokens: readNumber(record.cachedTokens) }),
+    ...(readNumber(record.outputTokens) === undefined ? {} : { outputTokens: readNumber(record.outputTokens) }),
+    ...(readNumber(record.reasoningTokens) === undefined ? {} : { reasoningTokens: readNumber(record.reasoningTokens) }),
+    ...(readNumber(record.ttftMs) === undefined ? {} : { ttftMs: readNumber(record.ttftMs) }),
+    ...(readNumber(record.completionMs) === undefined ? {} : { completionMs: readNumber(record.completionMs) }),
+  };
+  return Object.keys(usage).length > 0 ? usage : undefined;
+}
+
 function readMessages(value: unknown): readonly LabMessage[] {
   if (!Array.isArray(value)) return [];
   const messages: LabMessage[] = [];
@@ -186,11 +204,16 @@ function readMessages(value: unknown): readonly LabMessage[] {
     if (record.role !== "user" && record.role !== "assistant") continue;
     if (typeof record.id !== "string" || typeof record.text !== "string") continue;
     const images = readImages(record.images);
+    const usage = readUsage(record.usage);
     messages.push({
       id: record.id,
       role: record.role,
       text: record.text,
       ...(images === undefined ? {} : { images }),
+      ...(typeof record.model === "string" && record.model.length > 0 ? { model: record.model } : {}),
+      ...(typeof record.reasoning === "string" && record.reasoning.length > 0 ? { reasoning: record.reasoning } : {}),
+      ...(typeof record.status === "string" && record.status.length > 0 ? { status: record.status } : {}),
+      ...(usage === undefined ? {} : { usage }),
       ...(record.error === true ? { error: true } : {}),
     });
   }

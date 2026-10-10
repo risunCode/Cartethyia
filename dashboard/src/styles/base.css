@@ -487,7 +487,10 @@ html[data-blur-cards-on="false"] .card-glass {
 }
 
 html[data-blur-chrome-on="false"] .app-sidebar,
-html[data-blur-chrome-on="false"] .app-topbar {
+html[data-blur-chrome-on="false"] .app-topbar,
+html[data-blur-cards-on="false"] .user-card-content,
+html[data-blur-cards-on="false"] .mlab-page .mlab-composer {
+
   background: var(--surface-1) !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -807,9 +810,6 @@ html[data-blur-chrome-on="false"] .app-topbar {
   container-name: rule-row;
   margin-top: 14px;
   overflow: hidden;
-  border: 1px solid var(--inner-border);
-  border-radius: var(--radius-card);
-  background: var(--surface-1);
 }
 .proxy-table-scroll .data-table thead th:first-child {
   border-top-left-radius: var(--radius-card);

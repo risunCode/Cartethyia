@@ -36,10 +36,7 @@ function thinkingText(text: string): string {
   return text.replace(/\r/g, "").replace(/^\n+|\n+$/g, "");
 }
 
-function thinkingLines(text: string): readonly string[] {
-  const lines = text.split("\n");
-  return lines.length > 0 ? lines : [text];
-}
+
 
 /**
  * One turn with a face, not a bare pill.

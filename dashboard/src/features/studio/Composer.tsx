@@ -17,6 +17,11 @@ const EFFORTS: readonly { readonly value: LabEffort; readonly label: string }[] 
 
 const MAX_IMAGES = 4;
 
+function modelName(model: string): string {
+  const slash = model.lastIndexOf("/");
+  return slash === -1 ? model : model.slice(slash + 1);
+}
+
 function readImage(file: File): Promise<LabImage> {
   const { promise, resolve, reject } = Promise.withResolvers<LabImage>();
   const reader = new FileReader();
@@ -36,7 +41,6 @@ function readImage(file: File): Promise<LabImage> {
  */
 export function Composer({
   model,
-  modelLabel,
   onModel,
   sessionTitle,
   onOpenSessions,
@@ -53,7 +57,6 @@ export function Composer({
   onOpenSettings,
 }: {
   readonly model: string;
-  readonly modelLabel: string;
   readonly onModel: (model: string) => void;
   readonly sessionTitle: string;
   readonly onOpenSessions: () => void;
@@ -125,7 +128,7 @@ export function Composer({
         className="mlab-composer-input"
         rows={1}
         value={value}
-        placeholder={modelLabel.length > 0 ? `Message ${modelLabel}...` : "Message..."}
+        placeholder={model.length > 0 ? `Message ${model}...` : "Message..."}
         aria-label="Message"
         onChange={(event) => {
           onChange(event.target.value);
@@ -173,7 +176,7 @@ export function Composer({
             className="mlab-model-chip font-mono tabular-nums"
             onClick={() => setPickerOpen(true)}
           >
-            {model.length > 0 ? model : "Pick model"}
+            {model.length > 0 ? modelName(model) : "Pick model"}
           </Button>
 
 

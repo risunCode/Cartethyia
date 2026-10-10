@@ -1424,7 +1424,9 @@ html[data-empty-outline="true"] .empty-panel {
   padding: 8px 10px;
   border-radius: var(--radius-card);
   border: 1px solid var(--inner-border);
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent);
+  backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
+  -webkit-backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
 }
 
 .user-avatar {
@@ -3037,7 +3039,7 @@ main.route-enter .console-log-toolbar {
 .mlab-turn {
   display: flex;
   flex-direction: column;
-  width: min(78%, 560px);
+  width: min(100%, 760px);
   gap: 4px;
 }
 
@@ -3253,8 +3255,8 @@ main.route-enter .console-log-toolbar {
   outline: none;
   resize: vertical;
   background: transparent;
-  color: #fff;
-  caret-color: #fff;
+  color: var(--text-primary);
+  caret-color: var(--text-primary);
   font: inherit;
 }
 
@@ -3269,20 +3271,20 @@ main.route-enter .console-log-toolbar {
   padding: 0 10px;
   border: none;
   border-radius: 9999px;
-  background: rgb(255 255 255 / 18%);
-  color: #fff;
+  background: var(--hover);
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .mlab-edit button:hover {
-  background: rgb(255 255 255 / 28%);
+  background: var(--surface-hover);
 }
 
 .mlab-edit button[type="submit"] {
-  background: #fff;
-  color: #0a84ff;
+  background: var(--text-primary);
+  color: var(--surface-1);
 }
 
 
@@ -3314,35 +3316,33 @@ button.mlab-pill {
 
 
 .mlab-bubble {
-  max-width: min(78%, 560px);
+  max-width: 100%;
   font-size: 15px;
   line-height: 1.35;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .mlab-bubble-user {
   padding: 8px 14px;
+  border: 1px solid var(--border-strong);
   border-radius: 18px 18px 4px 18px;
-  background: #0a84ff;
-  color: #fff;
+  background: var(--surface-active);
+  color: var(--text-primary);
   white-space: pre-wrap;
 }
 
 .mlab-bubble-assistant {
-  padding: 10px 14px;
-  border-radius: 4px 18px 18px 18px;
-  background: var(--surface-muted);
+  padding: 2px 2px 2px 0;
   color: var(--text-primary);
 }
+
 
 .mlab-bubble-error {
   color: var(--red);
 }
 
 .mlab-markdown {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
+  min-width: 0;
 }
 
 .mlab-markdown > svg {
@@ -3400,7 +3400,9 @@ button.mlab-pill {
   padding: 14px 14px 10px;
   border: 1px solid var(--inner-border);
   border-radius: 22px;
-  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent);
+  backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
+  -webkit-backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
   box-shadow: 0 8px 28px -18px rgba(0, 0, 0, 0.55);
 }
 

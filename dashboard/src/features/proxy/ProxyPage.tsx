@@ -1794,7 +1794,7 @@ export default function Proxy(): ReactNode {
             </div>
           )}
           {!isPending && !isError && pools.length > 0 && (
-            <div className="proxy-table-scroll">
+            <div className="proxy-table-scroll rounded-[10px] border border-inner-border bg-surface-1">
               <DataTable
                 maxHeight={460}
                 scrollRegion

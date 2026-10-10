@@ -11,10 +11,7 @@ import { EMPTY_DRAFT, deleteLabSession, listLabSessions, newLabSession, nextMess
 import { SettingsDrawer } from "./SettingsDrawer";
 import { readLabStream } from "./stream";
 
-function modelName(model: string): string {
-  const slash = model.lastIndexOf("/");
-  return slash === -1 ? model : model.slice(slash + 1);
-}
+
 
 /**
  * Model Lab.
@@ -262,7 +259,6 @@ export function StudioPage(): ReactNode {
         <div className="mlab-dock">
           <Composer
             model={draft.model}
-            modelLabel={modelName(draft.model)}
             sessionTitle={session.title}
             onOpenSessions={() => setSessionsOpen(true)}
 

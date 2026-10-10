@@ -29,6 +29,7 @@ import { applyConsoleTheme, isDarkEffective, readConsoleTheme, writeConsoleTheme
 import { BackgroundLayer } from "../features/customization/BackgroundLayer";
 import { applyCustomization, readCustomizationSettings } from "../features/customization/settings";
 import { consoleRequest } from "../data/api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { queryClient } from "../data/query-client";
 import { prefetchRouteIntent } from "../data/route-prefetch";
 import { useSystemHealth, useLatestRelease } from "../hooks/system";
@@ -634,6 +635,7 @@ export function DashboardShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutOpen, setLogoutOpen] = useState(false);
   const healthQuery = useSafeSystemHealth();
   const releaseQuery = useLatestRelease();
   // The running version is the gateway's, not the bundled dashboard's: the
@@ -765,7 +767,7 @@ export function DashboardShell({
               </div>
               <button
                 type="button"
-                onClick={() => void logout()}
+                onClick={() => setLogoutOpen(true)}
                 disabled={loggingOut}
                 aria-label="Sign out"
                 title="Sign out"
@@ -834,6 +836,15 @@ export function DashboardShell({
       </div>
       </div>
       <CommandPalette open={paletteOpen} close={() => setPaletteOpen(false)} />
+      <ConfirmDialog
+        open={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        onConfirm={logout}
+        title="Sign out?"
+        message="You will need to sign in again to open the console."
+        confirmLabel="Sign out"
+        danger
+      />
     </>
   );
 }
