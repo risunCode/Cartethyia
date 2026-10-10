@@ -58,6 +58,7 @@ on the details that make a multi-provider setup dependable in daily use:
 | **Failover that preserves state** | Retries do not bypass admission, usage accounting, quota metering, telemetry, or terminal error semantics. |
 | **Four-stage request visibility** | Inspect the client request, translated provider request, raw provider response, and final client response with bounded, redacted capture. |
 | **Honest failure semantics** | A disabled account, exhausted quota, unavailable provider, missing model, and network/pool failure remain different operational states. |
+| **Web-session providers** | Claude Web, Grok Web, and Kimi Web use pasted signed-in sessions and static catalogs. They are not API-key providers and their sessions are not refresh grants. |
 | **Portable deployment model** | Start locally with embedded SQLite, move to external PostgreSQL through JSON backup/restore, and add Redis only when coordination must be shared. |
 
 These are not cosmetic dashboard features. They exist so an operator can answer

@@ -47,6 +47,7 @@ Before changing a status or timeout, trace every reader and branch that uses it.
   `src/config/timeouts.ts`).
 - Provider-specific exceptions must be explicit, narrow, and documented at the
   owner.
+- Buddy credit exhaustion (`14018` or `credits exhausted`) is `quota_exhausted`: a hard cooldown for 12 hours unless the provider states a duration. The existing account-health sweep restores it when `cooldownUntil` passes.
 - A retry must preserve the original request contract and release
   leases/resources.
 

@@ -67,6 +67,7 @@ real-boundary evidence, skipped checks, and remaining blockers.
 - Branch from `main` and keep the change focused.
 - Fill in `.github/pull_request_template.md` with the change, gates, and docs status.
 - Keep security boundaries fail-closed.
+- A provider, health, or streaming claim belongs in the owning skill and `documentation/reference/`. Do not leave a dashboard section or README claim behind the code.
 - Preserve intentional provider wire bytes, headers, and user-agent behavior.
 - Do not commit, push, deploy, alter production data, or discard unrelated working
   tree changes unless explicitly asked.

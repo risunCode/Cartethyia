@@ -107,8 +107,8 @@ removal condition.
 - Treat network responses, environment variables, database rows, request bodies,
   and user values as untrusted. Validate at boundaries and fail closed.
 - Preserve intentional provider wire bytes, headers, and user-agent behavior.
-- Keep one source of truth for provider metadata, persisted contracts, environment
-  names, routing policy, and dashboard mirrors.
+- Keep one source of truth for provider metadata, persisted contracts, environment names, routing policy, and dashboard mirrors.
+- Provider, health, and streaming claims in docs and skills must match the owning code. A dashboard section is a mirror, not a second inventory.
 - `scripts/` is grouped by purpose (`commands/`, `build/`, `dev/`, `generate/`,
   `internal/`); `scripts/ci-run-tests.ts` and `scripts/install-lite.sh` sit at
   its root. Avoid barrel files; use role names such as `contracts.ts`,

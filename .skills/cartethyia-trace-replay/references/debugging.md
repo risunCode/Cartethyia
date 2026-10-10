@@ -63,6 +63,8 @@ one canonical reasoning part. Preserve presence even when text is empty; never
 fabricate an empty field. Keep reasoning on assistant/tool-call turns, and handle
 both Responses summary/content text fields and both streaming delta event names.
 
+Inline `<think>` and `<thinking>` tags can straddle SSE chunks. The chat decoder and CommandCode adapter keep that state across chunks; a per-chunk regex leaks the tag boundary into answer text and makes every client surface look interrupted.
+
 Read the captured request shape before editing. Re-run the same real pipeline shape
 after the fix; delete temporary diagnostics.
 

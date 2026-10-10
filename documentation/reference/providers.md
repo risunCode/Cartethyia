@@ -209,6 +209,7 @@ protocol instead of going through a canonical codec (`metadata.ts:316`).
 | openrouter / zcode | PKCE ends by minting a **durable API key**, not an access token, so no refresher is registered (`:387`, `:421`). |
 | xiaomi-mimo | Four ids: `xiaomipg`, `xiaomitp` (both key-based), `mimodesktop` (OAuth), `mimostudio` (browser cookies pasted from a signed-in session, `metadata.ts:182`). |
 | cb / cbcn / workbuddy | One billing system, so `BUDDY_PROVIDER_IDS` (`metadata.ts:251`) names the family for health, request prep, and daily check-in. |
+| claude-web / grok-web / kimi-web | Pasted web sessions, not refreshable OAuth grants. Claude accepts `sessionKey`; Grok requires `sso` and `sso-rw`; Kimi accepts `access_token` or `kimi-auth`. Catalogs are static. Grok tools are only `bash`, `readFile`, `webSearch`, and `browsePage`. Kimi has no function tools. |
 | opencodeft | `requires_account: false` and `ipScopedRateLimit: true` (`metadata.ts:124`): rate limits follow the egress address, so a 429 cools the pool, not the account. |
 | exa / parallel | `serviceKinds: ["websearch"]` only; served by `/v1/search`, never by the chat pipeline. Their route ids are `exa` and `parallel`. No account uses the public MCP; a stored API key uses the provider's higher-limit HTTP API. |
 | mistral, fireworks, nvidia, gmi, ollamacloud, deepseek | One shared spec, no module of their own: bearer + `/v1` paths (`specs/configured-openai-providers.ts:13`). |

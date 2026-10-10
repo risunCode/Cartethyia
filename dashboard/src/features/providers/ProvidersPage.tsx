@@ -598,7 +598,7 @@ const FREE_LIMITED_IDS = new Set([
   "opencodeft",
   "cline",
 ]);
-const WEB_LLM_IDS = new Set(["claude-web", "grok-web"]);
+const WEB_LLM_IDS = new Set(["claude-web", "grok-web", "kimi-web"]);
 /**
  * The providers an operator reaches for first: household names with a
  * published API-key signup. Grouped so the long tail of compatible resellers

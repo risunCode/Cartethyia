@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Buddy credit exhaustion (`14018`, `credits exhausted`) is a hard `quota_exhausted` cooldown for 12 hours, or for a duration the provider states. The existing account-health sweep restores it.
+- A mistyped Redis IP-abuse key is deleted and the request is recounted. A live ban or limit still applies. Redis being unreachable remains a 503.
+- Inline `<think>` tags that split across SSE chunks stay one reasoning span. Chat, completion, Responses, and Messages all read that span.
+- Web-session providers are Claude Web, Grok Web, and Kimi Web. They use pasted sessions and static catalogs. Grok accepts only `bash`, `readFile`, `webSearch`, and `browsePage`; Kimi accepts no function tools.
+
 - A plain-HTTP `CARTETHYIA_PUBLIC_ORIGIN` now keeps the console session cookie
   non-Secure, even when the production binary has `NODE_ENV` baked in. HTTPS
   requests can still upgrade the cookie per request.
