@@ -8,6 +8,7 @@ import {
   type ToolCallState,
 } from "../../../protocol/tool-identity";
 import { usageToChatWire, type OpenAiUsage } from "../../../providers/usage";
+import { chatFinishReason } from "../../../protocol/stop-reason";
 import { TEXT_ENCODER } from "../../../protocol/sse-frame";
 import { SurfaceStreamEncoder } from "../stream-frame";
 import type { ChatEncodeOptions, ChunkBase, JsonObject } from "./parse";
@@ -100,41 +101,14 @@ function mergedReasoningText(events: readonly CanonicalEvent[]): string {
   return chunks.join("");
 }
 
+/**
+ * Chat's `finish_reason`. Chat has no "cancelled"/"error" vocabulary of its
+ * own: aborted streams are unread and failed streams carry their signal in the
+ * error frame/envelope, so the table's words cover both and no reason defaults
+ * to `stop`.
+ */
 export function finishReason(stopReason: CanonicalStopReason | undefined): string {
-  if (stopReason !== undefined) {
-    switch (stopReason) {
-      case "stop":
-        return "stop";
-      case "length":
-        return "length";
-      case "tool_use":
-        return "tool_calls";
-      case "content_filter":
-        return "content_filter";
-      case "refusal":
-        // Refusals are content filters on this wire, not normal stops:
-        // reporting "stop" hides a refusal as a usable completion.
-        return "content_filter";
-      case "error":
-        // Failed streams keep an explicit error reason (107 precedent):
-        // the failure is real and must survive into retry accounting.
-        return "error";
-      case "cancelled":
-        return "error";
-      case "pause_turn":
-        // OpenAI Chat has no pause_turn vocabulary; map to stop as closest graceful continuation signal.
-        // This preserves cross-provider routing without leaking unknown finish_reason.
-        return "stop";
-      default:
-        stopReason satisfies never;
-        return "stop";
-    }
-  }
-  // No "cancelled"/"error" on the Chat wire: aborted streams are unread and
-  // failed streams carry their signal in the error frame/envelope instead.
-  // (The explicit stop_reason branches above already handled every known
-  // reason; this default only fires when none was recorded.)
-  return "stop";
+  return chatFinishReason(stopReason);
 }
 export function eventToolCall(
   event: CanonicalEvent,
