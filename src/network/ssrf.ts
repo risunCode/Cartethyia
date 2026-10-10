@@ -1,5 +1,5 @@
 // SSRF guard: DNS resolution allowlists and destination validation for outbound fetch.
-import { resolve4, resolve6 } from "node:dns/promises";
+import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { GatewayError } from "../protocol/gateway-error";
 import type { SsrfPolicy } from "../config/network";
@@ -184,20 +184,20 @@ export async function resolveAllAddresses(
     dnsCache.delete(hostname);
   }
   try {
-    // Happy-eyeballs style: block only on the IPv4 (A) lookup. Some edge
-    // resolvers silently drop AAAA queries, so `resolve6` can stall for the
-    // full 2-5s resolver timeout — which `Promise.allSettled` would force
-    // every cache miss to pay. Fall back to AAAA only for IPv6-only hosts.
-    const v4 = await resolve4(hostname).catch(() => [] as string[]);
-    if (v4.length > 0) {
-      cacheDnsResult(hostname, [...new Set(v4)], Date.now());
-      return v4;
-    }
-    const v6 = await resolve6(hostname).catch(() => [] as string[]);
-    const addresses = [...new Set(v6)];
-    if (addresses.length === 0) throw new Error("no DNS answers");
-    cacheDnsResult(hostname, addresses, Date.now());
-    return addresses;
+    // `dns.lookup` follows the OS resolver, including hosts entries and a VPN
+    // stub that replaces resolv.conf at runtime. `resolve4`/`resolve6` query
+    // c-ares directly, so a tunnel resolver that refuses or drops those
+    // queries fails direct egress even while the OS can still answer.
+    // AAAA-only resolvers can stall, so the OS lookup itself has a deadline.
+    const rows = await Promise.race([
+      lookup(hostname, { all: true }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("DNS lookup timed out")), 5_000)),
+    ]);
+    const addresses = [...new Set(rows.filter((row) => row.family === 4).map((row) => row.address))];
+    const selected = addresses.length > 0 ? addresses : [...new Set(rows.map((row) => row.address))];
+    if (selected.length === 0) throw new Error("no DNS answers");
+    cacheDnsResult(hostname, selected, Date.now());
+    return selected;
   } catch (error) {
     // A deadline/abort surfaces as 499 (client cancelled), never 400 — the
     // same contract the dispatch layer uses for a timed-out upstream dial.
