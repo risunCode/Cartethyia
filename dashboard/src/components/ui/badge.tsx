@@ -14,6 +14,7 @@ export type BadgeTone =
   | "purple"
   | "teal"
   | "green"
+  | "blue"
   | "orange";
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
@@ -39,6 +40,7 @@ const toneMap: Record<BadgeTone, string> = {
   purple: "badge-accent bg-accent-soft text-accent",
   teal: "badge-info bg-teal-soft text-teal",
   green: "badge-ok bg-green-soft text-green",
+  blue: "badge-info bg-status-info-soft text-status-info",
   orange: "badge-warn bg-orange-soft text-orange",
 };
 

@@ -98,6 +98,10 @@ function credentialFamily(account: ProviderAccountResponse): string | undefined 
   return undefined;
 }
 
+function activeCredentialTone(account: ProviderAccountResponse): "blue" | "ok" {
+  return account.credentialKind === "oauth" ? "blue" : "ok";
+}
+
 export function AccountStatusBadge({
   account,
 }: {
@@ -143,7 +147,7 @@ export function AccountStatusBadge({
     // of the credential, shown in the chip beside this badge, not a status.
     return (
       <Inline gap="4px">
-        <Badge tone="ok" dot>
+        <Badge tone={activeCredentialTone(account)} dot>
           Active{credentialFamily(account) ? ` - ${credentialFamily(account)}` : ""}
         </Badge>
         {account.lastErrorCategory && !(account.lastErrorCategory === "quota_exhausted" && modelCooldowns) ? (
