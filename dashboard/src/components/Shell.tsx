@@ -96,6 +96,7 @@ const titlesMap: Record<string, { title: string; sub: string; icon: LucideIcon }
     icon: Network,
   },
   "/customization": { title: "Customization", sub: "Background, transparency, and blur", icon: Palette },
+  "/model-lab": { title: "Model Lab", sub: "Chat a routed model without leaving the console", icon: FlaskConical },
   "/console-log": { title: "Console Log", sub: "Live server logs and audit trail" , icon: ScrollText },
   "/cli-tools": {
     title: "CLI Tools",

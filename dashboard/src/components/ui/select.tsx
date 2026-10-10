@@ -1,6 +1,6 @@
 import * as RadixSelect from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
-import { type CSSProperties, type ReactNode, useState } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 
 export interface SelectOption {
   readonly value: string;
@@ -45,16 +45,10 @@ export function Select({
 }: SelectProps): ReactNode {
   const handler = onValueChange ?? (() => {});
   const selectedLabel = options.find((option) => option.value === value)?.label;
-  const [open, setOpen] = useState(false);
+
 
   const trigger = (
-    <RadixSelect.Root
-      value={value}
-      onValueChange={handler}
-      disabled={disabled}
-      open={open}
-      onOpenChange={setOpen}
-    >
+    <RadixSelect.Root value={value} onValueChange={handler} disabled={disabled}>
       <RadixSelect.Trigger
         id={id}
         aria-label={ariaLabelProp ?? label}
@@ -65,7 +59,6 @@ export function Select({
           opacity: disabled ? 0.6 : 1,
           cursor: disabled ? "not-allowed" : "pointer",
         }}
-        data-state={open ? "open" : "closed"}
       >
         <RadixSelect.Value placeholder={placeholder} asChild>
           <span>{selectedLabel ?? placeholder}</span>
