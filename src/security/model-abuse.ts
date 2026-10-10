@@ -9,11 +9,10 @@
  * costs the operator real work: every attempt lands as a failed row in the
  * console and the share page, burying the traffic that matters.
  *
- * So the rejection escalates. Each *consecutive* invalid-model attempt records
- * a strike against the caller's client IP; crossing the threshold bans that IP.
- * A valid-model request resets the counter, and a strike counter expires on its
- * own after a quiet window, so a single typo — or an honest client that
- * corrected itself — never accumulates toward a ban.
+ * So the rejection escalates. Each invalid-model attempt inside the sliding
+ * window records a timestamp against the caller's client IP; crossing the
+ * threshold bans that IP. A valid request does not reset the window. Attempts
+ * older than the window stop counting, so old probes do not accumulate forever.
  *
  * **The ban is keyed on the client address alone.** Keying it on the API key
  * too was the wrong trade: a key is shared by everyone behind a template (every
@@ -22,11 +21,9 @@
  * walks away and mints a fresh key. The address is the identity that cannot be
  * re-enrolled, which is the whole point of the escalation.
  *
- * **A ban lapses after a fixed TTL** (default 1 h, `CARTETHYIA_MODEL_BAN_TTL_MS`)
- * rather than staying until an operator lifts it, so a false positive — a shared
- * NAT, an office behind one egress — heals without human intervention. The
- * console can still lift one early, which is the escape hatch when an operator
- * wants a caller back immediately.
+ * **A ban lapses after its configured TTL** (`CARTETHYIA_MODEL_BAN_TTL_MS`)
+ * rather than staying until an operator lifts it, so a false positive heals
+ * without human intervention. The console can still lift one early.
  *
  * Fail-open on store outage: unlike admission (where admitting an unauthorized
  * request is worse than refusing a valid one), a strike layer that cannot read

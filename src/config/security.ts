@@ -16,7 +16,7 @@ export function resolveIpRateLimit(): number {
   return readInt("IP_RATE_MAX_PER_WINDOW", CONFIG_SPEC.IP_RATE_MAX_PER_WINDOW);
 }
 
-/** Consecutive invalid-model requests that ban a client address. */
+/** Invalid-model attempts inside the window that ban a client address. */
 export function resolveModelStrikeThreshold(): number {
   return readInt(
     "CARTETHYIA_MODEL_STRIKE_THRESHOLD",
@@ -24,7 +24,7 @@ export function resolveModelStrikeThreshold(): number {
   );
 }
 
-/** Quiet window (ms) after which a model-abuse strike expires. */
+/** Sliding window (ms) that keeps an invalid-model attempt countable. */
 export function resolveModelStrikeWindowMs(): number {
   return readInt(
     "CARTETHYIA_MODEL_STRIKE_WINDOW_MS",

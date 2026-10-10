@@ -169,10 +169,9 @@ export const CONFIG_SPEC = {
 
   // Security (encryption key, public origin, abuse ceiling)
   IP_RATE_MAX_PER_WINDOW: { kind: "int", default: 240, min: 1, max: Number.MAX_SAFE_INTEGER },
-  // Graduated model-abuse strikes: consecutive invalid-model requests that ban
-  // the client address, the quiet window after which a strike expires, and how
-  // long the ban itself lasts. A valid-model request clears the counter
-  // regardless of the window.
+  // Invalid-model attempts inside the sliding window that ban the client
+  // address, how long an attempt stays countable, and how long the ban lasts.
+  // A valid request does not reset the window.
   CARTETHYIA_MODEL_STRIKE_THRESHOLD: { kind: "int", default: 10, min: 1, max: 100 },
   CARTETHYIA_MODEL_STRIKE_WINDOW_MS: { kind: "int", default: 300_000, min: 1_000, max: 86_400_000 },
   CARTETHYIA_MODEL_BAN_TTL_MS: { kind: "int", default: 3_600_000, min: 1_000, max: 604_800_000 },

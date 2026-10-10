@@ -9,9 +9,9 @@ Do not edit by hand: change the spec, then re-run
 throws at the boundary instead of being coerced. Adding a knob means adding
 a row there plus a `.env.example` line.
 
-Two variables are read outside the spec and are therefore **not** listed
-below: `CARTETHYIA_DB_MODE` (lite/full, read by the setup and boot path) and
-`DATABASE_URL` (full mode only). See `documentation/getting-started.md`.
+Variables read outside the spec are therefore **not** listed below:
+`CARTETHYIA_DB_MODE`, `DATABASE_URL`, `REDIS_URL`, and the Compose-only
+`CARTETHYIA_REDIS_URL`. See `documentation/getting-started.md`.
 
 ## HTTP listener and dashboard runtime
 
