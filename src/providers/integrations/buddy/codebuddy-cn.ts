@@ -7,7 +7,7 @@
 // Payload: neutralize CN agent prompts, reasoning_summary auto only when reasoning_effort
 
 import { OpenAICompatibleAdapter } from "../../compatible-adapter";
-import type { ProviderDispatchTarget, ProviderAdapter } from "../../contracts";
+import type { ProviderDispatchContext, ProviderDispatchTarget, ProviderAdapter } from "../../contracts";
 import type { ModelDefinition } from "../../model-definition";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
 import type { CanonicalRequest } from "../../../protocol/canonical-model";
@@ -79,8 +79,10 @@ export function codeBuddyCnPrePayload(
   payload: Record<string, unknown>,
   request: CanonicalRequest,
   candidate: ProviderDispatchTarget,
+  context?: ProviderDispatchContext,
 ): void {
-  buddyPrePayloadCommon(payload, request);
+  payload["x-buddy-realm"] = "cn";
+  buddyPrePayloadCommon(payload, request, context);
   if (Array.isArray(payload["messages"])) {
     const messages = payload["messages"] as Array<Record<string, unknown>>;
     neutralizeCnMessages(messages);
@@ -94,20 +96,24 @@ export function codeBuddyCnPrePayload(
 }
 
 // Model catalog — exact current provider CN catalog (13 entries)
-
 const CODEBUDDY_CN_RAW: readonly BuddyRawEntry[] = [
-  ["glm-5.3", "GLM 5.3", true, true, 1_000_000, 48_000],
-  ["glm-5.3-flash", "GLM 5.3 Flash", true, true, 1_000_000, 32_000],
-  ["glm-5v-turbo", "GLM 5v Turbo", true, true, 200_000, 64_000],
-  ["minimax-m3", "MiniMax M3", true, true, 512_000, 128_000],
-  ["kimi-k2.8-preview", "Kimi K2.8 Preview", true, true, 256_000, 32_000],
-  ["kimi-k2.7", "Kimi K2.7", true, true, 256_000, 32_000],
-  ["kimi-k2.6", "Kimi K2.6", true, true, 256_000, 32_000],
-  ["kimi-k2.5", "Kimi K2.5", true, true, 164_000, 32_000],
-  ["kimi-k3-1", "Kimi K3", true, true, 1_000_000, 32_000],
+  ["glm-5.1", "GLM 5.1", true, true, 200_000, 131_072],
+  ["glm-5.2", "GLM 5.2", true, true, 1_000_000, 131_072],
+  ["glm-5.3", "GLM 5.3", true, true, 1_000_000, 131_072],
+  ["glm-5.3-flash", "GLM 5.3 Flash", true, true, 1_000_000, 131_072],
+  ["glm-5v-turbo", "GLM 5v Turbo", true, true, 200_000, 131_072],
+  ["minimax-m3", "MiniMax M3", true, true, 512_000, 512_000],
+  ["kimi-k2.8-preview", "Kimi K2.8 Preview", true, true, 256_000, 65_536],
+  ["kimi-k2.7", "Kimi K2.7", true, true, 256_000, 65_536],
+  ["kimi-k2.6", "Kimi K2.6", true, true, 256_000, 262_144],
+  ["kimi-k2.5", "Kimi K2.5", true, true, 164_000, 262_144],
+  ["kimi-k3-1", "Kimi K3", true, true, 1_048_576, 131_072],
   ["hy3", "Hy3", true, true, 192_000, 64_000],
   ["hy4-preview", "Hy4 Preview", true, true, 1_000_000, 64_000],
-  ["deepseek-v4.1-flash", "DeepSeek V4.1 Flash", true, true, 1_000_000, 50_000],
+  ["hy4-preview-x", "Hy4 Preview X", true, true, 1_000_000, 64_000],
+  ["deepseek-v4-flash", "DeepSeek V4 Flash", true, true, 1_000_000, 384_000],
+  ["deepseek-v4-pro", "DeepSeek V4 Pro", true, true, 1_000_000, 384_000],
+  ["deepseek-v4.1-flash", "DeepSeek V4.1 Flash", true, true, 1_000_000, 384_000],
 ];
 export const CODEBUDDY_CN_MODELS: readonly ModelDefinition[] = CODEBUDDY_CN_RAW.map((entry) => makeBuddyModel(entry, "cbcn"));
 

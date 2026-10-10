@@ -3,6 +3,7 @@ import type { CanonicalRequest } from "../../../protocol/canonical-model";
 import type { ProviderDispatchContext, ProviderDispatchTarget, ProviderId } from "../../contracts";
 import { resolveInboundSessionId } from "../../operations/session-resolution";
 import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
+import { readBuddyDeviceToken } from "./workbuddy-shared";
 
 /** Client identity variant behind the per-request CodeBuddy headers. */
 export type CodeBuddyVariant = "IDE" | "CLI";
@@ -24,6 +25,7 @@ export async function codebuddyHeaders(
 ): Promise<Record<string, string>> {
   const identity = variant === "IDE" ? "IDE" : "CLI";
   const ua = buildCodeBuddyUserAgent(identity);
+  const deviceToken = readBuddyDeviceToken(context);
   return {
     accept: "text/event-stream",
     "User-Agent": ua,
@@ -35,6 +37,7 @@ export async function codebuddyHeaders(
     "x-codebuddy-request": "1",
     "x-conversation-id": resolveInboundSessionId(context, request) ?? crypto.randomUUID(),
     "x-request-id": crypto.randomUUID().replaceAll("-", ""),
+    ...(deviceToken === undefined ? {} : { "X-Device-Token": deviceToken }),
   };
 }
 

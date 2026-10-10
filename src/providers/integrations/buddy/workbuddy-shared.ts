@@ -85,7 +85,16 @@ export async function workbuddyHeaders(
     headers["x-machine-id"] = deriveAccountStableId(accountId, "machine");
     headers["x-session-id"] = deriveAccountStableId(accountId, "session");
   }
+  const deviceToken = readBuddyDeviceToken(context);
+  if (deviceToken !== undefined) headers["x-device-token"] = deviceToken;
   return headers;
+}
+
+/** Desktop risk token, sent only when the account actually has one. */
+export function readBuddyDeviceToken(context?: ProviderDispatchContext): string | undefined {
+  const state = context?.credential.auth_state;
+  const value = state?.["deviceToken"] ?? state?.["device_token"];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 /**

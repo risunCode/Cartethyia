@@ -17,10 +17,13 @@
  * Provider-specific identity headers and catalog tables stay in each variant's
  * own `*-shared.ts`.
  */
+import { createHash } from "node:crypto";
 import { completeRequiredSchema } from "../../../protocol/codecs";
 import type { CanonicalRequest } from "../../../protocol/canonical-model";
 import { isRecord } from "../../../protocol/codecs";
 import { applyDeepSeekReasoning, applyOpenAIReasoning, backfillDeepSeekReasoningContent } from "../../reasoning";
+import { resolvePromptCacheKey } from "../../operations/session-resolution";
+import type { ProviderDispatchContext } from "../../contracts";
 
 const BUDDY_TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const INVALID_BUDDY_TOOL_NAME_CHARS = /[^a-zA-Z0-9_-]/g;
@@ -126,6 +129,8 @@ export function normalizeBuddyToolNames(payload: Record<string, unknown>): void 
 export function buddyPrePayloadCommon(
   payload: Record<string, unknown>,
   request?: CanonicalRequest,
+  context?: ProviderDispatchContext,
+  realm: "intl" | "cn" = "intl",
 ): void {
   // Canonical upstream renames: max_completion_tokens is OpenAI compat alias, buddy only reads max_tokens
   if (payload["max_tokens"] === undefined && payload["max_completion_tokens"] !== undefined) {
@@ -156,6 +161,8 @@ export function buddyPrePayloadCommon(
     delete payload["reasoning_summary"];
   }
   backfillDeepSeekReasoningContent(payload);
+  clampBuddyReasoningEffort(payload, realm);
+  injectBuddyPromptCacheKey(payload, request, context);
   const messages = payload["messages"];
   if (Array.isArray(messages)) {
     const arr = messages as Array<Record<string, unknown>>;
@@ -287,24 +294,98 @@ function cleanupBuddyOrphanToolPairs(messages: Array<Record<string, unknown>>): 
 }
 
 
+const BUDDY_EFFORT_RANK: Readonly<Record<string, number>> = {
+  off: 0,
+  none: 0,
+  minimal: 1,
+  low: 2,
+  medium: 3,
+  high: 4,
+  xhigh: 5,
+  max: 6,
+};
+
+/**
+ * Realm-specific effort ladders. International DeepSeek Flash accepts only
+ * `high`; sending CN's `low`/`max` is a 400. Unknown models pass through.
+ */
+const BUDDY_INTL_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  "deepseek-v4.1-flash": ["high"],
+  "glm-5.2": ["high", "xhigh"],
+  "glm-5.3": ["low", "high", "max"],
+  hy3: ["low", "high"],
+  "hy4-preview-f": ["high"],
+};
+const BUDDY_CN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
+  "deepseek-v4-flash": ["low", "high", "max"],
+  "deepseek-v4-pro": ["low", "high", "xhigh"],
+  "deepseek-v4.1-flash": ["low", "high", "max"],
+  "glm-5.1": ["medium"],
+  "glm-5.2": ["high", "xhigh"],
+  "glm-5.3": ["low", "high", "max"],
+  "glm-5.3-flash": ["low", "high", "max"],
+  hy3: ["low", "high"],
+  "hy4-preview": ["high"],
+};
+
+function clampBuddyReasoningEffort(payload: Record<string, unknown>, realm: "intl" | "cn"): void {
+  const model = typeof payload["model"] === "string" ? payload["model"].trim().toLowerCase() : "";
+  const table = realm === "cn" ? BUDDY_CN_EFFORTS : BUDDY_INTL_EFFORTS;
+  const supported = table[model];
+  if (supported === undefined) return;
+  const key = "reasoning_effort" in payload ? "reasoning_effort" : "reasoningEffort" in payload ? "reasoningEffort" : undefined;
+  if (key === undefined) return;
+  const requested = payload[key];
+  if (typeof requested !== "string") return;
+  const normalized = requested.trim().toLowerCase();
+  const requestedRank = BUDDY_EFFORT_RANK[normalized];
+  if (requestedRank === undefined || supported.some((effort) => effort.toLowerCase() === normalized)) return;
+  const ranked = supported
+    .map((effort) => ({ effort, rank: BUDDY_EFFORT_RANK[effort.toLowerCase()] }))
+    .filter((entry): entry is { effort: string; rank: number } => entry.rank !== undefined);
+  const below = ranked.filter((entry) => entry.rank <= requestedRank);
+  const chosen = below.length > 0
+    ? below.reduce((best, entry) => (entry.rank > best.rank ? entry : best))
+    : ranked.reduce((best, entry) => (entry.rank < best.rank ? entry : best));
+  payload[key] = chosen.effort;
+}
+
+/**
+ * Stable, account-scoped prefix-cache key. A client key wins; otherwise the
+ * conversation id is hashed with the account id so two accounts never share a
+ * cached prefix.
+ */
+function injectBuddyPromptCacheKey(
+  payload: Record<string, unknown>,
+  request: CanonicalRequest | undefined,
+  context: ProviderDispatchContext | undefined,
+): void {
+  const existing = payload["prompt_cache_key"];
+  if (typeof existing === "string" && existing.trim().length > 0) return;
+  const uid = context?.credential.account_id?.trim() ?? "";
+  const bodyConversation = payload["conversation_id"] ?? payload["conversationId"];
+  const conversation = typeof bodyConversation === "string" && bodyConversation.trim().length > 0
+    ? bodyConversation.trim()
+    : resolvePromptCacheKey(request, context) ?? "";
+  const uid8 = uid.slice(0, 8) || "-";
+  const digest = createHash("sha256").update(`${uid}|${conversation}`).digest("hex").slice(0, 32);
+  payload["prompt_cache_key"] = `wb2a-${uid8}-${digest}`;
+}
+
 function normalizeBuddyToolChoice(payload: Record<string, unknown>): void {
   if (!("tool_choice" in payload)) return;
   const tc = payload["tool_choice"];
   if (typeof tc === "string") {
-    if (tc.trim().toLowerCase() === "none") {
-      delete payload["tool_choice"];
-      delete payload["tools"];
-      delete (payload as Record<string, unknown>)["functions"];
-    }
+    // `none` means "do not call this turn", not "forget the tool schemas".
+    // Deleting tools makes DeepSeek emit unparseable DSML text instead.
+    if (tc.trim().toLowerCase() === "none") payload["tool_choice"] = "none";
     return;
   }
   if (tc && typeof tc === "object" && !Array.isArray(tc)) {
     const obj = tc as Record<string, unknown>;
     const typ = typeof obj["type"] === "string" ? (obj["type"] as string).trim().toLowerCase() : "";
     if (typ === "none") {
-      delete payload["tool_choice"];
-      delete payload["tools"];
-      delete (payload as Record<string, unknown>)["functions"];
+      payload["tool_choice"] = "none";
     } else if (typ === "auto" || typ === "required") {
       payload["tool_choice"] = typ;
     } else if (typ === "function") {

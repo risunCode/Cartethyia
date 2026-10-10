@@ -9,6 +9,7 @@ import { gatewayErrorFromStreamError } from "../stream-error-frames";
 import { mergeResponsesUsage } from "./responses";
 import { usageFromProvider, readReasoningText } from "../../providers/usage";
 import { createToolEmitLedger } from "../../protocol/tool-identity";
+import { parseDsmlToolCalls } from "./dsml";
 
 export function mapChatStopReason(
   reason: unknown,
@@ -53,12 +54,14 @@ export function parseChatResponseToEvents(
       });
     }
     const content = message["content"] as string | null;
-    if (content) {
+    const recovered = typeof content === "string" ? parseDsmlToolCalls(content) : undefined;
+    const visible = recovered === undefined ? content : recovered.text;
+    if (visible) {
       events.push({
         type: "content_delta",
         sequence_number: events.length + 1,
         response_id: id,
-        content: { kind: "text", text: content },
+        content: { kind: "text", text: visible },
       });
     }
     const refusal = message["refusal"];
@@ -70,32 +73,37 @@ export function parseChatResponseToEvents(
         content: { kind: "refusal", text: refusal },
       });
     }
-    const toolCalls = message["tool_calls"];
-    if (Array.isArray(toolCalls)) {
-      for (const tc of toolCalls) {
-        if (typeof tc !== "object" || tc === null) continue;
-        const record = tc as Record<string, unknown>;
-        const fn = typeof record["function"] === "object" && record["function"] !== null
-          ? (record["function"] as Record<string, unknown>)
-          : undefined;
-        // Malformed tool calls (missing id/name) are dropped, not poisoned
-        // into the ledger: an undefined id/name downstream breaks pairing and
-        // surfaces as a confusing unknown-tool error instead of a clean skip.
-        const callId = typeof record["id"] === "string" && record["id"].length > 0 ? record["id"] : undefined;
-        const name = typeof fn?.["name"] === "string" && fn["name"].length > 0 ? fn["name"] : undefined;
-        const args = typeof fn?.["arguments"] === "string" ? fn["arguments"] : "{}";
-        if (callId === undefined || name === undefined) continue;
-        const itemId = callId;
-        events.push({
-          type: "tool_call_delta",
-          sequence_number: events.length + 1,
-          response_id: id,
-          item_id: itemId,
-          call_id: callId,
-          name,
-          arguments_delta: args,
-        });
-      }
+    const structuredCalls = message["tool_calls"];
+    const toolCalls = Array.isArray(structuredCalls) && structuredCalls.length > 0
+      ? structuredCalls
+      : recovered?.calls ?? [];
+    for (const tc of toolCalls) {
+      if (typeof tc !== "object" || tc === null) continue;
+      const record = tc as Record<string, unknown>;
+      const fn = typeof record["function"] === "object" && record["function"] !== null
+        ? (record["function"] as Record<string, unknown>)
+        : undefined;
+      // Malformed tool calls (missing id/name) are dropped, not poisoned
+      // into the ledger: an undefined id/name downstream breaks pairing and
+      // surfaces as a confusing unknown-tool error instead of a clean skip.
+      const callId = typeof record["id"] === "string" && record["id"].length > 0 ? record["id"] : undefined;
+      const name = typeof fn?.["name"] === "string" && fn["name"].length > 0
+        ? fn["name"]
+        : typeof record["name"] === "string" ? record["name"] : undefined;
+      const args = typeof fn?.["arguments"] === "string"
+        ? fn["arguments"]
+        : typeof record["arguments"] === "string" ? record["arguments"] : "{}";
+      if (callId === undefined || name === undefined) continue;
+      const itemId = callId;
+      events.push({
+        type: "tool_call_delta",
+        sequence_number: events.length + 1,
+        response_id: id,
+        item_id: itemId,
+        call_id: callId,
+        name,
+        arguments_delta: args,
+      });
     }
     // Audio output (`modalities: ["audio"]`) rides on `message.audio`; carry it
     // as an extension part so the Chat encoder can re-emit the same object.
@@ -201,10 +209,12 @@ export async function* decodeChatSseStream(
         // text/thinking blocks.
         if (typeof delta?.["content"] === "string" && delta["content"].length > 0) {
           const raw = delta["content"] as string;
+          const recovered = parseDsmlToolCalls(raw);
+          const visible = recovered?.text ?? raw;
           // Generic thinking models (mimo/minimax/kiro) embed <think> in content
-          if (raw.includes("<think")) {
-            const stripped = raw.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/g, "");
-            const thinkMatch = raw.match(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/);
+          if (visible.includes("<think")) {
+            const stripped = visible.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/g, "");
+            const thinkMatch = visible.match(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/);
             if (thinkMatch?.[1]) {
               yield {
                 type: "content_delta",
@@ -219,12 +229,23 @@ export async function* decodeChatSseStream(
                 content: { kind: "text", text: stripped },
               } as CanonicalEvent;
             }
-          } else {
+          } else if (visible.length > 0) {
             yield {
               type: "content_delta",
               sequence_number: seq++,
-              content: { kind: "text", text: raw },
+              content: { kind: "text", text: visible },
             } as CanonicalEvent;
+          }
+          if (recovered !== undefined) {
+            for (const call of recovered.calls) {
+              yield {
+                type: "tool_call_delta",
+                sequence_number: seq++,
+                call_id: call.id,
+                name: call.name,
+                arguments_delta: call.arguments,
+              } as CanonicalEvent;
+            }
           }
         }
         const reasoningText = delta ? readReasoningText(delta) : undefined;

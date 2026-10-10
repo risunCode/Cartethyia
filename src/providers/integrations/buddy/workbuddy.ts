@@ -12,7 +12,7 @@ import { OpenAICompatibleAdapter } from "../../compatible-adapter";
 import { providerBaseUrl } from "../../metadata";
 import { GatewayError } from "../../../protocol/gateway-error";
 import type { CanonicalRequest } from "../../../protocol/canonical-model";
-import type { ProviderAdapter, ProviderDispatchTarget } from "../../contracts";
+import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
 import type { ModelDefinition } from "../../model-definition";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
 import {
@@ -117,8 +117,9 @@ export function workbuddyPrePayload(
   payload: Record<string, unknown>,
   request: CanonicalRequest,
   candidate: ProviderDispatchTarget,
+  context?: ProviderDispatchContext,
 ): void {
-  buddyPrePayloadCommon(payload, request);
+  buddyPrePayloadCommon(payload, request, context);
   const rawModel = payload["model"];
   const source =
     typeof rawModel === "string" && rawModel.length > 0 ? rawModel : candidate.model_id;

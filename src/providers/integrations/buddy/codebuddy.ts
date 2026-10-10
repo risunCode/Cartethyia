@@ -7,7 +7,7 @@
 // Payload: leading CodeBuddy system prompt + typed user content, reasoning_summary auto only when reasoning_effort
 
 import { OpenAICompatibleAdapter } from "../../compatible-adapter";
-import type { ProviderDispatchTarget, ProviderAdapter } from "../../contracts";
+import type { ProviderDispatchContext, ProviderDispatchTarget, ProviderAdapter } from "../../contracts";
 import type { ModelDefinition } from "../../model-definition";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
 import { GatewayError } from "../../../protocol/gateway-error";
@@ -68,8 +68,9 @@ function codeBuddyIntlPrePayload(
   payload: Record<string, unknown>,
   request: CanonicalRequest,
   candidate: ProviderDispatchTarget,
+  context?: ProviderDispatchContext,
 ): void {
-  buddyPrePayloadCommon(payload, request);
+  buddyPrePayloadCommon(payload, request, context);
   const rawModel = payload["model"];
   const source =
     typeof rawModel === "string" && rawModel.length > 0
