@@ -337,7 +337,8 @@ export function classifyAccountError(
       lower.includes("model not supported") ||
       lower.includes("not entitled to") ||
       lower.includes("no access to model") ||
-      lower.includes("model_not_supported"));
+      lower.includes("model_not_supported") ||
+      lower.includes("not available in your region"));
   const authSignal =
     !quotaSignal &&
     !policyRejection &&
@@ -482,7 +483,7 @@ export function classifyAccountError(
   // Keyed on the provider's own code rather than on the 404: a 404 also means
   // an upstream *route* that does not exist (`upstream_not_found`), which says
   // nothing about any model and must not cool one.
-  const modelUnreachable = providerCode === "not_found";
+  const modelUnreachable = providerCode === "not_found" || modelEntitlementFailure;
   if (modelUnreachable) {
     const cooldownMs = MODEL_UNREACHABLE_COOLDOWN_MS;
     // Not credential evidence, so `classifyUpstreamFailure` scopes this to the

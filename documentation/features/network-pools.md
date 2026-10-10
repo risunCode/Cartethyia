@@ -118,6 +118,16 @@ straight off the selector.
 | Console routes | `src/console/routing/pools/routes.ts` |
 | Schema | `networkPools`, `poolRoutingSettings` in `src/persistence/schema.ts` |
 
+
+## Known issues
+
+Direct egress behind an active VPN resolves through the OS resolver. A proxy
+pool on the same host can still hang: the pool accepts TCP, but an HTTP request
+or `CONNECT` handshake may never answer, so the gateway request produces no
+response. Reproduced with VPN enabled and proxy skip disabled. The proxy-side
+cause is not yet identified, so do not treat a timeout added around DNS lookup
+as a fix for this hang.
+
 ## See also
 
 - [`configuration.md`](../reference/configuration.md) — "Account and pool cooldowns",

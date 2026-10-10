@@ -75,3 +75,25 @@ describe("classifyAccountError — a revoked token parks the account", () => {
     expect(classification.status).toBe("cooldown");
   });
 });
+
+describe("classifyAccountError — a regional model rejection", () => {
+  test("cools the model instead of disabling the account", () => {
+    const error = new GatewayError(
+      "policy_rejected",
+      403,
+      "Provider credential rejected: access forbidden: cline-free/muse-spark-1.3-contributor is not available in your region",
+      { credentialEvidence: true },
+      "upstream",
+    );
+    const classification = classifyAccountError(error, {
+      origin: "upstream",
+      scope: "account",
+      credentialEvidence: true,
+      credentialKind: "oauth",
+      modelId: "muse-spark-1.3-contributor",
+    });
+    expect(classification.category).toBe("model_unreachable");
+    expect(classification.status).toBe("cooldown");
+    expect(classification.mutatesAccount).toBe(true);
+  });
+});

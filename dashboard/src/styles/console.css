@@ -1525,6 +1525,9 @@ main.route-enter .card-body-content > .data-table-container {
 }
 main.route-enter .state-viewport {
   flex: 1 1 auto;
+  min-height: clamp(220px, calc(100dvh - 270px), 1000px);
+}
+main.route-enter .state-viewport-compact {
   min-height: 0;
 }
 

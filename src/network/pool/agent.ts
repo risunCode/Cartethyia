@@ -145,6 +145,7 @@ function createSsrfLookup(policy: SsrfPolicy): NonNullable<RequestOptions["looku
     ) => void,
   ): void => {
     const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 5_000);
     void resolveAllAddresses(hostname, abort.signal)
       .then((addrs) => {
         try {
@@ -166,7 +167,8 @@ function createSsrfLookup(policy: SsrfPolicy): NonNullable<RequestOptions["looku
         }
         cb(null, first, family);
       })
-      .catch((error: unknown) => cb(error as Error));
+      .catch((error: unknown) => cb(error as Error))
+      .finally(() => clearTimeout(timer));
   }) as unknown as NonNullable<RequestOptions["lookup"]>;
 }
 
