@@ -4,6 +4,7 @@ import {
   Globe,
   Download,
   ExternalLink,
+  Image as ImageIcon,
   KeyRound,
   LockOpen,
   PackageX,
@@ -11,6 +12,7 @@ import {
   PowerOff,
   RefreshCw,
   Trash2,
+  Video,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -53,11 +55,13 @@ import {
 import { AddModelModal, ModelGrid, ThinkingSelect } from "./sections/Models";
 import { PROBE_REASONING_EFFORTS, type ProbeReasoningEffort } from "../../data/contracts";
 
-type DashboardServiceKind = "llm" | "websearch";
+type DashboardServiceKind = "llm" | "websearch" | "imageGeneration" | "videoGeneration";
 
 function serviceLabel(serviceKind: string): string {
   if (serviceKind === "llm") return "LLM";
   if (serviceKind === "websearch") return "Search";
+  if (serviceKind === "imageGeneration") return "Image";
+  if (serviceKind === "videoGeneration") return "Video";
   return serviceKind;
 }
 
@@ -71,9 +75,13 @@ export default function ProviderDetail(): ReactNode {
   const [searchParams] = useSearchParams();
   const id = providerId ?? "";
   const requestedService = searchParams.get("service");
-  const [selectedService, setSelectedService] = useState<DashboardServiceKind>(
-    requestedService === "websearch" ? "websearch" : "llm",
-  );
+  const initialService: DashboardServiceKind =
+    requestedService === "websearch" ||
+    requestedService === "imageGeneration" ||
+    requestedService === "videoGeneration"
+      ? requestedService
+      : "llm";
+  const [selectedService, setSelectedService] = useState<DashboardServiceKind>(initialService);
   const providersQuery = useProviders();
   const modelsQuery = useProviderModels(id);
   const accountsQuery = useProviderAccounts(id);
@@ -153,12 +161,24 @@ export default function ProviderDetail(): ReactNode {
   const serviceKinds = provider === undefined ? ["llm"] : normalizedServiceKinds(provider);
   const supportedServiceKinds: DashboardServiceKind[] = [];
   for (const kind of serviceKinds) {
-    if (kind === "llm" || kind === "websearch") supportedServiceKinds.push(kind);
+    if (
+      kind === "llm" ||
+      kind === "websearch" ||
+      kind === "imageGeneration" ||
+      kind === "videoGeneration"
+    ) {
+      supportedServiceKinds.push(kind);
+    }
   }
   useEffect(() => {
     if (provider === undefined) return;
     const requested =
-      requestedService === "websearch" || requestedService === "llm" ? requestedService : undefined;
+      requestedService === "websearch" ||
+      requestedService === "imageGeneration" ||
+      requestedService === "videoGeneration" ||
+      requestedService === "llm"
+        ? requestedService
+        : undefined;
     const fallback = supportedServiceKinds[0];
     if (requested !== undefined && supportedServiceKinds.includes(requested)) {
       if (selectedService !== requested) setSelectedService(requested);
@@ -203,6 +223,8 @@ export default function ProviderDetail(): ReactNode {
     (model) => model.serviceKind === "llm" || model.serviceKind === undefined,
   );
   const searchModels = stableModels.filter((model) => model.serviceKind === "websearch");
+  const imageModels = stableModels.filter((model) => model.serviceKind === "imageGeneration");
+  const videoModels = stableModels.filter((model) => model.serviceKind === "videoGeneration");
   const activeService = supportedServiceKinds.includes(selectedService)
     ? selectedService
     : supportedServiceKinds[0];
@@ -761,6 +783,41 @@ export default function ProviderDetail(): ReactNode {
                   </div>
                 ) : null}
               </>
+            )}
+          </CardBody>
+        </Card>
+      ) : activeService === "imageGeneration" || activeService === "videoGeneration" ? (
+        <Card>
+          <CardHeader
+            title={serviceLabel(activeService)}
+            subtitle={
+              activeService === "imageGeneration"
+                ? "Models that return an image rather than text."
+                : "Models that return a video. Wired and routable; not yet verified against a live account."
+            }
+            icon={activeService === "imageGeneration" ? <ImageIcon size={16} /> : <Video size={16} />}
+          />
+          <CardBody style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {modelsQuery.isPending ? (
+              <LoadingState label={`Loading ${serviceLabel(activeService).toLowerCase()} models...`} />
+            ) : modelsQuery.isError ? (
+              <ErrorState
+                message={`Failed to load ${serviceLabel(activeService).toLowerCase()} models`}
+                onRetry={() => modelsQuery.refetch()}
+              />
+            ) : (activeService === "imageGeneration" ? imageModels : videoModels).length === 0 ? (
+              <EmptyState
+                title={`No ${serviceLabel(activeService)} models found`}
+                message={`This provider advertises ${serviceLabel(activeService)}, but no ${activeService} model is registered yet.`}
+              />
+            ) : (
+              <ModelGrid
+                providerId={id}
+                models={activeService === "imageGeneration" ? imageModels : videoModels}
+                serviceKind="llm"
+                searchCapable={false}
+                thinkingEffort="auto"
+              />
             )}
           </CardBody>
         </Card>

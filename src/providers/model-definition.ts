@@ -98,6 +98,15 @@ export interface ModelHelperRow {
   /** Accepts audio input parts. */
   readonly audio?: boolean;
   readonly reasoning?: boolean;
+  /**
+   * Output modalities this row produces. Defaults to `["text"]`.
+   *
+   * A generation row sets `["image"]` or `["video"]`: the capability profile's
+   * `mediaGeneration` flag reads `output.includes("image")`, and before this
+   * field existed every catalog row was hardcoded to text, so no static row
+   * could ever declare that it returns an image.
+   */
+  readonly output?: readonly ModelDefinition["modalities"]["output"][number][];
   /** Explicitly supported reasoning effort scale. */
   readonly reasoningEfforts?: readonly string[];
   readonly toolCall?: boolean;
@@ -204,7 +213,7 @@ export function defineModel(row: ModelHelperRow): ModelDefinition {
         ...(row.document ? ["document"] : []),
         ...(row.audio ? ["audio"] : []),
       ],
-      output: ["text"],
+      output: row.output ?? ["text"],
     },
     reasoning: row.reasoning ?? false,
     ...(row.reasoningEfforts !== undefined ? { reasoningEfforts: row.reasoningEfforts } : {}),

@@ -26,7 +26,7 @@ export type WireFamily = (typeof WIRE_FAMILIES)[number];
  * the console's Elysia body schema and its validator both project this list, so
  * a new kind cannot reach one and miss the other.
  */
-export const SERVICE_KINDS = ["llm", "systemone", "websearch"] as const;
+export const SERVICE_KINDS = ["llm", "systemone", "websearch", "imageGeneration", "videoGeneration"] as const;
 
 /** Provider service kind selected by a model's catalog row. */
 export type ServiceKind = (typeof SERVICE_KINDS)[number];

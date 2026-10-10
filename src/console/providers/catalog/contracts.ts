@@ -84,6 +84,8 @@ const VALID_SERVICE_KINDS: Record<ServiceKind, true> = {
   llm: true,
   systemone: true,
   websearch: true,
+  imageGeneration: true,
+  videoGeneration: true,
 };
 
 export function isServiceKind(value: unknown): value is ServiceKind {

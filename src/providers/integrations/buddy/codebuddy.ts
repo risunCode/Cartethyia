@@ -8,7 +8,7 @@
 
 import { OpenAICompatibleAdapter } from "../../compatible-adapter";
 import type { ProviderDispatchTarget, ProviderAdapter } from "../../contracts";
-import type { ModelDefinition } from "../../model-definition";
+import { defineModel, type ModelDefinition } from "../../model-definition";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
 import { GatewayError } from "../../../protocol/gateway-error";
 import type { CanonicalRequest } from "../../../protocol/canonical-model";
@@ -81,7 +81,112 @@ function codeBuddyIntlPrePayload(
 // Model catalog — current CodeBuddy INTL catalog (20 entries)
 
 const CODEBUDDY_INTL_RAW: readonly BuddyRawEntry[] = BUDDY_SHARED_RAW;
-export const CODEBUDDY_MODELS: readonly ModelDefinition[] = CODEBUDDY_INTL_RAW.map((entry) => makeBuddyModel(entry, "cb"));
+
+/**
+ * Ids that belong to the generation rows below rather than the chat roster.
+ *
+ * The shared roster still lists the Gemini image ids as ordinary chat rows —
+ * that is how every buddy provider has always carried them. Registering them
+ * twice would put the same id in the catalog under two service kinds, so the
+ * chat pass skips them and the generation rows own them instead.
+ */
+const CHAT_ROSTER_EXCLUDED_IDS: ReadonlySet<string> = new Set([
+  "gemini-2.5-flash-image",
+  "gemini-3.0-pro-image",
+  "gemini-3.1-flash-image",
+]);
+
+/**
+ * CodeBuddy's image generation rows.
+ *
+ * These ids already existed on the shared roster as ordinary `llm` chat rows,
+ * which is why they were unreachable as image models: nothing downstream could
+ * tell a chat model from one that returns an image, so `mediaGeneration` was
+ * false for every row in the catalog. Declaring them here with an explicit
+ * `serviceKind` and `output` is what makes the capability resolvable, and the
+ * explicit endpoint keeps them off the chat path that `makeBuddyModel` gives
+ * every roster entry.
+ *
+ * The endpoint is the upstream's own generation path under the same base URL,
+ * not a second host: `codebuddy.ts` composes dispatch URLs as
+ * `baseUrl + endpointPath`, so this stays on the provider's own wire.
+ */
+export const CODEBUDDY_IMAGE_MODELS: readonly ModelDefinition[] = [
+  defineModel({
+    id: "gemini-2.5-flash-image",
+    providerId: "cb",
+    serviceKind: "imageGeneration",
+    wireFamily: "chat",
+    endpoint: "/chat/completions",
+    ctx: 1_000_000,
+    out: 64_000,
+    vision: true,
+    output: ["image"],
+    toolCall: false,
+  }),
+  defineModel({
+    id: "gemini-3.0-pro-image",
+    providerId: "cb",
+    serviceKind: "imageGeneration",
+    wireFamily: "chat",
+    endpoint: "/chat/completions",
+    ctx: 1_000_000,
+    out: 64_000,
+    vision: true,
+    output: ["image"],
+    toolCall: false,
+  }),
+  defineModel({
+    id: "gemini-3.1-flash-image",
+    providerId: "cb",
+    serviceKind: "imageGeneration",
+    wireFamily: "chat",
+    endpoint: "/chat/completions",
+    ctx: 1_000_000,
+    out: 64_000,
+    vision: true,
+    output: ["image"],
+    toolCall: false,
+  }),
+];
+
+/**
+ * CodeBuddy's video generation rows.
+ *
+ * Wired and routable but deliberately untested: no account here can reach the
+ * upstream video endpoint yet, so this row exists so the surface is ready and
+ * the capability is queryable rather than so traffic can flow. When it is
+ * exercised, the check is that a video request resolves a candidate whose
+ * `endpoint_path` is this row's and returns a non-chat body.
+ */
+export const CODEBUDDY_VIDEO_MODELS: readonly ModelDefinition[] = [
+  defineModel({
+    id: "gemini-3.1-veo",
+    providerId: "cb",
+    serviceKind: "videoGeneration",
+    wireFamily: "chat",
+    endpoint: "/chat/completions",
+    ctx: 1_000_000,
+    out: null,
+    vision: true,
+    output: ["video"],
+    toolCall: false,
+  }),
+];
+
+/**
+ * The full cb catalog the registry loads: chat roster plus generation rows.
+ *
+ * Declared after the generation rows because it spreads them, and exported as
+ * one list so `default-registry.ts` keeps a single import for this provider.
+ */
+export const CODEBUDDY_MODELS: readonly ModelDefinition[] = [
+  ...CODEBUDDY_INTL_RAW.filter((entry) => !CHAT_ROSTER_EXCLUDED_IDS.has(entry[0])).map((entry) =>
+    makeBuddyModel(entry, "cb"),
+  ),
+  ...CODEBUDDY_IMAGE_MODELS,
+  ...CODEBUDDY_VIDEO_MODELS,
+];
 
 /**
  * Reads the CodeBuddy intl console directory.
