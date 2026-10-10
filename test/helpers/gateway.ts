@@ -84,6 +84,11 @@ export interface TestRoute {
   /** Cooldown class the catalog projects when `healthStatus` is `cooldown`. */
   readonly cooldownKind?: "hard" | "soft";
 }
+
+/** Optional routing tables a suite needs beyond the candidate list. */
+export interface TestRouteSnapshotOptions {
+  readonly combos?: RouteSnapshot["combos"];
+}
 /**
  * Capabilities a fixture route advertises unless a suite says otherwise.
  *
@@ -286,7 +291,7 @@ export interface TestGateway {
     init?: RequestInit & { clientIp?: string; token?: string },
   ): Promise<Response>;
   /** Replaces the routing snapshot; call after changing fixture rows. */
-  setRoutes(routes: readonly TestRoute[]): void;
+  setRoutes(routes: readonly TestRoute[], options?: TestRouteSnapshotOptions): void;
   /**
    * Serves every model a world created, on that world's provider and account.
    *
@@ -463,8 +468,8 @@ export async function createTestGateway(
         }),
       );
     },
-    setRoutes(routes) {
-      routeSnapshot.current = buildSnapshot(routes);
+    setRoutes(routes, options = {}) {
+      routeSnapshot.current = buildSnapshot(routes, options);
       // Drop the cached snapshot so the next request observes the new routes.
       void snapshotService.invalidate();
     },
@@ -501,7 +506,10 @@ function emptySnapshot(): RouteSnapshot {
 }
 
 /** Projects test routes onto the real `RouteSnapshot` shape. */
-export function buildSnapshot(routes: readonly TestRoute[]): RouteSnapshot {
+export function buildSnapshot(
+  routes: readonly TestRoute[],
+  options: TestRouteSnapshotOptions = {},
+): RouteSnapshot {
   const candidates: RouteCandidate[] = routes.map((route) => ({
     provider_id: route.providerId,
     model_id: route.modelId,
@@ -522,7 +530,7 @@ export function buildSnapshot(routes: readonly TestRoute[]): RouteSnapshot {
     revision: 1,
     candidates,
     aliases: {},
-    combos: {},
+    combos: options.combos ?? {},
     created_at: Date.now(),
   };
 }

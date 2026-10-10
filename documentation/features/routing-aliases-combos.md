@@ -62,6 +62,15 @@ Then `resolveMatchingCandidates` filters `snapshot.candidates`:
   and reported on the error, so a misconfigured member is named instead of
   failing opaquely on whichever member happened to route.
 
+A retryable failure flags that member for the rest of the request. Dispatch
+moves it behind every member that has not failed yet, so the next attempt
+cannot stick to it while a sibling remains. The flagged member is tried again
+only after that sibling list is exhausted. The flag is request-scoped: it does
+not write an account cooldown, and the next client request plans from current
+health as usual.
+
+
+
 `isModelAllowed` is then consulted against the *resolved* target as well as the
 requested name, so an alias cannot be used to reach a model the key may not use.
 

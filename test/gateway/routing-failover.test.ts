@@ -21,7 +21,7 @@ import { dbDescribe } from "../helpers/database";
 import { EligibilityEvaluator, RoutingEngine } from "../../src/transport/routing/router";
 import { GatewayError } from "../../src/protocol/gateway-error";
 import type { RouteCandidate, RouteSnapshot } from "../../src/transport/routing/route-model";
-
+import { setCachedQuota, clearQuotaCacheForTests } from "../../src/console/quota/cache";
 const CHAT_BODY = { model: "placeholder", messages: [{ role: "user", content: "hi" }], stream: false };
 
 /** A minimal candidate; only the fields the evaluator reads are meaningful. */
@@ -160,6 +160,29 @@ describe("RoutingEngine.plan cooldown classes", () => {
       "cool-a",
       "cool-b",
     ]);
+  });
+
+  test("a zero-balance account yields to a sibling with remaining quota", async () => {
+    const spent = candidate({ provider_account_id: "spent" });
+    const funded = candidate({ provider_account_id: "funded" });
+    await setCachedQuota("global", "spent", {
+      source: "test",
+      plan: null,
+      error: null,
+      windows: [{ kind: "credit", label: "credit", usedPercent: 100, remainingPercent: 0, resetsAt: null, limit: 100, remaining: 0 }],
+    }, undefined);
+    await setCachedQuota("global", "funded", {
+      source: "test",
+      plan: null,
+      error: null,
+      windows: [{ kind: "credit", label: "credit", usedPercent: 10, remainingPercent: 90, resetsAt: null, limit: 100, remaining: 90 }],
+    }, undefined);
+    try {
+      const plan = await engine.plan(qualified, snapshot([spent, funded]));
+      expect(plan.candidates.map((entry) => entry.provider_account_id)).toEqual(["funded"]);
+    } finally {
+      clearQuotaCacheForTests();
+    }
   });
 });
 
@@ -398,5 +421,38 @@ dbDescribe("account failover", () => {
       if (previous === undefined) delete process.env.CARTETHYIA_ROUTE_MAX_ATTEMPTS;
       else process.env.CARTETHYIA_ROUTE_MAX_ATTEMPTS = previous;
     }
+  });
+
+  test("a failed combo member is not retried before its siblings", async () => {
+    const second = await world.addProvider({ modelId: "member-b" });
+    gateway.setRoutes(
+      [
+        { providerId: world.providerId, modelId: world.modelId, accountId: world.accountId },
+        { providerId: second.providerId, modelId: second.modelId, accountId: second.accountId },
+      ],
+      {
+        combos: {
+          [world.tenantId]: {
+            pool: {
+              members: [`${world.providerId}/${world.modelId}`, `${second.providerId}/${second.modelId}`],
+              strategy: "fallback",
+            },
+          },
+        },
+      },
+    );
+    gateway.adapter(world.providerId, {
+      failWith: () => new GatewayError("platform_unavailable", 503, "member unavailable"),
+    });
+    gateway.adapter(second.providerId);
+
+    const response = await gateway.json(
+      "/v1/chat/completions",
+      { ...CHAT_BODY, model: "pool" },
+      { token: world.token },
+    );
+    expect(response.status).toBe(200);
+    expect(gateway.adapters.get(world.providerId)?.dispatches).toHaveLength(1);
+    expect(gateway.adapters.get(second.providerId)?.dispatches).toHaveLength(1);
   });
 });

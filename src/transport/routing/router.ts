@@ -26,6 +26,7 @@ import { getOrCreateRoundRobin, RoundRobinState } from "./round-robin";
 import { SEARCH_PROVIDER_ORDER } from "../dispatch/websearch";
 import { totalRemainingCredit, totalRemainingPercent, type ProviderQuotaWindow } from "../../providers/quota/quota-contracts";
 import { getCachedQuotaEntry, quotaLens } from "../../console/quota/cache";
+import type { RedisClient } from "../../persistence/redis";
 
 const SEARCH_PROVIDER_RANK = new Map<string, number>(
   SEARCH_PROVIDER_ORDER.map((provider, index) => [provider, index]),
@@ -56,10 +57,17 @@ function belowUsageFloor(state: {
   readonly usage_floor_unit?: "credit" | "percent";
   readonly quota_windows?: readonly ProviderQuotaWindow[] | undefined;
 }): boolean {
-  const floor = state.usage_floor;
   const windows = state.quota_windows;
-  if (floor === undefined || windows === undefined || windows.length === 0) return false;
-  const remaining = state.usage_floor_unit === "credit" ? totalRemainingCredit(windows) : totalRemainingPercent(windows);
+  if (windows === undefined || windows.length === 0) return false;
+  const credit = totalRemainingCredit(windows);
+  const percent = totalRemainingPercent(windows);
+  // A fresh reading of zero is exhausted even when the operator set no floor.
+  // Leaving it eligible made admission keep selecting the same spent account
+  // until the request failed, despite a sibling that still had allowance.
+  if ((credit !== null && credit <= 0) || (percent !== null && percent <= 0)) return true;
+  const floor = state.usage_floor;
+  if (floor === undefined) return false;
+  const remaining = state.usage_floor_unit === "credit" ? credit : percent;
   return remaining !== null && remaining <= floor;
 }
 
@@ -247,6 +255,7 @@ export class RoutingEngine {
 
   constructor(
     private readonly admission: AdmissionController = new InMemoryAdmissionController(),
+    private readonly redis?: RedisClient,
   ) {}
 
   private getRoundRobin(key: string): RoundRobinState {
@@ -383,13 +392,23 @@ export class RoutingEngine {
       const accountId = candidate.provider_account_id;
       if (accountId === undefined) return candidate;
       const setting = this.resolveProviderRouting(snapshot, candidate.provider_id, candidate.tenant_id ?? tenantId);
-      if (setting?.usageFloor == null) return candidate;
       let windows = readings.get(accountId);
       if (windows === undefined) {
-        const cached = await getCachedQuotaEntry(quotaLens(candidate.tenant_id ?? tenantId), accountId, undefined);
+        const cached = await getCachedQuotaEntry(
+          quotaLens(candidate.tenant_id ?? tenantId),
+          accountId,
+          this.redis,
+        );
         windows = cached?.quota.windows ?? [];
+        readings.set(accountId, windows);
       }
-      return { ...candidate, usage_floor: setting.usageFloor, usage_floor_unit: setting.usageFloorUnit, quota_windows: windows };
+      return {
+        ...candidate,
+        ...(setting?.usageFloor == null
+          ? {}
+          : { usage_floor: setting.usageFloor, usage_floor_unit: setting.usageFloorUnit }),
+        quota_windows: windows,
+      };
     }));
   }
 

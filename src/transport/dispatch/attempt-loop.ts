@@ -31,6 +31,22 @@ import { repriceUsage } from "../../providers/usage";
 import { shouldCooldownPool, isOAuthCredentialInvalidated } from "./retry-policy";
 import { drainAbortReason } from "../shutdown-notice";
 
+/**
+ * Identity of one combo member for the request-scoped failure flag.
+ *
+ * Account, model, and endpoint distinguish siblings that share a provider.
+ * The flag lives only for this request: it stops a failed member from being
+ * retried while another member remains, without writing a durable cooldown.
+ */
+function comboCandidateKey(candidate: RouteCandidate): string {
+  return [
+    candidate.provider_id,
+    candidate.provider_account_id ?? "global",
+    candidate.model_id,
+    candidate.endpoint,
+  ].join(":");
+}
+
 /** Route-specific preconditions resolved for one candidate before its leases are taken. */
 interface PreparedAttempt<TAdapter> {
   readonly credential: ResolvedCredential;
@@ -92,9 +108,11 @@ interface AttemptLoopInput<TResult, TAdapter> {
 export async function runAttemptLoop<TResult, TAdapter>(
   input: AttemptLoopInput<TResult, TAdapter>,
 ): Promise<TResult> {
-  const { state, deps, candidates, leaseSource } = input;
+  const { state, deps, leaseSource } = input;
+  const candidates = [...input.candidates];
   let lastError: unknown = input.exhaustedError;
   const refreshedCandidates = new Set<string>();
+  const failedCandidates = new Set<string>();
   // Every attempt owns a fresh capture sink, but only the terminal attempt's
   // sink reaches the payload store. When the terminal attempt fails before it
   // fires an outbound request (lease/acquire/prepare threw, or failover
@@ -103,9 +121,11 @@ export async function runAttemptLoop<TResult, TAdapter>(
   // the terminal completion can fall back to the last one that has a request.
   const firedCaptures: ProviderExchangeCapture[] = [];
   const maxAttempts = resolveRouteMaxAttempts();
-  for (let index = 0; index < Math.min(candidates.length, maxAttempts); index += 1) {
+  let index = 0;
+  let attempts = 0;
+  while (index < candidates.length && attempts < maxAttempts) {
     const candidate = candidates[index];
-    if (!candidate) continue;
+    if (!candidate) break;
     let lease: AdmissionLease | undefined;
     let reservation: Reservation | undefined;
     let proxySlot: { poolId: string; release: () => void } | undefined;
@@ -246,7 +266,6 @@ export async function runAttemptLoop<TResult, TAdapter>(
           );
           if (fresh) {
             refreshedCandidates.add(candidateKey);
-            index -= 1;
             continue;
           }
         }
@@ -255,11 +274,23 @@ export async function runAttemptLoop<TResult, TAdapter>(
         metrics.proxy_requests_total.inc(1, { status: cancelled ? "cancelled" : "failed" });
         throw error;
       }
-      retryDelayMs = fallbackRetryDelayMs(index);
+      // A failed combo member stays flagged for this request. Move it behind
+      // every candidate that has not failed yet, so the next attempt cannot
+      // stick to it while a sibling remains. It becomes eligible again only
+      // after that sibling list is exhausted.
+      const failureKey = comboCandidateKey(candidate);
+      if (!failedCandidates.has(failureKey)) {
+        failedCandidates.add(failureKey);
+        candidates.push(candidates.splice(index, 1)[0]!);
+      } else {
+        index += 1;
+      }
+      retryDelayMs = fallbackRetryDelayMs(attempts);
     } finally {
       if (!leasesRetained)
         await releaseAttemptLeases({ lease, reservation, proxySlot }, leaseSource.routingEngine);
     }
+    attempts += 1;
     if (retryDelayMs > 0) await sleep(retryDelayMs, state.abortController.signal);
   }
   metrics.proxy_requests_total.inc(1, { status: "failed" });

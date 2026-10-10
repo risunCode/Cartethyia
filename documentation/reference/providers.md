@@ -177,8 +177,10 @@ proof that a model answers. `/v1/models` reads the same rows.
 `QuotaFetcher` (`src/providers/quota/quota-support.ts:60`) is a per-provider
 callback returning `ProviderQuotaResult` (`quota-contracts.ts:17`): a plan label
 and a list of windows with percentages and reset times. Registered collectors are
-resolved lazily through the registry (`:67`). Quota is **display**, not a routing
-floor — there is no minimum-balance gate, and `totalRemainingCredit` (`:40`)
+resolved lazily through the registry (`:67`). A cached reading of zero remaining
+credit or percent excludes that account while another account can serve the
+request. An operator usage floor can exclude an account earlier. A missing
+reading is not proof that allowance is gone, and `totalRemainingCredit` (`:40`)
 deliberately ignores percentage-only windows because 0–100 is utilization, not a
 balance. Health state lives on `provider_accounts` via `healthColumns()`
 (`src/persistence/schema.ts:93,198`): status, `cooldown_until`, per-model

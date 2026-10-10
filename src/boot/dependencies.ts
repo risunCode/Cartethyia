@@ -149,6 +149,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   );
   const routingEngine = new RoutingEngine(
     redis ? new RedisAdmissionController(redis) : undefined,
+    redis,
   );
   const readRoutingAccountInflight = async (
     providerId: string,
