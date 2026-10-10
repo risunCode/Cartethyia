@@ -294,7 +294,7 @@ PostgreSQL** — Full requires an external server reachable through
 ```dotenv
 CARTETHYIA_DB_MODE=full
 DATABASE_URL=postgres://user:password@host:5432/cartethyia
-REDIS_URL=redis://redis:6379
+CARTETHYIA_REDIS_URL=redis://redis:6379
 CARTETHYIA_ENCRYPTION_KEY=<openssl rand -hex 32>
 CARTETHYIA_PUBLIC_ORIGIN=https://your.domain
 ```

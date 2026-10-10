@@ -39,9 +39,12 @@ export async function deleteExpiredSessions(
   return stale.length;
 }
 
-function shouldUseSecureSessionCookie(): boolean {
-  if (process.env.NODE_ENV === "production") return true;
-  return process.env.CARTETHYIA_PUBLIC_ORIGIN?.startsWith("https://") === true;
+export function shouldUseSecureSessionCookie(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const origin = env.CARTETHYIA_PUBLIC_ORIGIN?.trim();
+  if (origin) return origin.startsWith("https://");
+  return env.NODE_ENV === "production";
 }
 
 export const defaultSessionCookiePolicy: SessionCookiePolicy = {

@@ -230,17 +230,20 @@ docker compose down
 ```
 
 Full mode requires an external PostgreSQL reachable through `DATABASE_URL`; the
-Compose file does not bundle PostgreSQL. To run the app container with Lite:
+Compose file does not bundle PostgreSQL. Inside Compose, Redis uses the
+Compose-only `CARTETHYIA_REDIS_URL`, because `environment` wins over `env_file`.
+A host-oriented `REDIS_URL=redis://localhost:6379` in `.env` therefore cannot
+leak into the container. To run the app container with Lite:
 
 ```dotenv
 CARTETHYIA_DB_MODE=lite
 # DATABASE_URL is not needed in Lite mode.
-# REDIS_URL=redis://redis:6379  # omit or leave empty for in-memory coordination
+# CARTETHYIA_REDIS_URL=  # omit or leave empty for in-memory coordination
 ```
 
 The Compose app stores gateway state and telemetry payloads in the persistent
 `/app/data` volume. Redis starts as a helper container in either mode, but the
-application uses the in-memory backend when `REDIS_URL` is empty.
+application uses the in-memory backend when `CARTETHYIA_REDIS_URL` is empty.
 
 ## 8. Migrations and backups
 

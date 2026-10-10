@@ -1,5 +1,12 @@
 ## Unreleased
 
+- A plain-HTTP `CARTETHYIA_PUBLIC_ORIGIN` now keeps the console session cookie
+  non-Secure, even when the production binary has `NODE_ENV` baked in. HTTPS
+  requests can still upgrade the cookie per request.
+- Docker Compose now reads its bundled Redis address from `CARTETHYIA_REDIS_URL`,
+  so a host-oriented `REDIS_URL=redis://localhost:6379` in `.env` cannot enter
+  the container. PostgreSQL remains external.
+
 - Invalid-model IP bans now use a 30-minute sliding window. Ten invalid hits
   inside that window ban the address for 6 hours. A valid request no longer
   resets the count, and the banned response no longer names the duration.
