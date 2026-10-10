@@ -213,6 +213,11 @@ export class PoolAgentResolver {
     }
   }
 
+  /** Drops agents idle past the retention window. Safe to call from maintenance. */
+  sweepIdleAgents(): void {
+    this.evictIdleAgents();
+  }
+
   async closeAll(): Promise<void> {
     for (const pending of this.agents.values()) {
       try {

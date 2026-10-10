@@ -95,24 +95,35 @@ function normalize(raw: Record<string, unknown>): TelemetryEventRecord | undefin
   };
 }
 
-/** Reads every retained event, newest first. A missing directory is an empty log. */
-export async function readTelemetryEvents(): Promise<TelemetryEventRecord[]> {
-  const files = await readdir(TELEMETRY_EVENT_DIR).catch(() => [] as string[]);
-  const events: TelemetryEventRecord[] = [];
+function eventFileHour(file: string): string {
+  return file.slice(0, 13);
+}
+
+function hourStamp(date: Date): string {
+  return date.toISOString().slice(0, 13).replaceAll(":", "-");
+}
+
+async function* readEventFiles(files: readonly string[]): AsyncGenerator<TelemetryEventRecord> {
   for (const file of files) {
-    if (!file.endsWith(".jsonl")) continue;
     const text = await readFile(join(TELEMETRY_EVENT_DIR, file), "utf8").catch(() => "");
+    if (!text) continue;
     for (const line of text.split(String.fromCharCode(10))) {
       if (!line) continue;
       try {
-        const raw = JSON.parse(line) as Record<string, unknown>;
-        const event = normalize(raw);
-        if (event) events.push(event);
+        const event = normalize(JSON.parse(line) as Record<string, unknown>);
+        if (event) yield event;
       } catch {
         // A torn tail from a crash is skipped, not fatal. The next line stands alone.
       }
     }
   }
+}
+
+/** Reads every retained event, newest first. A missing directory is an empty log. */
+export async function readTelemetryEvents(): Promise<TelemetryEventRecord[]> {
+  const files = await readdir(TELEMETRY_EVENT_DIR).catch(() => [] as string[]);
+  const events: TelemetryEventRecord[] = [];
+  for await (const event of readEventFiles(files.filter((file) => file.endsWith(".jsonl")))) events.push(event);
   events.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
   return events;
 }
@@ -124,23 +135,38 @@ export interface EventQuery {
   readonly accountIds?: readonly string[];
   readonly requestId?: string;
   readonly httpStatus?: number;
+  readonly limit?: number;
+}
+
+function matches(event: TelemetryEventRecord, query: EventQuery, since: number | undefined, keys: ReadonlySet<string> | undefined, accounts: ReadonlySet<string> | undefined): boolean {
+  if (query.tenantId !== undefined && event.tenantId !== query.tenantId) return false;
+  if (since !== undefined && new Date(event.createdAt).getTime() < since) return false;
+  if (keys && (event.apiKeyId === null || !keys.has(event.apiKeyId))) return false;
+  if (accounts && (event.accountId === null || !accounts.has(event.accountId))) return false;
+  if (query.requestId !== undefined && event.requestId !== query.requestId) return false;
+  if (query.httpStatus !== undefined && event.httpStatus !== query.httpStatus) return false;
+  return true;
 }
 
 /** The events matching a query, already newest first. */
 export async function queryTelemetryEvents(query: EventQuery): Promise<TelemetryEventRecord[]> {
+  const files = (await readdir(TELEMETRY_EVENT_DIR).catch(() => [] as string[]))
+    .filter((file) => file.endsWith(".jsonl") && (query.since === undefined || eventFileHour(file) >= hourStamp(query.since)))
+    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
   const since = query.since?.getTime();
   const keys = query.apiKeyIds ? new Set(query.apiKeyIds) : undefined;
   const accounts = query.accountIds ? new Set(query.accountIds) : undefined;
-  const events = await readTelemetryEvents();
-  return events.filter((event) => {
-    if (query.tenantId !== undefined && event.tenantId !== query.tenantId) return false;
-    if (since !== undefined && new Date(event.createdAt).getTime() < since) return false;
-    if (keys && (event.apiKeyId === null || !keys.has(event.apiKeyId))) return false;
-    if (accounts && (event.accountId === null || !accounts.has(event.accountId))) return false;
-    if (query.requestId !== undefined && event.requestId !== query.requestId) return false;
-    if (query.httpStatus !== undefined && event.httpStatus !== query.httpStatus) return false;
-    return true;
-  });
+  const events: TelemetryEventRecord[] = [];
+  for (const file of files) {
+    const matched: TelemetryEventRecord[] = [];
+    for await (const event of readEventFiles([file])) {
+      if (matches(event, query, since, keys, accounts)) matched.push(event);
+    }
+    matched.sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+    events.push(...matched);
+    if (query.limit !== undefined && events.length >= query.limit) return events.slice(0, query.limit);
+  }
+  return events;
 }
 
 export interface EventTotals {

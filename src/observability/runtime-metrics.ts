@@ -46,9 +46,9 @@ const PRESSURE_THRESHOLD = 0.8;
  */
 const DEFAULT_MEMORY_LIMIT_BYTES = 512 * 1024 * 1024;
 /** Cooldown between idle full collections. */
-const IDLE_GC_WINDOW_MS = 30_000;
-/** Heap growth since the last collection before an idle GC fires. */
-const IDLE_GC_MIN_GROWTH_BYTES = 8 * 1024 * 1024;
+const IDLE_GC_WINDOW_MS = 5 * 60_000;
+/** RSS retained above the post-collection baseline before another idle collection runs. */
+const IDLE_GC_MIN_GROWTH_BYTES = 32 * 1024 * 1024;
 
 /**
  * Resolves the effective memory limit for the process.
@@ -162,9 +162,9 @@ export class RuntimeMetricsSampler {
     if (this.inFlightSource() > 0) return;
     const now = Date.now();
     if (now - this.lastIdleGcAt < IDLE_GC_WINDOW_MS) return;
-    if (rss - this.rssAtLastGc < IDLE_GC_MIN_GROWTH_BYTES) return;
+    if (this.rssAtLastGc !== 0 && rss - this.rssAtLastGc < IDLE_GC_MIN_GROWTH_BYTES) return;
     this.lastIdleGcAt = now;
-    this.rssAtLastGc = rss;
     Bun.gc(true);
+    this.rssAtLastGc = process.memoryUsage().rss;
   }
 }

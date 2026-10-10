@@ -251,6 +251,7 @@ export function classifyAccountError(
       providerCode === "insufficient_quota" ||
       providerCode === "quota_exceeded" ||
       providerCode === "subscription:free-usage-exhausted" ||
+      providerCode === "14018" ||
       lower.includes("insufficient_quota") ||
       lower.includes("quota_exceeded") ||
       lower.includes("usage_limit_reached") ||
@@ -263,6 +264,7 @@ export function classifyAccountError(
       lower.includes("balance exhausted") ||
       lower.includes("insufficient balance") ||
       lower.includes("out of credits") ||
+      lower.includes("credits exhausted") ||
       lower.includes("spending limit"));
   // A deterministic content-policy rejection is NOT credential invalidation.
   // CodeBuddy returns HTTP 403 with provider code 11140 ("request illegal",
@@ -410,9 +412,12 @@ export function classifyAccountError(
       lower.includes("rolling 24-hour") ||
       lower.includes("rolling 24 hour");
     const statedCooldown = messageCooldown ?? headerCooldown;
+    const buddyCreditsExhausted = providerCode === "14018" || lower.includes("credits exhausted");
     const cooldownMs = grokFreeTier
       ? (statedCooldown ?? GROK_QUOTA_COOLDOWN_MS)
-      : (statedCooldown ?? DEFAULT_QUOTA_COOLDOWN_MS());
+      : buddyCreditsExhausted
+        ? (statedCooldown ?? 12 * 60 * 60 * 1000)
+        : (statedCooldown ?? DEFAULT_QUOTA_COOLDOWN_MS());
     // The caller records against the concrete account that just failed
     // upstream, so a provider-scoped quota error still cools THAT account
     // down (enables fallback to the next account). Local-origin quota must

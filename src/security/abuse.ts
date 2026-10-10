@@ -474,6 +474,19 @@ export class IpAbuseProtectionService {
  * instead of a fixed one-hour value that over-stated every wait.
  */
 const IP_ADMISSION_SCRIPT = `
+  local function asSortedSet(key)
+    local kind = redis.call('TYPE', key)
+    local name = kind['ok'] or kind
+    if name ~= 'none' and name ~= 'zset' then redis.call('DEL', key) end
+  end
+  local function asString(key)
+    local kind = redis.call('TYPE', key)
+    local name = kind['ok'] or kind
+    if name ~= 'none' and name ~= 'string' then redis.call('DEL', key) end
+  end
+  asString(KEYS[3])
+  asSortedSet(KEYS[1])
+  asSortedSet(KEYS[2])
   local banned = redis.call('GET', KEYS[3])
   if banned and tonumber(banned) > tonumber(ARGV[1]) then
     local ttl = redis.call('PTTL', KEYS[3])

@@ -671,7 +671,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
     cursor?: string,
   ): Promise<TelemetryEventListPage> {
     const before = decodeDatedCursor(cursor);
-    const events = await queryTelemetryEvents({ tenantId });
+    const events = await queryTelemetryEvents({ tenantId, ...(before ? {} : { limit: limit + 1 }) });
     const rows = (before
       ? events.filter((event) => event.createdAt < before.createdAt || (event.createdAt === before.createdAt && event.id < before.id))
       : events

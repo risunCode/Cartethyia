@@ -291,6 +291,11 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     intervalMs: 10_000,
     run: () => runtimeMetricsSampler.sample(),
   });
+  scheduledTasks.register({
+    name: "pool-agent-sweep",
+    intervalMs: 60_000,
+    run: () => poolAgentResolver.sweepIdleAgents(),
+  });
   const oauthRefreshService = new OAuthRefreshService(db);
   // Converge accounts an earlier build parked on a dead refresh grant: an
   // account whose stored access token is still usable becomes a static token

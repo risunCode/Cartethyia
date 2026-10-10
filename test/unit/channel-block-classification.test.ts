@@ -73,3 +73,14 @@ describe("buddy channel rejection 11128", () => {
     expect(c.mutatesAccount).toBe(false);
   });
 });
+
+describe("buddy credit exhaustion 14018", () => {
+  test("is a hard quota cooldown recovered by the twelve-hour sweep", () => {
+    const c = classify("Credits exhausted. Please visit the link below to purchase add-on packs", "14018", "cb");
+    expect(c.category).toBe("quota_exhausted");
+    expect(c.status).toBe("cooldown");
+    expect(c.mutatesAccount).toBe(true);
+    expect(c.cooldownMs).toBe(12 * 60 * 60 * 1000);
+    expect(c.retryAt!.getTime()).toBeGreaterThan(Date.now() + 11 * 60 * 60 * 1000);
+  });
+});
