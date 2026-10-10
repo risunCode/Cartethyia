@@ -1,7 +1,7 @@
 /**
- * Theme preference and Model Lab storage.
+ * Console theme preference storage.
  *
- * These two modules are the boundary between a value the browser persisted and a
+ * This module is the boundary between a value the browser persisted and a
  * value the app acts on. The properties that matter are all about hostile or
  * broken input:
  *
@@ -12,10 +12,6 @@
  * - **Storage can throw.** A private window, a full quota, or a blocked origin
  *   makes `localStorage.getItem` throw rather than return null. The theme reader
  *   must still return a usable choice.
- * - **The session pointer falls back across scopes.** The Model Lab keeps the
- *   active session in localStorage (survives the visit) and the playground key in
- *   sessionStorage (per visit), and `readStorage` checks session first.
- *
  * `registerDom()` is called at import time rather than in `beforeAll`, because
  * `theme.ts` reads `window` inside its functions and the tests need the globals
  * present before the first call. Each test clears storage itself so the suite
@@ -23,14 +19,6 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import { registerDom } from "../helpers/dom";
-import {
-  ACTIVE_KEY,
-  readStorage,
-  STUDIO_KEY_STORAGE,
-  STUDIO_PREFIX_STORAGE,
-  writeLocal,
-  writeSession,
-} from "../../src/features/studio/studio-session-storage";
 import {
   applyConsoleTheme,
   CONSOLE_THEME_KEY,
@@ -258,116 +246,5 @@ describe("writeConsoleTheme", () => {
       writeConsoleTheme(theme);
       expect(readConsoleTheme()).toBe(theme);
     }
-  });
-});
-
-describe("studio session storage", () => {
-  test("the keys are the documented ones", () => {
-    // A rename would silently orphan every operator's stored session, because the
-    // read would simply find nothing.
-    expect(ACTIVE_KEY).toBe("cartethyia:studio:active-session");
-    expect(STUDIO_KEY_STORAGE).toBe("cartethyia:studio:key");
-    expect(STUDIO_PREFIX_STORAGE).toBe("cartethyia:studio:key-prefix");
-  });
-
-  test("readStorage prefers sessionStorage", () => {
-    // Documented: reads fall back from session to local. The per-visit value wins
-    // so a stale local pointer cannot shadow the current visit's session.
-    window.sessionStorage.setItem(ACTIVE_KEY, "session-value");
-    window.localStorage.setItem(ACTIVE_KEY, "local-value");
-    expect(readStorage(ACTIVE_KEY)).toBe("session-value");
-  });
-
-  test("readStorage falls back to localStorage", () => {
-    // The active session is meant to survive the visit, so a fresh tab with an
-    // empty sessionStorage must still find it.
-    window.localStorage.setItem(ACTIVE_KEY, "local-value");
-    expect(readStorage(ACTIVE_KEY)).toBe("local-value");
-  });
-
-  test("readStorage returns null when neither scope has the key", () => {
-    expect(readStorage(ACTIVE_KEY)).toBeNull();
-  });
-
-  test("an empty stored value is returned, not treated as absent", () => {
-    // MEASURED: the read is `getItem(key) ?? getItem(key)`, so an empty string in
-    // sessionStorage is returned as `""` rather than falling through to local.
-    // Pinned because `??` only catches null, and a caller doing a truthiness check
-    // would then treat a real stored value as missing.
-    window.sessionStorage.setItem(ACTIVE_KEY, "");
-    window.localStorage.setItem(ACTIVE_KEY, "local-value");
-    expect(readStorage(ACTIVE_KEY)).toBe("");
-  });
-
-  test("a storage read that throws returns null", () => {
-    // The Model Lab must render with no session rather than crash.
-    const original = window.sessionStorage.getItem.bind(window.sessionStorage);
-    window.sessionStorage.getItem = () => {
-      throw new Error("storage is blocked");
-    };
-    try {
-      expect(readStorage(ACTIVE_KEY)).toBeNull();
-    } finally {
-      window.sessionStorage.getItem = original;
-    }
-  });
-
-  test("writeLocal persists across the session scope", () => {
-    // The active-session pointer is written locally so it survives a new visit.
-    writeLocal(ACTIVE_KEY, "abc");
-    expect(window.localStorage.getItem(ACTIVE_KEY)).toBe("abc");
-    expect(window.sessionStorage.getItem(ACTIVE_KEY)).toBeNull();
-  });
-
-  test("writeSession persists to the session scope only", () => {
-    // The playground key is per-visit; it must not leak into localStorage.
-    writeSession(STUDIO_KEY_STORAGE, "sk-ant-EXAMPLE");
-    expect(window.sessionStorage.getItem(STUDIO_KEY_STORAGE)).toBe("sk-ant-EXAMPLE");
-    expect(window.localStorage.getItem(STUDIO_KEY_STORAGE)).toBeNull();
-  });
-
-  test("a write failure is swallowed, not thrown", () => {
-    // Documented: "Storage is an optimization; the active session still remains
-    // usable." A throw here would break the caller's render.
-    const original = window.localStorage.setItem.bind(window.localStorage);
-    window.localStorage.setItem = () => {
-      throw new Error("quota exceeded");
-    };
-    try {
-      expect(() => writeLocal(ACTIVE_KEY, "abc")).not.toThrow();
-    } finally {
-      window.localStorage.setItem = original;
-    }
-  });
-
-  test("a session write failure is swallowed too", () => {
-    const original = window.sessionStorage.setItem.bind(window.sessionStorage);
-    window.sessionStorage.setItem = () => {
-      throw new Error("private mode");
-    };
-    try {
-      expect(() => writeSession(STUDIO_KEY_STORAGE, "x")).not.toThrow();
-    } finally {
-      window.sessionStorage.setItem = original;
-    }
-  });
-
-  test("a written value reads back through readStorage", () => {
-    writeLocal(ACTIVE_KEY, "local-round-trip");
-    expect(readStorage(ACTIVE_KEY)).toBe("local-round-trip");
-
-    writeSession(STUDIO_KEY_STORAGE, "session-round-trip");
-    expect(readStorage(STUDIO_KEY_STORAGE)).toBe("session-round-trip");
-  });
-
-  test("keys are independent", () => {
-    // The three keys share one namespace prefix; a prefix collision would make
-    // the active session and the playground key overwrite each other.
-    writeLocal(ACTIVE_KEY, "a");
-    writeLocal(STUDIO_KEY_STORAGE, "b");
-    writeLocal(STUDIO_PREFIX_STORAGE, "c");
-    expect(readStorage(ACTIVE_KEY)).toBe("a");
-    expect(readStorage(STUDIO_KEY_STORAGE)).toBe("b");
-    expect(readStorage(STUDIO_PREFIX_STORAGE)).toBe("c");
   });
 });

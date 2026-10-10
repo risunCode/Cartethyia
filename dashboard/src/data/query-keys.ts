@@ -81,8 +81,4 @@ export const queryKeys = {
     account: (accountId: string) => ["console", "quota", "account", accountId] as const,
     resets: (accountId: string) => ["console", "quota", "account", accountId, "resets"] as const,
   },
-  studio: {
-    sessions: ["console", "studio", "sessions"] as const,
-    session: (sessionId: string) => ["console", "studio", "sessions", sessionId] as const,
-  },
 } as const;

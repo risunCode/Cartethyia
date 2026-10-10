@@ -76,9 +76,6 @@ const BACKEND_ACTIONS = [
   "provider_account.updated",
   "security.ip_banned",
   "settings.runtime.updated",
-  "studio.session.created",
-  "studio.session.deleted",
-  "studio.session.updated",
 ] as const;
 
 describe("prettifyAuditAction", () => {

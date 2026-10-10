@@ -140,14 +140,6 @@ export type { ImportReport as BackupImportReport } from "../../../src/console/ba
 export type { AuditEntry, AuditListPage } from "../../../src/console/audit/contracts";
 
 export type {
-  StudioMessage,
-  StudioAttachment,
-  StudioMediaResult,
-  StudioSessionView,
-  StudioSessionSummary,
-} from "../../../src/console/studio/contracts";
-
-export type {
   RuntimeSettingsResponse,
   UpdateRuntimeSettingsRequest,
 } from "../../../src/console/settings/contracts";

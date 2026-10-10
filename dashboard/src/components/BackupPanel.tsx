@@ -266,7 +266,7 @@ export function BackupPanel(): ReactNode {
               {([
                 ["providers", "Providers", "Accounts, credentials, tenant models, routing, and account health"],
                 ["proxies", "Proxies", "Network pools, pool settings, and pool health"],
-                ["configuration", "All configuration", "Providers, proxies, aliases, combos, API keys, CLI tools, settings, and Studio"],
+                ["configuration", "All configuration", "Providers, proxies, aliases, combos, API keys, CLI tools, and settings"],
               ] as const).map(([scope, label, description]) => (
                 <label key={scope} className="backup-section-option">
                   <input type="checkbox" checked={deleteScopes.has(scope)} onChange={() => toggleDeleteScope(scope)} />

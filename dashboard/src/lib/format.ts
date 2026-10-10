@@ -4,7 +4,7 @@
  * These values used to be formatted by per-route copies that disagreed: four
  * `formatBytes` implementations chose different unit thresholds, decimal
  * counts and placeholders, so the same byte count rendered as "0 MB" on
- * Overview, "1536B" in Studio, and "—" in Usage. One owner, one policy.
+ * Overview and "—" in Usage. One owner, one policy.
  *
  * Policy: an absent or non-finite value is `—`; zero is a real measurement.
  *
