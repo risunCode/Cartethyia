@@ -91,6 +91,11 @@ Do not treat a 200 chat response as an image. The proof is an
 `89 50 4E 47` or `FF D8 FF`. The wire owners and the known account-boundary
 errors are in `cartethyia-provider-catalog`.
 
+For Grok video, a 403 or a chat-only 200 from `cli-chat-proxy.grok.com` is not
+a payload bug. Replay the same prompt against `console.x.ai` with the SSO
+cookie and a fresh DPoP proof before changing headers or body fields. The
+wire owner is `cartethyia-provider-catalog`.
+
 ## Wire bytes and payload capture
 
 When the failure needs the actual bytes rather than a bisect, read

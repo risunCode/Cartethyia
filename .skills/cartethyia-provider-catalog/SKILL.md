@@ -91,6 +91,27 @@ unverified until a Gemini account exists. After a catalog edit, restart the
 process; `bun --hot` can keep the old adapter, and `dist/cartethyia.exe` can
 keep answering on `:12800`.
 
+## Grok video generation
+
+Do not send free Grok video to `cli-chat-proxy.grok.com` or `api.x.ai`. The
+working free surface is the developer console:
+
+- `POST https://console.x.ai/v1/videos/generations` returns `request_id`.
+- `GET https://console.x.ai/v1/videos/<request_id>` returns status and `video.url`.
+- The model is `grok-imagine-video`. Duration is 1–15 seconds. One `image.url`
+  may be an HTTPS URL or a `data:` URL, never bare base64.
+
+Authentication is an SSO cookie plus DPoP, not the stored Grok Build OAuth
+token. Mint `POST /v1/dpop/token` with a fresh P-256 JWK, then sign one ES256
+proof per request. The proof uses raw `r || s`, and its `htu` is scheme, host,
+and path only. The token lasts about 300 seconds, so a poll longer than that
+must mint again. A stored `oauth` credential cannot cross this boundary.
+
+Quota is separate from images: about two videos, then HTTP 429
+`resource-exhausted`. Track that exhaustion per kind. A catalog row is not an
+entitlement, and a 200 chat response is not a video. The proof is an MP4 URL
+or bytes beginning `00 00 00` with an `ftyp` box.
+
 ## Remove a provider
 
 Use `cartethyia-provider-removal`. It owns the cutover and the persisted-row
