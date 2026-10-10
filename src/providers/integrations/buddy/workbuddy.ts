@@ -19,7 +19,13 @@ import {
   WORKBUDDY_CHAT_PATH,
   workbuddyAdapterConfig,
 } from "./workbuddy-shared";
-import { BUDDY_SHARED_RAW, makeBuddyModel, type BuddyRawEntry } from "./buddy-catalog-shared";
+import {
+  BUDDY_SHARED_RAW,
+  BUDDY_IMAGE_MODEL_ID_SET,
+  makeBuddyModel,
+  makeBuddyImageModels,
+  type BuddyRawEntry,
+} from "./buddy-catalog-shared";
 import { BUDDY_INTL_MODELS_PATH, fetchBuddyDirectoryModels } from "./buddy-discovery-shared";
 import {
   applyBuddySystemPrompt,
@@ -132,7 +138,15 @@ export function workbuddyPrePayload(
 // limits) plus its global effort table; `reasoning` marks models with a
 // declared reasoning-effort scale.
 const WORKBUDDY_RAW: readonly BuddyRawEntry[] = BUDDY_SHARED_RAW;
-export const WORKBUDDY_MODELS = WORKBUDDY_RAW.map((entry) => makeBuddyModel(entry, "workbuddy", WORKBUDDY_CHAT_PATH));
+export const WORKBUDDY_MODELS: readonly ModelDefinition[] = [
+  ...WORKBUDDY_RAW.filter((entry) => !BUDDY_IMAGE_MODEL_ID_SET.has(entry[0])).map((entry) =>
+    makeBuddyModel(entry, "workbuddy", WORKBUDDY_CHAT_PATH),
+  ),
+  // WorkBuddy's base URL carries no version segment, so the image rows need the
+  // same explicit path the chat rows use — the generic default would produce a
+  // URL this upstream answers with a 405.
+  ...makeBuddyImageModels("workbuddy", WORKBUDDY_CHAT_PATH),
+];
 
 /**
  * Reads WorkBuddy's live console directory.

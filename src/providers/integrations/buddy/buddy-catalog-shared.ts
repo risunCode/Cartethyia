@@ -29,6 +29,58 @@ export type BuddyRawEntry = readonly [
   boolean?,
 ];
 
+/** The image-generation ids the international buddy providers serve. */
+const BUDDY_IMAGE_MODEL_IDS: readonly { id: string; endpoint: string; ctx: number; out: number }[] = [
+  { id: "gemini-2.5-flash-image", endpoint: "/chat/completions", ctx: 1_000_000, out: 64_000 },
+  { id: "gemini-3.0-pro-image", endpoint: "/chat/completions", ctx: 1_000_000, out: 64_000 },
+  { id: "gemini-3.1-flash-image", endpoint: "/chat/completions", ctx: 1_000_000, out: 64_000 },
+  { id: "gpt-image-2", endpoint: "/chat/completions", ctx: 400_000, out: 128_000 },
+];
+
+/**
+ * Ids that belong to the image-generation rows rather than the chat roster.
+ *
+ * A caller mapping `BUDDY_SHARED_RAW` through {@link makeBuddyModel} must skip
+ * these, or the same model id lands in the catalog twice under two service
+ * kinds and becomes ambiguous to resolve.
+ */
+export const BUDDY_IMAGE_MODEL_ID_SET: ReadonlySet<string> = new Set(
+  BUDDY_IMAGE_MODEL_IDS.map((entry) => entry.id),
+);
+
+/**
+ * Builds the image-generation rows for one buddy provider.
+ *
+ * Shared rather than copied per provider: cb and WorkBuddy serve the same image
+ * models from the same facade, so the roster and the declared capabilities are
+ * one decision instead of two that drift. CodeBuddy CN is deliberately absent —
+ * it publishes a different roster.
+ *
+ * `endpoint` is explicit because the two families disagree about the path their
+ * base URL expects, and a bare `defineModel` would infer the generic default
+ * and produce a URL the upstream rejects.
+ */
+export function makeBuddyImageModels(
+  providerId: string,
+  endpoint: string,
+): readonly ModelDefinition[] {
+  return BUDDY_IMAGE_MODEL_IDS.map((entry) =>
+    defineModel({
+      id: entry.id,
+      providerId,
+      serviceKind: "imageGeneration",
+      wireFamily: "chat",
+      endpoint,
+      ctx: entry.ctx,
+      out: entry.out,
+      vision: true,
+      output: ["image"],
+      // An image generator takes a prompt, not a tool-calling conversation.
+      toolCall: false,
+    }),
+  );
+}
+
 /**
  * Builds one buddy catalog row.
  *
