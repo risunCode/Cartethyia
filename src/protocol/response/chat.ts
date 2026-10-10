@@ -9,6 +9,7 @@ import { gatewayErrorFromStreamError } from "../stream-error-frames";
 import { mergeResponsesUsage } from "./responses";
 import { usageFromProvider, readReasoningText } from "../../providers/usage";
 import { createToolEmitLedger } from "../../protocol/tool-identity";
+import { MimoThinkSplitter } from "../../providers/integrations/xiaomi-mimo/think-stream";
 import { parseDsmlToolCalls } from "./dsml";
 
 export function mapChatStopReason(
@@ -56,7 +57,29 @@ export function parseChatResponseToEvents(
     const content = message["content"] as string | null;
     const recovered = typeof content === "string" ? parseDsmlToolCalls(content) : undefined;
     const visible = recovered === undefined ? content : recovered.text;
-    if (visible) {
+    if (typeof visible === "string" && visible.includes("<think")) {
+      const think = new MimoThinkSplitter();
+      const split = think.push(visible);
+      const rest = think.flush();
+      const reasoning = `${split.reasoning}${rest.reasoning}`;
+      const text = `${split.text}${rest.text}`;
+      if (reasoning.length > 0) {
+        events.push({
+          type: "content_delta",
+          sequence_number: events.length + 1,
+          response_id: id,
+          content: { kind: "reasoning", payload: null, summary: reasoning },
+        });
+      }
+      if (text.length > 0) {
+        events.push({
+          type: "content_delta",
+          sequence_number: events.length + 1,
+          response_id: id,
+          content: { kind: "text", text },
+        });
+      }
+    } else if (visible) {
       events.push({
         type: "content_delta",
         sequence_number: events.length + 1,
@@ -166,6 +189,7 @@ export async function* decodeChatSseStream(
   let lastSeenToolName: string | undefined;
   // Single emission ledger: one entry per logical call.
   const ledger = createToolEmitLedger();
+  const think = new MimoThinkSplitter();
   yield {
     type: "response_start",
     sequence_number: seq++,
@@ -211,29 +235,19 @@ export async function* decodeChatSseStream(
           const raw = delta["content"] as string;
           const recovered = parseDsmlToolCalls(raw);
           const visible = recovered?.text ?? raw;
-          // Generic thinking models (mimo/minimax/kiro) embed <think> in content
-          if (visible.includes("<think")) {
-            const stripped = visible.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/g, "");
-            const thinkMatch = visible.match(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/);
-            if (thinkMatch?.[1]) {
-              yield {
-                type: "content_delta",
-                sequence_number: seq++,
-                content: { kind: "reasoning", payload: null, summary: thinkMatch[1] },
-              } as CanonicalEvent;
-            }
-            if (stripped.length > 0) {
-              yield {
-                type: "content_delta",
-                sequence_number: seq++,
-                content: { kind: "text", text: stripped },
-              } as CanonicalEvent;
-            }
-          } else if (visible.length > 0) {
+          const split = think.push(visible);
+          if (split.reasoning.length > 0) {
             yield {
               type: "content_delta",
               sequence_number: seq++,
-              content: { kind: "text", text: visible },
+              content: { kind: "reasoning", payload: null, summary: split.reasoning },
+            } as CanonicalEvent;
+          }
+          if (split.text.length > 0) {
+            yield {
+              type: "content_delta",
+              sequence_number: seq++,
+              content: { kind: "text", text: split.text },
             } as CanonicalEvent;
           }
           if (recovered !== undefined) {
@@ -360,6 +374,21 @@ export async function* decodeChatSseStream(
         "upstream",
       );
     }
+  }
+  const rest = think.flush();
+  if (rest.reasoning.length > 0) {
+    yield {
+      type: "content_delta",
+      sequence_number: seq++,
+      content: { kind: "reasoning", payload: null, summary: rest.reasoning },
+    } as CanonicalEvent;
+  }
+  if (rest.text.length > 0) {
+    yield {
+      type: "content_delta",
+      sequence_number: seq++,
+      content: { kind: "text", text: rest.text },
+    } as CanonicalEvent;
   }
   const chatStopReason = mapChatStopReason(finishReason);
   const chatProviderStopReason =

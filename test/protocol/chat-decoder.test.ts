@@ -892,7 +892,22 @@ describe("decodeChatSseStream — reasoning deltas", () => {
     );
     expect(events.filter((event) => event.type === "content_delta")).toHaveLength(0);
   });
+  test("a think tag split across chunks stays one reasoning span", async () => {
+    const events = await collect(
+      sseStream(
+        frame({ choices: [{ delta: { content: "before<thi" } }] }) +
+          frame({ choices: [{ delta: { content: "nk>reason</think>after" } }] }) +
+          frame({ choices: [{ delta: {}, finish_reason: "stop" }] }) +
+          frame("[DONE]"),
+      ),
+    );
+    const parts = events.flatMap((event) =>
+      event.type === "content_delta" ? [`${event.content.kind}:${"text" in event.content ? event.content.text : event.content.summary}`] : [],
+    );
+    expect(parts).toEqual(["text:before", "reasoning:reason", "text:after"]);
+  });
 });
+
 
 describe("decodeChatSseStream — an empty body", () => {
   test("an empty body is a truncated stream", async () => {

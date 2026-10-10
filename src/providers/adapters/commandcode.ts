@@ -19,6 +19,7 @@ import type { ModelDefinition } from "../model-definition";
 import {
   getCommandCodeVersion,
 } from "../operations/client-versions";
+import { MimoThinkSplitter } from "../integrations/xiaomi-mimo/think-stream";
 export const COMMANDCODE_MODELS: readonly ModelDefinition[] = [
   // Synced from https://commandcode.ai/models — deepseek keep only v4.1 flash/pro
   "xiaomi/mimo-v2.5-pro",
@@ -237,7 +238,7 @@ export async function headers(sessionId: string, token: string): Promise<Record<
 }
 
 
-type StreamState = { toolIndexById: Map<string, number>; nextToolIndex: number; finishReason: string | undefined; usage: Record<string, unknown> | undefined };
+type StreamState = { toolIndexById: Map<string, number>; nextToolIndex: number; finishReason: string | undefined; usage: Record<string, unknown> | undefined; think: MimoThinkSplitter };
 
 export function ccMapFinishReason(reason: string): CanonicalStopReason {
   return reason === "length" ? "length" : reason === "tool_calls" ? "tool_use" : reason === "content_filter" ? "content_filter" : "stop";
@@ -259,29 +260,11 @@ export function transformLine(line: string, state: StreamState, seqBase: number)
   if (type === "text-delta") {
     const text = readString(event, "text") || readString(event, "delta");
     if (!text) return [];
-    // Mimo/MiniMax/Kiro-style XML thinking: <think> or <thinking> inside text-delta.
-    // If thinking tags present, split into reasoning + text.
-    if (text.includes("<think")) {
-      const events: CanonicalEvent[] = [];
-      // naive split: extract <think>...</think> or <thinking>...</thinking>
-      const re = /<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/g;
-      let last = 0;
-      let m: RegExpExecArray | null;
-      let hasThink = false;
-      while ((m = re.exec(text)) !== null) {
-        hasThink = true;
-        const before = text.slice(last, m.index);
-        if (before) events.push({ type: "content_delta", sequence_number: seqBase, content: { kind: "text", text: before } } as CanonicalEvent);
-        if (m[1]) events.push({ type: "content_delta", sequence_number: seqBase, content: { kind: "reasoning", payload: null, summary: m[1] } } as CanonicalEvent);
-        last = m.index + m[0].length;
-      }
-      if (hasThink) {
-        const after = text.slice(last);
-        if (after) events.push({ type: "content_delta", sequence_number: seqBase, content: { kind: "text", text: after } } as CanonicalEvent);
-        return events;
-      }
-    }
-    return [{ type: "content_delta", sequence_number: seqBase, content: { kind: "text", text } } as CanonicalEvent];
+    const split = state.think.push(text);
+    const events: CanonicalEvent[] = [];
+    if (split.reasoning) events.push({ type: "content_delta", sequence_number: seqBase, content: { kind: "reasoning", payload: null, summary: split.reasoning } } as CanonicalEvent);
+    if (split.text) events.push({ type: "content_delta", sequence_number: seqBase, content: { kind: "text", text: split.text } } as CanonicalEvent);
+    return events;
   }
   if (type === "tool-input-start") {
     const id = readString(event, "id") || readString(event, "toolCallId");
@@ -379,7 +362,7 @@ export function transformLine(line: string, state: StreamState, seqBase: number)
 export async function* transformNdjson(body: ReadableStream<Uint8Array>, signal: AbortSignal): AsyncIterable<CanonicalEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  const state: StreamState = { toolIndexById: new Map(), nextToolIndex: 0, finishReason: undefined, usage: undefined };
+  const state: StreamState = { toolIndexById: new Map(), nextToolIndex: 0, finishReason: undefined, usage: undefined, think: new MimoThinkSplitter() };
   let buffer = "";
   let hasTerminal = false;
   let seq = 1;
@@ -436,6 +419,9 @@ export async function* transformNdjson(body: ReadableStream<Uint8Array>, signal:
         yield ev;
       }
     }
+    const rest = state.think.flush();
+    if (rest.reasoning) yield { type: "content_delta", sequence_number: seq++, content: { kind: "reasoning", payload: null, summary: rest.reasoning } } as CanonicalEvent;
+    if (rest.text) yield { type: "content_delta", sequence_number: seq++, content: { kind: "text", text: rest.text } } as CanonicalEvent;
     if (!hasTerminal) {
       // NDJSON ended with no terminal envelope: truncated, never complete.
       yield { type: "terminal", sequence_number: seq++, state: "failed", stop_reason: ccMapFinishReason(state.finishReason ?? "stop"), provider_stop_reason: state.finishReason ?? "stop" } as CanonicalEvent;
