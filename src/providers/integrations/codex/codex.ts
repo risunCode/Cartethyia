@@ -114,7 +114,7 @@ export const CODEX_MODELS: readonly ModelDefinition[] = [
   codexResponsesModel("gpt-5.6-luna-image", 1_000_000, 128_000, true),
   codexResponsesModel("gpt-5.5-image", 272_000, 128_000, true),
 ];
-const CODEX_SEARCH_UPSTREAM_MODEL = "gpt-5.6-sol";
+const CODEX_SEARCH_DEFAULT_MODEL = "gpt-5.6-luna";
 
 function normalizeCodexSearchCitations(
   citations: readonly unknown[],
@@ -472,8 +472,10 @@ export function createCodexAdapter(
     ): Promise<WebSearchOutcome> {
       const query = typeof body.query === "string" ? body.query.trim() : "";
       if (!query) throw new GatewayError("invalid_request", 400, "search query is required");
+      const requested = typeof body.model === "string" ? body.model.trim() : "";
+      const model = requested.length > 0 && requested !== "codex" ? requested : CODEX_SEARCH_DEFAULT_MODEL;
       const request: CanonicalRequest = {
-        model: CODEX_SEARCH_UPSTREAM_MODEL,
+        model,
         messages: [{ role: "user", content: [{ kind: "text", text: query }] }],
         tools: [{ name: "web_search", tool_type: "web_search", jsonSchema: {} }],
         generation_controls: { max_output_tokens: 1024 },
@@ -493,7 +495,8 @@ export function createCodexAdapter(
           } else if (payload && typeof payload === "object" && !Array.isArray(payload)) {
             const record = payload as Record<string, unknown>;
             if (Array.isArray(record.annotations)) citations.push(...record.annotations);
-            if (typeof record.text === "string") answerText += record.text;
+            else citations.push(record);
+            if (typeof record.text === "string" && answerText.length === 0) answerText = record.text;
           }
         }
       }

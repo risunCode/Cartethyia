@@ -95,6 +95,7 @@ function mapRuntimeSettingsRow(
     // requires the flag — never injected it.
     ponyTailEnabled: prefs.ponyTailEnabled === true,
     ponyTailLevel: normalizePonyTailLevel(prefs.ponyTailLevel),
+    forceSearchProviders: prefs.forceSearchProviders === true,
     updatedAt,
   };
 }
@@ -133,6 +134,7 @@ export class DrizzleRuntimeSettingsStore implements RuntimeSettingsStore {
     if (patch.rtkPruneLevel !== undefined) patchPrefs.rtkPruneLevel = patch.rtkPruneLevel;
     if (patch.ponyTailEnabled !== undefined) patchPrefs.ponyTailEnabled = patch.ponyTailEnabled;
     if (patch.ponyTailLevel !== undefined) patchPrefs.ponyTailLevel = patch.ponyTailLevel;
+    if (patch.forceSearchProviders !== undefined) patchPrefs.forceSearchProviders = patch.forceSearchProviders;
 
     const rows = await this.db
       .insert(consoleSettings)

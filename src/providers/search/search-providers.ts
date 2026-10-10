@@ -10,7 +10,6 @@
  */
 import type { SearchParams, SearchProviderSpec, SearchRequestInit } from "./search-provider";
 import { asRecord, stringField } from "./search-provider";
-import { providerBaseUrl } from "../metadata";
 
 function domainFilterParams(filter: readonly string[] | undefined): {
   includes: string[];
@@ -26,9 +25,37 @@ function domainFilterParams(filter: readonly string[] | undefined): {
   return { includes, excludes };
 }
 
-/** Exa neural search (`POST /search`, `x-api-key` header). */
+/** Exa public MCP (`tools/call web_search_exa`) or keyed `POST /search`. */
 function exaRequest(params: SearchParams, token: string): SearchRequestInit {
   const { includes, excludes } = domainFilterParams(params.domainFilter);
+  if (token.length === 0) {
+    const query = [
+      params.query,
+      ...includes.map((domain) => `site:${domain}`),
+      ...excludes.map((domain) => `-site:${domain}`),
+    ].join(" ");
+    const url = new URL("https://mcp.exa.ai/mcp");
+    url.searchParams.set("tools", "web_search_exa");
+    return {
+      url: url.toString(),
+      init: {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "exa-search",
+          method: "tools/call",
+          params: {
+            name: "web_search_exa",
+            arguments: { query, numResults: params.maxResults },
+          },
+        }),
+      },
+    };
+  }
   const body: Record<string, unknown> = {
     query: params.query,
     numResults: params.maxResults,
@@ -40,7 +67,7 @@ function exaRequest(params: SearchParams, token: string): SearchRequestInit {
   if (excludes.length > 0) body.excludeDomains = excludes;
   if (params.searchType === "news") body.category = "news";
   return {
-    url: `${providerBaseUrl("exa")}/search`,
+    url: "https://api.exa.ai/search",
     init: {
       method: "POST",
       headers: { "content-type": "application/json", "x-api-key": token },
@@ -49,10 +76,28 @@ function exaRequest(params: SearchParams, token: string): SearchRequestInit {
   };
 }
 
-function exaNormalize(data: unknown): readonly { title: string; url: string; snippet: string; published_at?: string | null; score?: number | null }[] {
+function exaResultItems(data: unknown): readonly unknown[] {
   const record = asRecord(data);
-  const items = Array.isArray(record?.results) ? record.results : [];
-  return items.flatMap((raw) => {
+  if (Array.isArray(record?.results)) return record.results;
+  const result = asRecord(record?.result);
+  const structured = asRecord(result?.structuredContent);
+  if (Array.isArray(structured?.results)) return structured.results;
+  const content = Array.isArray(result?.content) ? result.content : [];
+  for (const part of content) {
+    const text = asRecord(part)?.text;
+    if (typeof text !== "string") continue;
+    try {
+      const parsed = asRecord(JSON.parse(text));
+      if (Array.isArray(parsed?.results)) return parsed.results;
+    } catch {
+      // Text content is only a fallback when the MCP server returns JSON in it.
+    }
+  }
+  return [];
+}
+
+function exaNormalize(data: unknown): readonly { title: string; url: string; snippet: string; published_at?: string | null; score?: number | null }[] {
+  return exaResultItems(data).flatMap((raw) => {
     const item = asRecord(raw);
     if (!item) return [];
     const url = stringField(item, "url");
@@ -73,6 +118,79 @@ function exaNormalize(data: unknown): readonly { title: string; url: string; sni
     ];
   });
 }
+function parallelRequest(params: SearchParams, token: string): SearchRequestInit {
+  if (token.length === 0) {
+    return {
+      url: "https://search.parallel.ai/mcp",
+      init: {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "parallel-search",
+          method: "tools/call",
+          params: {
+            name: "web_search",
+            arguments: {
+              objective: params.query,
+              search_queries: [params.query],
+            },
+          },
+        }),
+      },
+    };
+  }
+  return {
+    url: "https://api.parallel.ai/v1beta/search",
+    init: {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        "x-api-key": token,
+        "parallel-beta": "search-extract-2025-10-10",
+      },
+      body: JSON.stringify({
+        objective: params.query,
+        search_queries: [params.query],
+        mode: "fast",
+        excerpts: { max_chars_per_result: 10_000 },
+      }),
+    },
+  };
+}
+
+function parallelNormalize(data: unknown): readonly { title: string; url: string; snippet: string; published_at?: string | null; score?: number | null }[] {
+  const record = asRecord(data);
+  const result = asRecord(record?.result);
+  const structured = asRecord(result?.structuredContent);
+  const items = Array.isArray(structured?.results)
+    ? structured.results
+    : Array.isArray(record?.results)
+      ? record.results
+      : [];
+  return items.flatMap((raw) => {
+    const item = asRecord(raw);
+    if (!item) return [];
+    const url = stringField(item, "url");
+    if (!url) return [];
+    const excerpts = Array.isArray(item.excerpts)
+      ? item.excerpts.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    return [
+      {
+        title: stringField(item, "title") || url,
+        url,
+        snippet: excerpts.join("\n\n").slice(0, 500),
+        published_at: typeof item.publish_date === "string" ? item.publish_date : null,
+        score: null,
+      },
+    ];
+  });
+}
 
 /** SearXNG metasearch is deliberately absent: it is a self-hosted service whose
  * origin is operator-specific, and a bundled provider's base URL is a single
@@ -80,6 +198,7 @@ function exaNormalize(data: unknown): readonly { title: string; url: string; sni
  * one. */
 export const SEARCH_PROVIDER_SPECS = {
   exa: { provider_id: "exa", buildRequest: exaRequest, normalize: exaNormalize },
+  parallel: { provider_id: "parallel", buildRequest: parallelRequest, normalize: parallelNormalize },
 } satisfies Readonly<Record<string, SearchProviderSpec>>;
 
 export type SearchProviderId = keyof typeof SEARCH_PROVIDER_SPECS;

@@ -18,7 +18,7 @@ function context(fetcher: ValidatedOutboundFetch): ProviderDispatchContext {
 
 const target: ProviderDispatchTarget = {
   provider_id: "gemini",
-  model_id: "gemini-search",
+  model_id: "gemini-2.5-flash",
   wire_family: "chat",
   endpoint_path: "/v1beta/models/gemini-2.5-flash:generateContent",
   capabilities: {},
@@ -58,7 +58,7 @@ describe("Gemini grounded web search", () => {
     const adapter = createGeminiAdapter();
     if (adapter.websearch === undefined) throw new Error("Gemini search adapter is missing");
     const outcome = await adapter.websearch(
-      { model: "gemini-search", query: "latest AI news", max_results: 2 },
+      { model: "gemini-2.5-flash", query: "latest AI news", max_results: 2 },
       target,
       context(fetcher),
     );

@@ -6,8 +6,9 @@ describe("provider service taxonomy", () => {
     expect(providerServiceKinds("openai")).toEqual(["llm"]);
     expect(providerServiceKinds("gemini")).toEqual(["llm", "websearch", "imageGeneration"]);
     expect(providerServiceKinds("codex")).toEqual(["llm", "websearch", "imageGeneration"]);
-    expect(providerServiceKinds("antigravity")).toEqual(["llm", "imageGeneration"]);
+    expect(providerServiceKinds("antigravity")).toEqual(["llm", "websearch", "imageGeneration"]);
     expect(providerServiceKinds("exa")).toEqual(["websearch"]);
+    expect(providerServiceKinds("parallel")).toEqual(["websearch"]);
     // A bundled provider without a declaration serves LLM only — the
     // declaration is authoritative, so `llm` is not read as "everything".
     expect(providerServiceKinds("cbcn")).toEqual(["llm"]);
@@ -35,7 +36,7 @@ describe("provider service taxonomy", () => {
     expect(providerSupportsWebSearch("antigravity")).toBe(true);
     // A pure search provider answers `/v1/search`, never a chat turn.
     expect(providerSupportsWebSearch("exa")).toBe(false);
-    expect(providerSupportsWebSearch("cb")).toBe(false);
+    expect(providerSupportsWebSearch("parallel")).toBe(false);
   });
 
   test("sanitized custom provider responses never expose an all category", () => {

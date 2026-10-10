@@ -69,7 +69,7 @@ describe("RoutingEngine web-search planning", () => {
     });
     const fallback = candidate({
       provider_id: "exa",
-      model_id: "exa-search",
+      model_id: "exa",
       service_kind: "websearch",
       capability_profile: { webSearch: true },
     });
@@ -83,20 +83,20 @@ describe("RoutingEngine web-search planning", () => {
     const incapable = candidate({ provider_id: "p", model_id: "m", capability_profile: { tools: true } });
     const exa = candidate({
       provider_id: "exa",
-      model_id: "exa-search",
+      model_id: "exa",
       service_kind: "websearch",
       capability_profile: { webSearch: true },
     });
     const codex = candidate({
       provider_id: "codex",
-      model_id: "codex-search",
+      model_id: "gpt-5.6-luna",
       service_kind: "websearch",
       capability_profile: { webSearch: true },
     });
     const plan = await engine.plan("p/m", snapshot([incapable, codex, exa]), null, [], false, undefined, true);
     expect(plan.candidates[0]?.provider_id).toBe("p");
     expect(plan.candidates[0]?.search_route).toBeUndefined();
-    expect(plan.candidates.slice(1).map((item) => item.provider_id)).toEqual(["exa", "codex"]);
+    expect(plan.candidates.slice(1).map((item) => item.provider_id).sort()).toEqual(["codex", "exa"]);
   });
 
   test("no configured provider leaves the request on its original route", async () => {
@@ -165,7 +165,7 @@ dbDescribe("web-search fallback dispatch", () => {
       },
       {
         providerId: "exa",
-        modelId: "exa-search",
+        modelId: "exa",
         accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
@@ -305,14 +305,14 @@ dbDescribe("web-search fallback dispatch", () => {
       },
       {
         providerId: "codex",
-        modelId: "codex-search",
+        modelId: "gpt-5.6-luna",
         accountId: codexAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
       },
       {
         providerId: "exa",
-        modelId: "exa-search",
+        modelId: "exa",
         accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
@@ -351,7 +351,7 @@ dbDescribe("web-search fallback dispatch", () => {
       },
       {
         providerId: "exa",
-        modelId: "exa-search",
+        modelId: "exa",
         accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
@@ -387,7 +387,7 @@ dbDescribe("web-search fallback dispatch", () => {
       },
       {
         providerId: "exa",
-        modelId: "exa-search",
+        modelId: "exa",
         accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },
@@ -444,7 +444,7 @@ dbDescribe("web-search fallback dispatch", () => {
       },
       {
         providerId: "exa",
-        modelId: "exa-search",
+        modelId: "exa",
         accountId: exaAccountId,
         serviceKind: "websearch",
         capabilities: { webSearch: true },

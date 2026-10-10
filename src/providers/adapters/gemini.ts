@@ -298,10 +298,12 @@ class GeminiAdapter implements ProviderAdapter {
         ? Math.min(Math.max(1, Math.floor(rawMax)), 50)
         : 10;
     const apiKey = readCredentialSecret(context.credential, "Gemini API key is required");
+    const requested = typeof body.model === "string" ? body.model.trim() : "";
+    const model = requested.length > 0 && requested !== "gemini" ? requested : GEMINI_SEARCH_MODEL;
     const outboundFetch = context.outbound_fetch ?? this.fetchFn;
     let response: Response;
     try {
-      response = await outboundFetch(geminiModelUrl(this.baseUrl, GEMINI_SEARCH_MODEL, "generateContent"), {
+      response = await outboundFetch(geminiModelUrl(this.baseUrl, model, "generateContent"), {
         method: "POST",
         headers: {
           "content-type": "application/json",

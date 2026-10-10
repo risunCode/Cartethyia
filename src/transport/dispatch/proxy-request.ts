@@ -148,7 +148,7 @@ export async function handleProviderProxyRequest(
   // A route marked `native` is dispatched as-is first: it may well serve the
   // search itself. If its answer carries no search evidence, the attempt
   // callback below bridges and re-dispatches once.
-  const nativeSearch = prepared.candidate.search_route === "native";
+  const nativeSearch = prepared.candidate.search_route === "native" && canonicalRequest.provider_options?.force_search_providers !== true;
   let dispatchRequest = canonicalRequest;
   if (prepared.webSearch === true && !nativeSearch) {
     const bridged = await runBridge(canonicalRequest);

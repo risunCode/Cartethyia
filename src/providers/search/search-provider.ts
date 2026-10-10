@@ -15,7 +15,6 @@
  */
 import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget, ProviderId, WebSearchOutcome, WebSearchResult } from "../contracts";
 import { GatewayError } from "../../protocol/gateway-error";
-import { readCredentialSecret } from "../contracts";
 
 /** Caller-facing search parameters, already validated by the route. */
 export interface SearchParams {
@@ -104,7 +103,9 @@ export function createSearchAdapter(spec: SearchProviderSpec): ProviderAdapter {
       context: ProviderDispatchContext,
     ): Promise<WebSearchOutcome> {
       const params = searchParamsFromBody(body);
-      const token = readCredentialSecret(context.credential);
+      const token = context.credential.secret
+        ? new TextDecoder().decode(context.credential.secret).trim()
+        : "";
       const { url, init } = spec.buildRequest(params, token);
       const outboundFetch = context.outbound_fetch ?? globalThis.fetch;
       let res: Response;

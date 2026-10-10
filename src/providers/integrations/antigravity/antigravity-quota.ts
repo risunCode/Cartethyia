@@ -39,7 +39,7 @@ interface AntigravityQuotaFamily {
  * model removes its quota row in the same change.
  */
 const CATALOG_MODEL_IDS: ReadonlySet<string> = new Set(
-  ANTIGRAVITY_MODELS.map((model) => model.modelId),
+  ANTIGRAVITY_MODELS.filter((model) => model.serviceKind !== "websearch").map((model) => model.modelId),
 );
 
 function modelFamily(modelId: string): AntigravityQuotaFamily {

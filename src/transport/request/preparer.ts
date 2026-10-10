@@ -1,5 +1,6 @@
 import { GatewayError } from "../../protocol/gateway-error";
 import type { CanonicalRequest, ServiceKind } from "../../protocol/canonical-model";
+import { providerSupportsWebSearch } from "../../providers/metadata";
 import type { ApiKeyAdmissionService } from "../../security/admission/service";
 import type { RouteCandidate as RouteCandidate, InMemoryRouteSnapshotService, RoutePlan } from "../routing/route-model";
 import { resolveAliasTarget, type RoutingEngine } from "../routing/router";
@@ -450,7 +451,13 @@ export class ProxyRequestPreparer {
       authorization: input.authorization,
       ...(input.signal === undefined ? {} : { signal: input.signal }),
       ...(input.clientUserAgent === undefined ? {} : { clientUserAgent: input.clientUserAgent }),
-      eligible: (candidate) => (candidate.service_kind ?? "llm") === input.serviceKind,
+      eligible: (candidate) => {
+        const kind = candidate.service_kind ?? "llm";
+        if (kind === input.serviceKind) return true;
+        // Search providers serve their ordinary models. The adapter chooses
+        // the upstream model; no fabricated `*-search` catalog row is needed.
+        return input.serviceKind === "websearch" && kind === "llm" && providerSupportsWebSearch(candidate.provider_id);
+      },
       emptyMessage: `no eligible route serves the '${input.serviceKind}' service for this model`,
     });
   }

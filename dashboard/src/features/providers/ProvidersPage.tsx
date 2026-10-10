@@ -36,6 +36,7 @@ import type {
   ProviderAccountResponse,
   ProviderResponse,
 } from "../../data/contracts";
+import { useRuntimeSettings, useUpdateRuntimeSettings } from "../../hooks/settings";
 import {
   useCreateProvider,
   useCreateProviderAccount,
@@ -52,7 +53,7 @@ const wireFamilies = ["chat", "responses", "messages"] as const;
 type WireFamily = (typeof wireFamilies)[number];
 type DashboardServiceKind = "llm" | "websearch" | "imageGeneration" | "videoGeneration";
 
-const SEARCH_PROVIDER_ORDER = ["exa", "gemini", "codex"] as const;
+
 
 function providerServiceKinds(provider: ProviderResponse): readonly string[] {
   const kinds = provider.serviceKinds;
@@ -840,8 +841,23 @@ function compareConfiguredProviders(a: ProviderResponse, b: ProviderResponse): n
   if (configuredRank !== 0) return configuredRank;
   return (a.label || a.displayName).localeCompare(b.label || b.displayName);
 }
-
 const COLLAPSED_SECTIONS_KEY = "cartethyia.providerSectionsCollapsed";
+
+function ForceSearchProvidersToggle(): ReactNode {
+  const settings = useRuntimeSettings();
+  const update = useUpdateRuntimeSettings();
+  return (
+    <div className="ml-auto flex items-center gap-[8px]">
+      <span className="text-[10.5px] font-semibold text-text-tertiary">FORCE ALL SEARCH PROVIDERS</span>
+      <Switch
+        checked={settings.data?.forceSearchProviders === true}
+        disabled={settings.isPending || update.isPending}
+        onChange={(checked) => update.mutate({ forceSearchProviders: checked })}
+        aria-label="Force all search providers"
+      />
+    </div>
+  );
+}
 
 function readCollapsedSections(): ReadonlySet<string> {
   try {
@@ -938,16 +954,10 @@ export default function Providers(): ReactNode {
       ),
     [allProviders],
   );
-  const orderedSearch = useMemo(() => {
-    const rank = new Map<string, number>(SEARCH_PROVIDER_ORDER.map((id, index) => [id, index]));
-    return [...searchProviders].sort((a, b) => {
-      const rankDiff =
-        (rank.get(a.providerId.toLowerCase()) ?? SEARCH_PROVIDER_ORDER.length) -
-        (rank.get(b.providerId.toLowerCase()) ?? SEARCH_PROVIDER_ORDER.length);
-      if (rankDiff !== 0) return rankDiff;
-      return (a.label || a.displayName).localeCompare(b.label || b.displayName);
-    });
-  }, [searchProviders]);
+  const orderedSearch = useMemo(
+    () => [...searchProviders].sort((a, b) => (a.label || a.displayName).localeCompare(b.label || b.displayName)),
+    [searchProviders],
+  );
   const sortFn = (a: ProviderResponse, b: ProviderResponse) => {
     const configuredDiff = Number(Boolean(b.configured)) - Number(Boolean(a.configured));
     if (configuredDiff !== 0) return configuredDiff;
@@ -967,7 +977,7 @@ export default function Providers(): ReactNode {
       return [
         {
           title: "Search Providers",
-          subtitle: "Automatic web search order: Exa → Gemini → Codex",
+          subtitle: "Providers that can answer a web search request",
           providers: orderedSearch,
         },
       ].filter((s) => s.providers.length > 0);
@@ -1025,15 +1035,11 @@ export default function Providers(): ReactNode {
             </button>
           ))}
         </div>
-        <span
-          className="ml-auto text-[10.5px] text-text-tertiary"
-        >
-          {tab === "search"
-            ? "Automatic order: Exa → Gemini → Codex"
-            : tab === "media"
-              ? "Image and video generation"
-              : "Connected pinned first · A–Z"}
-        </span>
+        {tab === "search" ? <ForceSearchProvidersToggle /> : (
+          <span className="ml-auto text-[10.5px] text-text-tertiary">
+            {tab === "media" ? "Image and video generation" : "Connected pinned first · A–Z"}
+          </span>
+        )}
       </div>
       
       {tab === "llm" ? (
@@ -1069,9 +1075,9 @@ export default function Providers(): ReactNode {
               <ChevronDown size={15} className={cn("mt-[2px] shrink-0 transition-transform", collapsed && "-rotate-90")} />
               <Stack gap="1px">
                 <h2 className="text-[13.5px] font-bold tracking-[-0.01em]">
-                  {section.title} ({section.providers.length})
+                  {section.title} ({section.providers.length}){collapsed ? " (Hidden)" : ""}
                 </h2>
-                {section.subtitle ? (
+                {!collapsed && section.subtitle ? (
                   <p className="form-section-caption">
                     {section.subtitle}
                   </p>

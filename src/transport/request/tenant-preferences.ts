@@ -64,6 +64,12 @@ export async function applyTenantPreferences(
         });
         canonicalRequest = request;
       }
+      if (prefs.forceSearchProviders === true) {
+        canonicalRequest = {
+          ...canonicalRequest,
+          provider_options: { ...canonicalRequest.provider_options, force_search_providers: true },
+        };
+      }
     }
   } catch {
     // Non-fatal

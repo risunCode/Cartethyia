@@ -45,7 +45,7 @@ import {
   getAntigravityUserAgent,
   loadAntigravityProject,
 } from "./antigravity-protocol";
-import type { ImageGenerationOutcome, ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../../contracts";
+import type { ImageGenerationOutcome, ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext, WebSearchOutcome, WebSearchResult } from "../../contracts";
 import { providerBaseUrl } from "../../metadata";
 import { abortGatewayError, createUpstreamDeadlineLifecycle } from "../../operations/upstream-deadline";
 
@@ -81,6 +81,7 @@ export const ANTIGRAVITY_MODELS: readonly ModelDefinition[] = [
   antigravityModel("claude-sonnet-4-6", 250_000, 64_000, true),
   antigravityModel("claude-opus-4-6", 250_000, 64_000, true),
   // Gemini
+  antigravityModel("gemini-2.5-flash", 1_048_576, 65_536, true),
   antigravityModel("gemini-3-flash", 1_048_576, 65_536, true),
   antigravityModel("gemini-3.1-flash-image", 200_000, 64_000, false, true),
   antigravityModel("gemini-3.1-pro", 1_048_576, 65_535, true),
@@ -91,6 +92,27 @@ export const ANTIGRAVITY_MODELS: readonly ModelDefinition[] = [
   antigravityModel("gpt-oss-120b", 131_072, 32_768, true),
 ];
 
+function normalizeAntigravityGrounding(data: unknown, maxResults: number): readonly WebSearchResult[] {
+  if (!isRecord(data)) return [];
+  const chunks = Array.isArray(data.groundingChunks) ? data.groundingChunks : [];
+  const results: WebSearchResult[] = [];
+  const seen = new Set<string>();
+  for (const chunk of chunks) {
+    if (!isRecord(chunk) || !isRecord(chunk.web)) continue;
+    const url = typeof chunk.web.uri === "string" ? chunk.web.uri : "";
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    results.push({
+      title: typeof chunk.web.title === "string" ? chunk.web.title : "",
+      url,
+      snippet: "",
+      published_at: null,
+      score: null,
+    });
+    if (results.length >= maxResults) break;
+  }
+  return results;
+}
 
 const STREAM_GENERATE_PATH = "/v1internal:streamGenerateContent?alt=sse" as const;
 
@@ -296,6 +318,9 @@ class AntigravityAdapter implements ProviderAdapter {
           typeof cand["finishReason"] === "string"
             ? (cand["finishReason"] as string)
             : undefined;
+        const providerStopReason = isRecord(cand["groundingMetadata"])
+          ? `grounding:${JSON.stringify(cand["groundingMetadata"])}`
+          : finishReason;
         if (typeof decoded["responseId"] === "string") {
           sessionState.lastExecutionId = decoded["responseId"] as string;
         }
@@ -306,7 +331,7 @@ class AntigravityAdapter implements ProviderAdapter {
           // truncated: never complete.
           state: finishReason === undefined ? "failed" : "complete",
           stop_reason: toCanonicalStop(finishReason, output.calls.length),
-          ...(finishReason ? { provider_stop_reason: finishReason } : {}),
+          ...(providerStopReason ? { provider_stop_reason: providerStopReason } : {}),
           usage: usageRec,
         } as CanonicalEvent;
         return;
@@ -422,6 +447,39 @@ class AntigravityAdapter implements ProviderAdapter {
     } finally {
       lifecycle.release();
     }
+  }
+
+  async websearch(
+    body: Record<string, unknown>,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<WebSearchOutcome> {
+    const query = typeof body.query === "string" ? body.query.trim() : "";
+    if (!query) throw new GatewayError("invalid_request", 400, "search query is required");
+    const rawMax = body.max_results;
+    const maxResults =
+      typeof rawMax === "number" && Number.isFinite(rawMax)
+        ? Math.min(Math.max(1, Math.floor(rawMax)), 50)
+        : 10;
+    const requested = typeof body.model === "string" ? body.model.trim() : "";
+    const model = requested.length > 0 && requested !== "antigravity" ? requested : "gemini-2.5-flash";
+    const request: CanonicalRequest = {
+      model,
+      messages: [{ role: "user", content: [{ kind: "text", text: query }] }],
+      tools: [{ name: "web_search", tool_type: "web_search", jsonSchema: {} }],
+      generation_controls: {},
+      stream: false,
+      source_surface: "chat",
+    };
+    let grounded: unknown;
+    for await (const event of this.dispatch(request, { ...candidate, model_id: model }, context)) {
+      const reason = event.type === "terminal" ? event.provider_stop_reason : undefined;
+      if (reason?.startsWith("grounding:")) grounded = JSON.parse(reason.slice("grounding:".length));
+    }
+    const results = normalizeAntigravityGrounding(grounded, maxResults);
+    if (results.length === 0)
+      throw new GatewayError("platform_unavailable", 502, "Antigravity search returned no grounded results");
+    return { results, total_results: results.length };
   }
 
   async generateImage(

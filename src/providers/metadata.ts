@@ -99,7 +99,7 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     displayName: "Antigravity",
     baseUrl: "https://daily-cloudcode-pa.googleapis.com",
     hasAdapterUserAgent: true,
-    serviceKinds: ["llm", "imageGeneration"],
+    serviceKinds: ["llm", "websearch", "imageGeneration"],
     credentialUrl: "https://antigravity.google",
     credentialHint: "Signed in with a Google account through the Antigravity login flow.",
   },
@@ -202,7 +202,8 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   { id: "perplexity", displayName: "Perplexity", baseUrl: "https://api.perplexity.ai", credentialUrl: "https://www.perplexity.ai/settings/api" },
   // Native web-search providers expose only the search service. Their catalog
   // rows are served by `/v1/search`, never by the canonical chat pipeline.
-  { id: "exa", displayName: "Exa", baseUrl: "https://api.exa.ai", serviceKinds: ["websearch"], credentialUrl: "https://dashboard.exa.ai/api-keys", credentialHint: "Create an API key in the Exa dashboard." },
+  { id: "exa", displayName: "Exa", baseUrl: "https://mcp.exa.ai", serviceKinds: ["websearch"], requiresAccount: false, credentialUrl: "https://dashboard.exa.ai/api-keys", credentialHint: "Optional. Leave empty for the public MCP, or paste an API key for the higher-limit search API." },
+  { id: "parallel", displayName: "Parallel", baseUrl: "https://search.parallel.ai", serviceKinds: ["websearch"], requiresAccount: false, credentialUrl: "https://platform.parallel.ai/settings?tab=api-keys", credentialHint: "Optional. Leave empty for the public MCP, or paste an API key for the higher-limit search API." },
 ] as const;
 
 /**

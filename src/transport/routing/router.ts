@@ -23,14 +23,17 @@ import {
 import { InMemoryAdmissionController } from "./admission";
 import { ReservationManager } from "./reservations";
 import { getOrCreateRoundRobin, RoundRobinState } from "./round-robin";
-import { SEARCH_PROVIDER_ORDER } from "../dispatch/websearch";
+import { providerSupportsWebSearch } from "../../providers/metadata";
 import { totalRemainingCredit, totalRemainingPercent, type ProviderQuotaWindow } from "../../providers/quota/quota-contracts";
 import { getCachedQuotaEntry, quotaLens } from "../../console/quota/cache";
 import type { RedisClient } from "../../persistence/redis";
 
-const SEARCH_PROVIDER_RANK = new Map<string, number>(
-  SEARCH_PROVIDER_ORDER.map((provider, index) => [provider, index]),
-);
+function searchModelPreference(modelId: string): number {
+  const id = modelId.toLowerCase();
+  if (id === "gpt-5.6-luna" || id === "gemini-2.5-flash" || id.includes("flash-lite") || id.endsWith("-flash")) return 0;
+  if (id.includes("flash")) return 1;
+  return 2;
+}
 
 
 function parseModel(model: string): { providerId: string | null; bare: string } {
@@ -351,17 +354,19 @@ export class RoutingEngine {
     const ranked = snapshot.candidates
       .filter(
         (candidate) =>
-          candidate.service_kind === "websearch" &&
+          (candidate.service_kind === "websearch" ||
+            ((candidate.service_kind ?? "llm") === "llm" && providerSupportsWebSearch(candidate.provider_id))) &&
           (candidate.tenant_id == null || candidate.tenant_id === tenantId),
       )
-      .sort((left, right) => {
-        const leftRank =
-          SEARCH_PROVIDER_RANK.get(left.provider_id.toLowerCase()) ?? SEARCH_PROVIDER_ORDER.length;
-        const rightRank =
-          SEARCH_PROVIDER_RANK.get(right.provider_id.toLowerCase()) ?? SEARCH_PROVIDER_ORDER.length;
-        return leftRank - rightRank;
-      });
-    const decisions = ranked
+      .sort((left, right) => searchModelPreference(left.model_id) - searchModelPreference(right.model_id));
+    const seenProviders = new Set<string>();
+    const unique = ranked.filter((candidate) => {
+      const provider = candidate.provider_id.toLowerCase();
+      if (seenProviders.has(provider)) return false;
+      seenProviders.add(provider);
+      return true;
+    });
+    const decisions = unique
       .map((candidate) => this.eligibility.evaluate(candidate))
       .filter((decision) => decision.eligible);
     const ordered = this.applyProviderRouting(

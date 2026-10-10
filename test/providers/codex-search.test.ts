@@ -4,7 +4,7 @@ import type { ProviderDispatchContext, ProviderDispatchTarget, ResolvedCredentia
 
 const target: ProviderDispatchTarget = {
   provider_id: "codex",
-  model_id: "codex-search",
+  model_id: "gpt-5.6-luna",
   wire_family: "responses",
   endpoint_path: "/backend-api/codex/responses",
   capabilities: {},
@@ -40,7 +40,7 @@ describe("Codex hosted web search", () => {
     if (adapter.websearch === undefined) throw new Error("Codex search adapter is missing");
 
     const outcome = await adapter.websearch(
-      { model: "codex-search", query: "latest AI news", max_results: 5 },
+      { model: "gpt-5.6-luna", query: "latest AI news", max_results: 5 },
       target,
       responseContext(fetcher),
     );

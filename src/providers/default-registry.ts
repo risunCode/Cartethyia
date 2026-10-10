@@ -121,10 +121,7 @@ export const PROVIDER_CAPABILITIES = {
   },
   codex: {
     loadAdapter: async () => (await import("./integrations/codex/codex")).createCodexAdapter({ provider_id: "codex" }),
-    loadModels: async () => [
-      ...(await import("./integrations/codex/codex")).CODEX_MODELS,
-      ...(await import("./search/search-catalog")).CODEX_SEARCH_MODELS,
-    ],
+    loadModels: async () => (await import("./integrations/codex/codex")).CODEX_MODELS,
     loadAuthentication: oauthCapability(() => import("./integrations/codex/codex-oauth"), "codexOAuthClient", { withRefresher: true }),
     loadQuotaCollector: quotaCapability(() => import("./integrations/codex/codex-quota"), "fetchCodexQuota"),
   },
@@ -275,10 +272,7 @@ export const PROVIDER_CAPABILITIES = {
   },
   gemini: {
     loadAdapter: async () => (await import("./adapters/gemini")).createGeminiAdapter(),
-    loadModels: async () => [
-      ...(await import("./adapters/gemini")).GEMINI_MODELS,
-      ...(await import("./search/search-catalog")).GEMINI_SEARCH_MODELS,
-    ],
+    loadModels: async () => (await import("./adapters/gemini")).GEMINI_MODELS,
     loadModelDiscovery: async () => async ({ credential }) => (await import("./adapters/gemini")).discoverGeminiModels({ credential }),
   },
   aihubmix: {
@@ -430,6 +424,13 @@ export const PROVIDER_CAPABILITIES = {
         (await import("./search/search-providers")).SEARCH_PROVIDER_SPECS.exa,
       ),
     loadModels: async () => (await import("./search/search-catalog")).EXA_SEARCH_MODELS,
+  },
+  parallel: {
+    loadAdapter: async () =>
+      (await import("./search/search-provider")).createSearchAdapter(
+        (await import("./search/search-providers")).SEARCH_PROVIDER_SPECS.parallel,
+      ),
+    loadModels: async () => (await import("./search/search-catalog")).PARALLEL_SEARCH_MODELS,
   },
   "github": {
     // Chat only. Copilot also serves some SKUs on `/responses`, but those arrive
