@@ -364,9 +364,30 @@ export function providerDisplayName(providerId: string): string {
     providerId
   );
 }
-/** Canonical service surfaces; unknown/custom providers default to LLM. */
+
+/**
+ * Canonical service surfaces a provider can serve.
+ *
+ * A bundled provider gets exactly what its manifest declares. A custom/BYOK
+ * provider has no manifest row, and this is where its capability comes from:
+ * `llm` alone is read as "every media surface this gateway knows", so a
+ * third-party provider can serve image and video generation without the
+ * gateway having to be taught its id.
+ *
+ * That widening is deliberate rather than a default of `["llm"]`, because a
+ * BYOK provider points at an operator-chosen base URL — the operator already
+ * decided what it is, and the alternative silently locked every custom provider
+ * out of the generation routes no matter what its upstream actually answers.
+ * The upstream still decides: a request for a capability the remote does not
+ * have comes back as that remote's own error, not a gateway-side refusal.
+ */
 export function providerServiceKinds(providerId: string): readonly ServiceKind[] {
-  return BUNDLED_PROVIDER_METADATA.find((candidate) => candidate.id === providerId)?.serviceKinds ?? ["llm"];
+  const declared = BUNDLED_PROVIDER_METADATA.find((candidate) => candidate.id === providerId)
+    ?.serviceKinds;
+  // Bundled providers are explicit: they say which surfaces they serve, and a
+  // bundled provider without the declaration serves LLM only.
+  if (declared !== undefined) return declared;
+  return ["llm", "imageGeneration", "videoGeneration"];
 }
 
 

@@ -34,7 +34,7 @@ import {
 import { createResponsesCompactHandler } from "../transport/dispatch/responses-compact";
 import { createSystemoneHandler } from "../transport/dispatch/systemone";
 import { createWebsearchHandler } from "../transport/dispatch/websearch";
-import { createImageGenerationHandler } from "../transport/dispatch/image-generation";
+import { createImageGenerationHandler, createVideoGenerationHandler } from "../transport/dispatch/generation";
 
 import { createTransportPipeline } from "../transport/guards/pipeline";
 import { createDrainHandler } from "../transport/drain-endpoint";
@@ -490,7 +490,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       telemetryBuffer: deps.telemetryBuffer,
     });
 
-    const handleImageGeneration = createImageGenerationHandler({
+    const generationDeps = {
       db: deps.db,
       providerAdapters: deps.providerAdapters ?? new Map(),
       resolveProviderAdapter: deps.resolveProviderAdapter,
@@ -502,7 +502,11 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       resolveOAuthRefresher: deps.resolveOAuthRefresher,
       oauthRefreshService: deps.oauthRefreshService,
       telemetryBuffer: deps.telemetryBuffer,
-    });
+    };
+    const handleImageGeneration = createImageGenerationHandler(generationDeps);
+    // Mounted with no model behind it on purpose: the surface exists so it can
+    // be finished when an upstream is known, rather than 404ing like a typo.
+    const handleVideoGeneration = createVideoGenerationHandler(generationDeps);
 
     // Gateway mounting: the pipeline owner composes stages, telemetry, and
     // cleanup; app only registers the public route table.
@@ -516,6 +520,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
         routes.post("/systemone", handleSystemone);
         routes.post("/search", handleWebsearch);
         routes.post("/images/generations", handleImageGeneration);
+        routes.post("/videos/generations", handleVideoGeneration);
         routes.get("/models", handleModelsList);
         routes.get("/models/info", handleModelsDetail);
         routes.get("/models/*", handleModelsDetail);
