@@ -901,9 +901,16 @@ describe("decodeChatSseStream — reasoning deltas", () => {
           frame("[DONE]"),
       ),
     );
-    const parts = events.flatMap((event) =>
-      event.type === "content_delta" ? [`${event.content.kind}:${"text" in event.content ? event.content.text : event.content.summary}`] : [],
-    );
+    const parts = events.flatMap((event) => {
+      if (event.type !== "content_delta") return [];
+      const text =
+        event.content.kind === "reasoning"
+          ? (event.content.summary ?? "")
+          : event.content.kind === "text"
+            ? event.content.text
+            : "";
+      return [`${event.content.kind}:${text}`];
+    });
     expect(parts).toEqual(["text:before", "reasoning:reason", "text:after"]);
   });
 });
