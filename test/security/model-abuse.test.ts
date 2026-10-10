@@ -8,12 +8,10 @@
  *
  * Four properties matter, and each is a way the mechanism fails open or closed:
  *
- * 1. **A valid request clears the strikes.** The feature is a *graduated*
- *    response to a client probing models it may not use. Without the reset, an
- *    ordinary client that once made a handful of typos accumulates strikes
- *    across its whole lifetime and is eventually banned for being careless.
- * 2. **The strike window expires.** Same reasoning, per-strike: a probe last
- *    month must not count toward a ban today.
+ * 1. **A valid request does not clear the window.** Invalid attempts leave only
+ *    when they age out, so a correct request cannot hide a burst of probes.
+ * 2. **The strike window expires.** A probe last month must not count toward a
+ *    ban today.
  * 3. **A ban expires, and an elapsed one is invisible.** A permanent ban turns a
  *    transient misconfiguration into a support escalation; an elapsed ban that
  *    still reads as live is worse, because the operator sees a ban that no
@@ -96,19 +94,16 @@ describe("InMemoryModelAbuseStore — graduated strikes", () => {
     expect(afterBan.bannedNow).toBe(false);
   });
 
-  test("a valid request clears the strikes for that address", async () => {
-    // Without the reset, an ordinary client's occasional typo accumulates across
-    // its whole lifetime and it is eventually banned for being careless.
+  test("a valid request does not reset invalid attempts inside the window", async () => {
     const clock = fakeClock();
     const store = new InMemoryModelAbuseStore(clock.now);
     await store.record(attempt({ ip: "203.0.113.1", threshold: 3 }));
     await store.record(attempt({ ip: "203.0.113.1", threshold: 3 }));
     const good = await store.record(attempt({ ip: "203.0.113.1", threshold: 3, valid: true }));
     expect(good).toEqual({ banned: false, strikes: 0, bannedNow: false });
-    // And the count really restarted: two more probes do not reach the threshold.
     const again = await store.record(attempt({ ip: "203.0.113.1", threshold: 3 }));
-    expect(again.strikes).toBe(1);
-    expect(again.banned).toBe(false);
+    expect(again.strikes).toBe(3);
+    expect(again.banned).toBe(true);
   });
 
   test("a valid request from a banned address does not lift the ban", async () => {
@@ -136,8 +131,7 @@ describe("InMemoryModelAbuseStore — graduated strikes", () => {
     expect(await store.isBanned("203.0.113.2")).toBe(false);
   });
 
-  test("a strike window expiry resets the count", async () => {
-    // A probe last month must not count toward a ban today.
+  test("attempts older than the window stop counting", async () => {
     const clock = fakeClock();
     const store = new InMemoryModelAbuseStore(clock.now);
     await store.record(attempt({ ip: "203.0.113.1", threshold: 3, windowMs: MINUTE }));
@@ -148,9 +142,7 @@ describe("InMemoryModelAbuseStore — graduated strikes", () => {
     expect(afterWindow.banned).toBe(false);
   });
 
-  test("the window boundary is inclusive of the expiry instant", async () => {
-    // `entry.expiresAt <= now` resets, so a strike recorded exactly one window
-    // ago is already forgotten. Pin the edge so a change to `<` is caught.
+  test("an attempt exactly one window old is no longer counted", async () => {
     const clock = fakeClock();
     const store = new InMemoryModelAbuseStore(clock.now);
     await store.record(attempt({ ip: "203.0.113.1", threshold: 3, windowMs: MINUTE }));
@@ -159,19 +151,18 @@ describe("InMemoryModelAbuseStore — graduated strikes", () => {
     expect(atBoundary.strikes).toBe(1);
   });
 
-  test("each strike extends the window from its own instant", async () => {
-    // `expiresAt = now + windowMs` on every strike, so a client probing steadily
-    // every half-window never lets the count lapse — which is the intent: a
-    // sustained prober is the case the ban exists for.
+  test("recent attempts stay counted while older attempts leave", async () => {
     const clock = fakeClock();
     const store = new InMemoryModelAbuseStore(clock.now);
-    const halfWindow = MINUTE / 2;
-    for (let index = 0; index < 3; index += 1) {
-      await store.record(attempt({ ip: "203.0.113.1", threshold: 3, windowMs: MINUTE }));
-      clock.advance(halfWindow);
-    }
-    expect(await store.isBanned("203.0.113.1")).toBe(true);
+    await store.record(attempt({ ip: "203.0.113.1", threshold: 3, windowMs: MINUTE }));
+    clock.advance(MINUTE / 2);
+    await store.record(attempt({ ip: "203.0.113.1", threshold: 3, windowMs: MINUTE }));
+    clock.advance(MINUTE / 2 + 1);
+    const mixed = await store.record(attempt({ ip: "203.0.113.1", threshold: 3, windowMs: MINUTE }));
+    expect(mixed.strikes).toBe(2);
+    expect(mixed.banned).toBe(false);
   });
+
 });
 
 describe("InMemoryModelAbuseStore — bans", () => {
@@ -342,22 +333,19 @@ describe("ModelStrikeService — the policy layer over the store", () => {
   });
 
   test("the documented defaults are applied when no options are given", async () => {
-    // The option docs state: threshold 10, window 5 minutes, ban 1 hour. These
-    // are the values a deployment that configures nothing enforces.
     const clock = fakeClock();
     const store = new InMemoryModelAbuseStore(clock.now);
     const strikes = new ModelStrikeService(store);
     expect(strikes.limit).toBe(10);
-    // Nine strikes do not ban; the tenth does.
+    expect(strikes.banTtlMs).toBe(6 * HOUR);
     for (let index = 0; index < 9; index += 1) {
       const outcome = await strikes.noteInvalid({ ip: "203.0.113.1" });
       expect(outcome.banned).toBe(false);
     }
     const tenth = await strikes.noteInvalid({ ip: "203.0.113.1" });
     expect(tenth.banned).toBe(true);
-    // The default ban lasts an hour, not a day.
     const ban = (await store.listBans())[0];
-    expect(ban?.expiresAt).toBe(clock.now() + HOUR);
+    expect(ban?.expiresAt).toBe(clock.now() + 6 * HOUR);
   });
 
   test("each option is floored at one so a zero cannot disable the mechanism", async () => {
@@ -381,32 +369,23 @@ describe("ModelStrikeService — the policy layer over the store", () => {
     expect(await strikes.check({ ip: "203.0.113.1" })).toBe(true);
   });
 
-  test("noteValid skips the store write for an address this process never struck", async () => {
-    // The `dirty` set is process-local by design, and the comment states the
-    // trade: a miss only means a strike survives until its window expires
-    // instead of being cleared early, which is the safe direction for abuse.
-    // The observable consequence is that a valid request from a never-struck
-    // address costs no store write at all.
+  test("noteValid does not reset invalid attempts inside the window", async () => {
     const clock = fakeClock();
     const store = new InMemoryModelAbuseStore(clock.now);
     const strikes = new ModelStrikeService(store, { threshold: 3, windowMs: HOUR, banTtlMs: HOUR });
-    await expect(strikes.noteValid({ ip: "203.0.113.1" })).resolves.toBeUndefined();
-    // Struck once, then cleared: the next invalid attempt starts at 1 again.
     await strikes.noteInvalid({ ip: "203.0.113.1" });
     await strikes.noteValid({ ip: "203.0.113.1" });
-    const afterClear = await strikes.noteInvalid({ ip: "203.0.113.1" });
-    expect(afterClear.strikes).toBe(1);
+    const afterValid = await strikes.noteInvalid({ ip: "203.0.113.1" });
+    expect(afterValid.strikes).toBe(2);
   });
 
-  test("a redundant valid request does not write again", async () => {
-    // After the reset the address is no longer dirty, so a second valid request
-    // is a no-op — the same skip the comment describes.
+  test("repeated valid requests do not reduce the window", async () => {
     const { strikes } = service({ threshold: 3 });
     await strikes.noteInvalid({ ip: "203.0.113.1" });
     await strikes.noteValid({ ip: "203.0.113.1" });
     await strikes.noteValid({ ip: "203.0.113.1" });
     const outcome = await strikes.noteInvalid({ ip: "203.0.113.1" });
-    expect(outcome.strikes).toBe(1);
+    expect(outcome.strikes).toBe(2);
   });
 
   test("listBans and unban are exposed through the service", async () => {
@@ -458,11 +437,10 @@ describe("modelAbuseBannedError", () => {
     expect(error.origin).toBe("cartethyia");
   });
 
-  test("the message names the cause without naming the threshold", () => {
-    // The escalating 404 warning is what tells the client the count; the ban
-    // message only has to explain why it is now blocked.
-    expect(modelAbuseBannedError().message).toContain("banned");
-    expect(modelAbuseBannedError().message).not.toMatch(/\d/);
+  test("the message names the cause without naming a duration", () => {
+    const message = modelAbuseBannedError().message;
+    expect(message).toBe("IP kamu diblokir karena terlalu banyak request model yang tidak valid.");
+    expect(message).not.toMatch(/\d|hour|jam|minute|menit/i);
   });
 });
 

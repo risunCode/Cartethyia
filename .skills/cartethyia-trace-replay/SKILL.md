@@ -151,9 +151,7 @@ restore it, see it pass. A test that passes both ways proves nothing.
 - Send the same `user-agent` as the failing client so the gateway takes the same
   path.
 - Stop any instance you started.
-- Repeated failures trip the IP strike counter ("Warning n/10 … will
-  temporarily ban this IP"). Keep probe counts low and list `/v1/models` before
-  guessing model ids.
+- Repeated invalid model requests trip the IP strike window ("Warning n/10 … will temporarily ban this IP"). Keep probe counts low and list `/v1/models` before guessing model ids.
 
 ## Report
 

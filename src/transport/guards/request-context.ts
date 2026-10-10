@@ -43,17 +43,17 @@ function withModelWarning(
   error: unknown,
   outcome: ModelAbuseOutcome,
   limit: number,
-  opts?: { banTtlMs?: number; allowedModels?: readonly string[] | undefined },
+  opts?: { allowedModels?: readonly string[] | undefined },
 ): GatewayError {
   if (!(error instanceof GatewayError)) return error as GatewayError;
   const model = String(error.details.model ?? "");
-  const message = modelWarningMessage(model, outcome, limit, opts?.banTtlMs);
+  const message = modelWarningMessage(model, outcome, limit);
   const hint = opts?.allowedModels?.slice(0, 8);
   return new GatewayError(error.code, error.status, message, {
     ...error.details,
     strikes: outcome.strikes,
     strike_limit: limit,
-    ...(opts?.banTtlMs ? { ban_ttl_ms: opts.banTtlMs } : {}),
+
     remaining_before_ban: Math.max(0, limit - outcome.strikes),
     ...(hint && hint.length > 0 ? { allowed_models_hint: hint } : {}),
   }, error.origin);
@@ -278,15 +278,14 @@ export function createProxyRoutePreparationMiddleware(deps: {
             const raw = snap?.model_list;
             const hint = Array.isArray(raw) ? (raw as readonly string[]) : raw instanceof Set ? [...raw] : undefined;
             throw withModelWarning(error, outcome, strikeIdentity.strikes.limit, {
-              banTtlMs: strikeIdentity.strikes.banTtlMs,
               allowedModels: hint,
             });
           }
         }
         throw error;
       }
-      // A valid model clears the caller's consecutive strike, so one typo
-      // followed by a working request never accumulates toward a ban.
+      // A valid model does not reset the invalid-attempt window. Old attempts
+      // leave only when they age out of that window.
       if (strikeIdentity)
         void strikeIdentity.strikes
           .noteValid({ ip: strikeIdentity.ip })

@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Invalid-model IP bans now use a 30-minute sliding window. Ten invalid hits
+  inside that window ban the address for 6 hours. A valid request no longer
+  resets the count, and the banned response no longer names the duration.
+
 - Image generation now has a provider-owned wire for Gemini, Antigravity, and
   Codex. Gemini asks `:generateContent` for `IMAGE` only. Antigravity streams
   its agent envelope and reads `inlineData`. Codex sends a Responses

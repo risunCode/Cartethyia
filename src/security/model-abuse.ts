@@ -50,9 +50,9 @@ export interface ModelAbuseAttempt {
   readonly ip: string;
   /** Whether this attempt named a model the key may use. */
   readonly valid: boolean;
-  /** Consecutive invalid attempts that trigger a ban. */
+  /** Invalid attempts inside the window that trigger a ban. */
   readonly threshold: number;
-  /** Quiet window (ms) after which a strike counter expires. */
+  /** Sliding window (ms) that keeps an invalid attempt countable. */
   readonly windowMs: number;
   /** How long (ms) a ban lasts before it lapses on its own. */
   readonly banTtlMs: number;
@@ -62,7 +62,7 @@ export interface ModelAbuseAttempt {
 export interface ModelAbuseOutcome {
   /** The IP is banned, now or already. */
   readonly banned: boolean;
-  /** Consecutive invalid attempts against the IP, after this one. `0` when valid. */
+  /** Invalid attempts still inside the window, after this one. `0` when valid. */
   readonly strikes: number;
   /** This attempt crossed the threshold and recorded the ban. */
   readonly bannedNow: boolean;
@@ -90,9 +90,8 @@ function decodeOutcome(raw: readonly unknown[]): ModelAbuseOutcome {
 
 export interface ModelAbuseStore {
   /**
-   * One atomic strike decision: reads the ban, records the attempt against the
-   * IP counter (or clears it on a valid attempt), and records a ban when the
-   * counter reaches the threshold.
+   * One atomic strike decision: reads the ban and records an invalid attempt
+   * in the IP's sliding window. A valid attempt changes nothing.
    */
   record(attempt: ModelAbuseAttempt): Promise<ModelAbuseOutcome>;
   /** O(1) ban lookup for the pre-parse gate. */
@@ -108,17 +107,18 @@ interface InMemoryOptions {
 }
 
 /**
- * In-memory strike store: one consecutive counter and one ban map.
+ * In-memory strike store: one timestamp list and one ban map.
  *
- * The counter is a `<count, expiresAt>` pair, so a quiet window expires a strike
- * without a sweeper; a ban carries the instant it lapses and is swept lazily on
- * the next read of that address. Bounded by `maxKeys` on the counter map (oldest
+ * Each invalid attempt keeps its own instant. The count is the number of
+ * instants still inside the window, so a valid request cannot reset it and an
+ * old attempt leaves on its own. A ban carries the instant it lapses and is
+ * swept lazily on the next read of that address. Bounded by `maxKeys` (oldest
  * evicted) so an adversarial fan-out over unique addresses cannot pin memory;
  * the ban map is bounded by the abuse itself, since each entry cost a full
  * threshold of attempts, and entries leave when their TTL lapses.
  */
 export class InMemoryModelAbuseStore implements ModelAbuseStore {
-  private readonly strikes = new Map<string, { count: number; expiresAt: number }>();
+  private readonly strikes = new Map<string, number[]>();
   private readonly bans = new Map<string, number>();
   private readonly maxKeys: number;
 
@@ -146,6 +146,15 @@ export class InMemoryModelAbuseStore implements ModelAbuseStore {
     return expiresAt;
   }
 
+  /** Drops attempts older than the window and returns the rest. */
+  private liveAttempts(ip: string, now: number, windowMs: number): number[] {
+    const cutoff = now - windowMs;
+    const live = (this.strikes.get(ip) ?? []).filter((at) => at > cutoff);
+    if (live.length === 0) this.strikes.delete(ip);
+    else this.strikes.set(ip, live);
+    return live;
+  }
+
   async record(attempt: ModelAbuseAttempt): Promise<ModelAbuseOutcome> {
     const now = this.clock();
     const { ip, valid, threshold, windowMs, banTtlMs } = attempt;
@@ -153,22 +162,20 @@ export class InMemoryModelAbuseStore implements ModelAbuseStore {
     if (this.banExpiry(ip, now) !== undefined)
       return { banned: true, strikes: 0, bannedNow: false };
 
-    if (valid) {
-      this.strikes.delete(ip);
-      return { banned: false, strikes: 0, bannedNow: false };
-    }
+    if (valid) return { banned: false, strikes: 0, bannedNow: false };
 
-    const entry = this.strikes.get(ip);
-    const current = entry === undefined || entry.expiresAt <= now ? 0 : entry.count;
-    const strikes = current + 1;
+    const live = this.liveAttempts(ip, now, windowMs);
+    live.push(now);
     this.evictOldest();
-    this.strikes.set(ip, { count: strikes, expiresAt: now + windowMs });
-    if (strikes >= threshold) {
+    this.strikes.set(ip, live);
+    if (live.length >= threshold) {
       this.bans.set(ip, now + banTtlMs);
-      return { banned: true, strikes, bannedNow: true };
+      this.strikes.delete(ip);
+      return { banned: true, strikes: live.length, bannedNow: true };
     }
-    return { banned: false, strikes, bannedNow: false };
+    return { banned: false, strikes: live.length, bannedNow: false };
   }
+
 
   async listBans(): Promise<readonly ModelAbuseBan[]> {
     const now = this.clock();
@@ -192,16 +199,17 @@ export class InMemoryModelAbuseStore implements ModelAbuseStore {
 /**
  * The one strike decision, as a static Lua script.
  *
- * `KEYS[1]` the IP strike counter, `KEYS[2]` the ban sorted set. `ARGV`: 1
- * valid(`1`/`0`), 2 windowMs, 3 ip, 4 now (epoch ms), 5 threshold, 6 banTtlMs.
+ * `KEYS[1]` the IP attempt sorted set, `KEYS[2]` the ban sorted set. `ARGV`:
+ * 1 valid(`1`/`0`), 2 windowMs, 3 ip, 4 now (epoch ms), 5 threshold, 6
+ * banTtlMs.
  *
  * Returns `{banned, strikes, bannedNow}`. The ban is read first and
  * short-circuits without writing, so a banned address cannot extend its own
- * counter. The counter carries the window as its TTL, so a quiet window expires
- * a strike with no sweeper. A ban is a member of the sorted set scored with the
- * instant it lapses, so it needs no sweeper either: an elapsed member is read as
- * absent and dropped, and `listBans` trims the range. `now` is the caller's
- * clock rather than the server's so the in-memory and Redis stores age a ban
+ * window. Each invalid attempt is one member scored by its instant. Members
+ * older than the window are removed before the count, so a valid request does
+ * not reset it and an old attempt leaves on its own. A ban is a member of the
+ * ban set scored with the instant it lapses. `now` is the caller's clock
+ * rather than the server's so the in-memory and Redis stores age a ban
  * identically.
  */
 const MODEL_ABUSE_SCRIPT = `
@@ -213,13 +221,19 @@ const MODEL_ABUSE_SCRIPT = `
     redis.call('ZREM', KEYS[2], ARGV[3])
   end
   if ARGV[1] == '1' then
-    redis.call('DEL', KEYS[1])
     return {0, 0, 0}
   end
-  local count = redis.call('INCR', KEYS[1])
-  if count == 1 then redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2])) end
+  local now = tonumber(ARGV[4])
+  local windowMs = tonumber(ARGV[2])
+  redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - windowMs)
+  local seq = redis.call('INCR', KEYS[1] .. ':seq')
+  redis.call('ZADD', KEYS[1], now, now .. ':' .. seq)
+  local count = redis.call('ZCARD', KEYS[1])
+  redis.call('PEXPIRE', KEYS[1], windowMs)
+  redis.call('PEXPIRE', KEYS[1] .. ':seq', windowMs)
   if count >= tonumber(ARGV[5]) then
-    redis.call('ZADD', KEYS[2], tonumber(ARGV[4]) + tonumber(ARGV[6]), ARGV[3])
+    redis.call('ZADD', KEYS[2], now + tonumber(ARGV[6]), ARGV[3])
+    redis.call('DEL', KEYS[1], KEYS[1] .. ':seq')
     return {0, count, 1}
   end
   return {0, count, 0}
@@ -294,38 +308,29 @@ export class RedisModelAbuseStore implements ModelAbuseStore {
 }
 
 export interface ModelStrikeOptions {
-  /** Consecutive invalid-model attempts that trigger a ban. Default 10. */
+  /** Invalid-model attempts inside the window that trigger a ban. Default 10. */
   readonly threshold?: number;
-  /** Quiet window (ms) after which a strike counter expires. Default 5 minutes. */
+  /** Sliding window (ms) that keeps an invalid attempt countable. Default 30 minutes. */
   readonly windowMs?: number;
-  /** How long (ms) a ban lasts before it lapses. Default 1 hour. */
+  /** How long (ms) a ban lasts before it lapses. Default 6 hours. */
   readonly banTtlMs?: number;
 }
 
 /**
  * Graduated model-abuse strikes over a store.
  *
- * `noteInvalid` is the hot path for a rejected model; `noteValid` clears a
- * strike but only writes when this process has actually seen a strike for the
- * address, so a well-behaved client pays nothing. `listBans`/`unban` are the
- * console's escape hatch.
+ * `noteInvalid` records one invalid attempt in the sliding window. `noteValid`
+ * does not reset that window. `listBans`/`unban` are the console's escape hatch.
  */
 export class ModelStrikeService {
   private readonly threshold: number;
   private readonly windowMs: number;
   private readonly _banTtlMs: number;
-  /**
-   * Addresses this process has recorded a strike for, so `noteValid` can skip
-   * the reset write for a client that was never struck. Process-local on
-   * purpose: a miss only means a strike survives until its window expires
-   * instead of being cleared early, which is the safe direction for abuse.
-   */
-  private readonly dirty = new Set<string>();
 
   constructor(private readonly store: ModelAbuseStore, opts: ModelStrikeOptions = {}) {
     this.threshold = Math.max(1, opts.threshold ?? 10);
-    this.windowMs = Math.max(1, opts.windowMs ?? 5 * 60_000);
-    this._banTtlMs = Math.max(1, opts.banTtlMs ?? 60 * 60_000);
+    this.windowMs = Math.max(1, opts.windowMs ?? 30 * 60_000);
+    this._banTtlMs = Math.max(1, opts.banTtlMs ?? 6 * 60 * 60_000);
   }
 
   /** The ban threshold, for an operator-facing warning message. */
@@ -337,7 +342,6 @@ export class ModelStrikeService {
     return this._banTtlMs;
   }
 
-
   /** Read-only ban lookup for the pre-parse gate. Throws only on store outage. */
   async check(input: { readonly ip: string }): Promise<boolean> {
     return this.store.isBanned(input.ip);
@@ -345,32 +349,17 @@ export class ModelStrikeService {
 
   /** Records one invalid-model attempt and returns the escalation decision. */
   async noteInvalid(input: { readonly ip: string }): Promise<ModelAbuseOutcome> {
-    const outcome = await this.store.record({
+    return this.store.record({
       ip: input.ip,
       valid: false,
       threshold: this.threshold,
       windowMs: this.windowMs,
       banTtlMs: this.banTtlMs,
     });
-    if (outcome.strikes > 0) this.dirty.add(input.ip);
-    return outcome;
   }
 
-  /**
-   * Clears a strike after a valid-model request. Writes only when this process
-   * saw a strike for the address, so the reset never costs a round trip on a
-   * client that has nothing to clear.
-   */
-  async noteValid(input: { readonly ip: string }): Promise<void> {
-    if (!this.dirty.delete(input.ip)) return;
-    await this.store.record({
-      ip: input.ip,
-      valid: true,
-      threshold: this.threshold,
-      windowMs: this.windowMs,
-      banTtlMs: this.banTtlMs,
-    });
-  }
+  /** A valid model request does not reset the invalid-attempt window. */
+  async noteValid(_input: { readonly ip: string }): Promise<void> {}
 
   async listBans(): Promise<readonly ModelAbuseBan[]> {
     return this.store.listBans();
@@ -384,35 +373,31 @@ export class ModelStrikeService {
 /**
  * The typed rejection a banned caller receives. 403 with its own code so the
  * console and the client can tell an abuse ban from a per-request rejection.
+ * The message names the reason without the ban duration.
  */
 export function modelAbuseBannedError(): GatewayError {
   return new GatewayError(
     "model_abuse_banned",
     403,
-    "This client address is banned for repeatedly requesting unavailable models",
+    "IP kamu diblokir karena terlalu banyak request model yang tidak valid.",
   );
 }
 
 /**
- * The 404 a rejected model returns, carrying the escalating warning. The message
- * names the strike count so an honest client that mistyped is told exactly what
- * it is doing wrong before it is banned, instead of seeing the same generic 404
- * ten times and then a wall.
+ * The 404 a rejected model returns, carrying the escalating warning. The
+ * message names the strike count without naming how long a ban lasts.
  */
 export function modelWarningMessage(
   model: string,
   outcome: ModelAbuseOutcome,
   limit: number,
-  banTtlMs?: number,
 ): string {
   const remaining = Math.max(0, limit - outcome.strikes);
-  const banMinutes = banTtlMs ? Math.max(1, Math.ceil(banTtlMs / 60_000)) : undefined;
-  const banClause = banMinutes ? ` for ~${banMinutes} min` : "";
   const tail =
     remaining === 0
-      ? `The next invalid request will temporarily ban this IP${banClause}. Use /v1/models to see allowed models.`
+      ? "The next invalid request will temporarily ban this IP. Use /v1/models to see allowed models."
       : remaining === 1
-        ? `1 more invalid request will temporarily ban this IP${banClause}. Use /v1/models to see allowed models.`
-        : `${remaining} more invalid requests will temporarily ban this IP${banClause}. Use /v1/models to see allowed models.`;
+        ? "1 more invalid request will temporarily ban this IP. Use /v1/models to see allowed models."
+        : `${remaining} more invalid requests will temporarily ban this IP. Use /v1/models to see allowed models.`;
   return `Model '${model}' is not available to this API key. Warning ${outcome.strikes}/${limit} — ${tail}`;
 }
