@@ -1,19 +1,11 @@
 import { GatewayError } from "../../../protocol/gateway-error";
+import { webCookieValue } from "../shared/web-session";
 
 /** Normalized Grok web-session credential. */
 export interface GrokWebCredentials {
   readonly sso: string;
   readonly ssoRw: string;
   readonly cookie: string;
-}
-
-function cookieValue(cookie: string, name: string): string {
-  for (const part of cookie.split(";")) {
-    const separator = part.indexOf("=");
-    if (separator === -1) continue;
-    if (part.slice(0, separator).trim() === name) return part.slice(separator + 1).trim();
-  }
-  return "";
 }
 
 /** Parses JSON or a Cookie header containing both SSO cookies. */
@@ -30,8 +22,8 @@ export function parseGrokWebCredential(raw: string): GrokWebCredentials {
       if (sso && ssoRw) return { sso, ssoRw, cookie: typeof record.cookie === "string" && record.cookie.trim() ? record.cookie : `sso=${sso}; sso-rw=${ssoRw}` };
     }
   }
-  const sso = cookieValue(trimmed, "sso");
-  const ssoRw = cookieValue(trimmed, "sso-rw");
+  const sso = webCookieValue(trimmed, "sso");
+  const ssoRw = webCookieValue(trimmed, "sso-rw");
   if (!sso || !ssoRw) throw new GatewayError("invalid_request", 400, "Grok Web credential must contain sso and sso-rw");
   return { sso, ssoRw, cookie: trimmed };
 }

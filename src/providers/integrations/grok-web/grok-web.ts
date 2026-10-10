@@ -1,10 +1,11 @@
-import type { CanonicalEvent, CanonicalMessage, CanonicalRequest, ContentPart, ToolDefinition } from "../../../protocol/canonical-model";
+import type { CanonicalEvent, CanonicalRequest, ContentPart, ToolDefinition } from "../../../protocol/canonical-model";
 import { canonicalTerminal } from "../../../protocol/codecs";
 import { GatewayError } from "../../../protocol/gateway-error";
 import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
 import { readCredentialSecret } from "../../contracts";
 import { defineModel, type ModelDefinition } from "../../model-definition";
 import { grokWebCookieHeader, parseGrokWebCredential, type GrokWebCredentials } from "./grok-web-auth";
+import { webRecord, webRenderPrompt } from "../shared/web-session";
 
 const BASE_URL = "https://grok.com";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
@@ -40,29 +41,10 @@ export const GROK_WEB_MODELS: readonly ModelDefinition[] = MODEL_ROWS.map((row) 
   cost: { input: null, output: null, pricing_model: "subscription" as const },
 }));
 
-function textOf(part: ContentPart): string {
-  if (part.kind === "text" || part.kind === "refusal") return part.text;
-  if (part.kind === "image") return "[image omitted]";
-  if (part.kind === "toolResult") {
-    const content = typeof part.content === "string" ? part.content : part.content.map(textOf).filter(Boolean).join("\n");
-    return `tool_result ${part.call_id}: ${content}`;
-  }
-  return "";
-}
+const unsupportedImage = (part: ContentPart): string => (part.kind === "image" ? "[image omitted]" : "");
 
 function renderPrompt(request: CanonicalRequest): string {
-  const lines: string[] = [];
-  for (const part of request.system ?? []) {
-    const text = textOf(part);
-    if (text) lines.push(`system: ${text}`);
-  }
-  for (const message of request.messages) lines.push(...renderMessage(message));
-  return lines.join("\n");
-}
-
-function renderMessage(message: CanonicalMessage): string[] {
-  if (message.role === "system") return message.content.map(textOf).filter(Boolean).map((text) => `system: ${text}`);
-  return message.content.map(textOf).filter(Boolean).map((text) => `${message.role}: ${text}`);
+  return webRenderPrompt(request, unsupportedImage);
 }
 
 function toolOverrides(tools: readonly ToolDefinition[] | undefined): Array<{ intent: string; name: string }> | undefined {
@@ -88,7 +70,7 @@ export class GrokWebAdapter implements ProviderAdapter {
     const creds = parseGrokWebCredential(readCredentialSecret(context.credential));
     const model = candidate.model_id || request.model;
     const created = await this.request(creds, "/rest/app-chat/conversations/new", { modelName: model, temporary: true }, context.abort_signal);
-    const conversationId = record(created).conversationId;
+    const conversationId = webRecord(created).conversationId;
     if (typeof conversationId !== "string" || !conversationId) throw new GatewayError("transport_unavailable", 502, "Grok Web did not return a conversation");
     const response = await this.request(creds, `/rest/app-chat/conversations/${conversationId}/responses`, {
       message: renderPrompt(request),
@@ -118,9 +100,6 @@ export class GrokWebAdapter implements ProviderAdapter {
   }
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
 
 async function* parseGrokSse(body: ReadableStream<Uint8Array>, overrides: readonly { intent: string; name: string }[]): AsyncIterable<CanonicalEvent> {
   const reader = body.getReader();
@@ -140,7 +119,7 @@ async function* parseGrokSse(body: ReadableStream<Uint8Array>, overrides: readon
       if (typeof event.text === "string" && event.text.length > 0) {
         yield { type: "content_delta", sequence_number: sequence++, content: { kind: "text", text: event.text } };
       }
-      const call = record(event.tool_call);
+      const call = webRecord(event.tool_call);
       const intent = typeof call.intent === "string" ? call.intent : "";
       const mapped = overrides.find((tool) => tool.intent === intent);
       if (mapped !== undefined) {

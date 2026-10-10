@@ -1,4 +1,5 @@
 import { GatewayError } from "../../../protocol/gateway-error";
+import { webCookieValue } from "../shared/web-session";
 
 /** Normalized Claude web-session credential. */
 export interface ClaudeWebCredentials {
@@ -7,15 +8,6 @@ export interface ClaudeWebCredentials {
 }
 
 const SESSION_KEY = /^sk-ant-[A-Za-z0-9_-]+$/;
-
-function cookieValue(cookie: string, name: string): string {
-  for (const part of cookie.split(";")) {
-    const separator = part.indexOf("=");
-    if (separator === -1) continue;
-    if (part.slice(0, separator).trim() === name) return part.slice(separator + 1).trim();
-  }
-  return "";
-}
 
 /** Parses a session key, normalized JSON, or Cookie header. */
 export function parseClaudeWebCredential(raw: string): ClaudeWebCredentials {
@@ -36,7 +28,7 @@ export function parseClaudeWebCredential(raw: string): ClaudeWebCredentials {
     }
   }
   if (SESSION_KEY.test(trimmed)) return { sessionKey: trimmed, cookie: `sessionKey=${trimmed}` };
-  const sessionKey = cookieValue(trimmed, "sessionKey");
+  const sessionKey = webCookieValue(trimmed, "sessionKey");
   if (!sessionKey) throw new GatewayError("invalid_request", 400, "Claude Web credential must contain sessionKey");
   return { sessionKey, cookie: trimmed };
 }

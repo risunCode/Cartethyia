@@ -5,6 +5,8 @@ import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget }
 import { readCredentialSecret } from "../../contracts";
 import { defineModel, type ModelDefinition } from "../../model-definition";
 import { parseKimiWebCredential } from "./kimi-web-auth";
+import { consumeConnectFrames, FrameBuffer } from "../shared/connect";
+import { webRecord, webTextOf } from "../shared/web-session";
 
 const BASE_URL = "https://www.kimi.ai";
 const CHAT_URL = `${BASE_URL}/apiv2/kimi.gateway.chat.v1.ChatService/Chat`;
@@ -76,8 +78,9 @@ function foldMessages(request: CanonicalRequest): { prompt: string; systemPrompt
 }
 
 function textOf(part: ContentPart): string {
-  if (part.kind === "text" || part.kind === "refusal") return part.text;
-  throw new GatewayError("invalid_request", 400, "Kimi Web only supports text message content");
+  return webTextOf(part, () => {
+    throw new GatewayError("invalid_request", 400, "Kimi Web only supports text message content");
+  });
 }
 
 function webEffort(effort: NonNullable<CanonicalRequest["reasoning"]>["effort"]): string | undefined {
@@ -88,33 +91,34 @@ function webEffort(effort: NonNullable<CanonicalRequest["reasoning"]>["effort"])
 
 async function* parseConnect(body: ReadableStream<Uint8Array>, prompt: string): AsyncIterable<CanonicalEvent> {
   const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  let offset = 0;
+  const buffer = new FrameBuffer();
   let sequence = 1;
   let outputChars = 0;
+  const decoder = new TextDecoder();
   while (true) {
-    while (offset + 5 <= size) {
-      const buffer = concat(chunks, size);
-      const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-      const flags = buffer[offset] ?? 0;
-      const length = view.getUint32(offset + 1);
-      if (length > 8 * 1024 * 1024) throw new GatewayError("platform_unavailable", 502, "Kimi Web frame is too large");
-      if (offset + 5 + length > size) break;
-      const payload = buffer.subarray(offset + 5, offset + 5 + length);
-      offset += 5 + length;
-      if (payload.length === 0) continue;
-      const message = JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>;
-      if ((flags & 0x02) !== 0 && record(message.error).message) throw new GatewayError("transport_unavailable", 502, `Kimi Web stream failed: ${String(record(message.error).message)}`);
-      const delta = extractDelta(message);
-      if (!delta) continue;
-      outputChars += delta.text.length;
-      yield { type: "content_delta", sequence_number: sequence++, content: delta.kind === "think" ? { kind: "reasoning", payload: null, summary: delta.text } : { kind: "text", text: delta.text } };
+    const { frames } = consumeConnectFrames(buffer.view(), {
+      maxPayloadBytes: 8 * 1024 * 1024,
+      oversizeError: () => new GatewayError("platform_unavailable", 502, "Kimi Web frame is too large"),
+    });
+    if (frames.length > 0) {
+      // Consumed bytes are counted, not offsets: `view()` is a subarray that
+      // `append` may relocate, so an offset kept across reads would be stale.
+      let consumed = 0;
+      for (const frame of frames) {
+        consumed += 5 + frame.payload.length;
+        if (frame.payload.length === 0) continue;
+        const message = JSON.parse(decoder.decode(frame.payload)) as Record<string, unknown>;
+        if ((frame.flags & 0x02) !== 0 && webRecord(message.error).message) throw new GatewayError("transport_unavailable", 502, `Kimi Web stream failed: ${String(webRecord(message.error).message)}`);
+        const delta = extractDelta(message);
+        if (!delta) continue;
+        outputChars += delta.text.length;
+        yield { type: "content_delta", sequence_number: sequence++, content: delta.kind === "think" ? { kind: "reasoning", payload: null, summary: delta.text } : { kind: "text", text: delta.text } };
+      }
+      buffer.consume(consumed);
     }
     const chunk = await reader.read();
     if (chunk.done) break;
-    chunks.push(chunk.value);
-    size += chunk.value.byteLength;
+    buffer.append(chunk.value);
   }
   const inputTokens = Math.max(1, Math.ceil(prompt.length / 4));
   const outputTokens = Math.max(1, Math.ceil(outputChars / 4));
@@ -124,23 +128,13 @@ async function* parseConnect(body: ReadableStream<Uint8Array>, prompt: string): 
 function extractDelta(message: Record<string, unknown>): { kind: "text" | "think"; text: string } | undefined {
   const op = String(message.op ?? "");
   const mask = String(message.mask ?? "");
-  const block = record(message.block);
+  const block = webRecord(message.block);
   const field = mask.startsWith("block.think") ? "think" : mask.startsWith("block.text") ? "text" : "";
   if (!field || (op !== "append" && op !== "set")) return undefined;
-  const text = record(block[field]).content;
+  const text = webRecord(block[field]).content;
   return typeof text === "string" && text ? { kind: field, text } : undefined;
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function concat(chunks: readonly Uint8Array[], size: number): Uint8Array {
-  const out = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
-  return out;
-}
 
 /** Registry factory for the Kimi web adapter. */
 export function createKimiWebAdapter(options: { readonly fetch?: typeof fetch } = {}): KimiWebAdapter {

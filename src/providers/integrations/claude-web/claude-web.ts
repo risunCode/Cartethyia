@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { CanonicalEvent, CanonicalMessage, CanonicalRequest, ContentPart, ToolDefinition } from "../../../protocol/canonical-model";
+import type { CanonicalEvent, CanonicalRequest, ToolDefinition } from "../../../protocol/canonical-model";
 import { canonicalTerminal } from "../../../protocol/codecs";
 import { GatewayError } from "../../../protocol/gateway-error";
 import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
 import { readCredentialSecret } from "../../contracts";
 import { defineModel, type ModelDefinition } from "../../model-definition";
 import { claudeWebCookieHeader, parseClaudeWebCredential, type ClaudeWebCredentials } from "./claude-web-auth";
+import { webRecord, webRenderPrompt } from "../shared/web-session";
 
 const BASE_URL = "https://claude.ai";
 const ROOT_MESSAGE = "00000000-0000-4000-8000-000000000000";
@@ -34,29 +35,8 @@ export const CLAUDE_WEB_MODELS: readonly ModelDefinition[] = MODEL_ROWS.map((row
   cost: { input: null, output: null, pricing_model: "subscription" as const },
 }));
 
-function textOf(part: ContentPart): string {
-  if (part.kind === "text" || part.kind === "refusal") return part.text;
-  if (part.kind === "image") return "[image omitted]";
-  if (part.kind === "toolResult") {
-    const content = typeof part.content === "string" ? part.content : part.content.map(textOf).filter(Boolean).join("\n");
-    return `tool_result ${part.call_id}: ${content}`;
-  }
-  return "";
-}
-
 function renderPrompt(request: CanonicalRequest): string {
-  const lines: string[] = [];
-  for (const part of request.system ?? []) {
-    const text = textOf(part);
-    if (text) lines.push(`system: ${text}`);
-  }
-  for (const message of request.messages) lines.push(...renderMessage(message));
-  return lines.join("\n");
-}
-
-function renderMessage(message: CanonicalMessage): string[] {
-  if (message.role === "system") return message.content.map(textOf).filter(Boolean).map((text) => `system: ${text}`);
-  return message.content.map(textOf).filter(Boolean).map((text) => `${message.role}: ${text}`);
+  return webRenderPrompt(request, (unsupported) => (unsupported.kind === "image" ? "[image omitted]" : ""));
 }
 
 function webTools(tools: readonly ToolDefinition[] | undefined): unknown[] | undefined {
@@ -87,7 +67,7 @@ export class ClaudeWebAdapter implements ProviderAdapter {
     const creds = parseClaudeWebCredential(readCredentialSecret(context.credential));
     const org = await this.organization(creds, context.abort_signal);
     const created = await this.request(creds, "POST", `/api/organizations/${org}/chat_conversations`, { name: "Cartethyia", organization_uuid: org }, context.abort_signal);
-    const conversation = record(created).uuid;
+    const conversation = webRecord(created).uuid;
     if (typeof conversation !== "string" || !conversation) throw new GatewayError("transport_unavailable", 502, "Claude Web did not return a conversation");
     try {
       const tools = webTools(request.tools);
@@ -115,8 +95,8 @@ export class ClaudeWebAdapter implements ProviderAdapter {
     const cached = this.#organizations.get(creds.cookie);
     if (cached) return cached;
     const payload = await this.request(creds, "GET", "/api/organizations", undefined, signal);
-    const rows = Array.isArray(payload) ? payload : record(payload).organizations;
-    const first = Array.isArray(rows) ? record(rows[0]).uuid : undefined;
+    const rows = Array.isArray(payload) ? payload : webRecord(payload).organizations;
+    const first = Array.isArray(rows) ? webRecord(rows[0]).uuid : undefined;
     if (typeof first !== "string" || !first) throw new GatewayError("authentication_failed", 401, "Claude Web session has no organization");
     this.#organizations.set(creds.cookie, first);
     return first;
@@ -147,10 +127,6 @@ export class ClaudeWebAdapter implements ProviderAdapter {
   }
 }
 
-function record(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
 async function* parseClaudeSse(body: ReadableStream<Uint8Array>): AsyncIterable<CanonicalEvent> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -177,8 +153,8 @@ async function* parseClaudeSse(body: ReadableStream<Uint8Array>): AsyncIterable<
       const data = frame.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
       if (!data || data === "[DONE]") continue;
       const event = JSON.parse(data) as Record<string, unknown>;
-      const delta = record(event.delta);
-      const block = record(event.content_block);
+      const delta = webRecord(event.delta);
+      const block = webRecord(event.content_block);
       if (event.type === "content_block_delta" && delta.type === "text_delta" && typeof delta.text === "string") {
         yield { type: "content_delta", sequence_number: sequence++, content: { kind: "text", text: delta.text } };
       } else if (event.type === "content_block_start" && block.type === "tool_use") {
