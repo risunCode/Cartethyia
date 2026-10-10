@@ -70,6 +70,11 @@ async function reserveDaySlot(
       // always won and the sweep's once-a-day cadence is the only throttle.
       return true;
     }
+    // A handle without a query builder (the SQLite lite backend wraps its own)
+    // cannot write the ledger. Fall back to "always won" rather than throwing:
+    // the day marker is bookkeeping, and losing it costs a possible duplicate
+    // claim tomorrow instead of forfeiting today's grant.
+    if (typeof db.insert !== "function") return true;
     try {
       await db
         .insert(dailyCheckinLedger)
@@ -77,9 +82,6 @@ async function reserveDaySlot(
         .onConflictDoNothing();
       return true;
     } catch (error) {
-      // A failed ledger write must not stop the claim: the day marker is only
-      // bookkeeping, and losing it costs a possible duplicate claim tomorrow
-      // rather than forfeiting today's grant.
       log.warn(`[daily-checkin] ledger reserve failed for account=${accountId}`, error as Error);
       return true;
     }

@@ -84,15 +84,23 @@ describe("the route table", () => {
     // must not be reported as a proxy request lifecycle event or enqueue a
     // telemetry row — a row for it would inflate the Usage page with requests no
     // provider saw.
-    for (const path of ["/v1/models", "/v1/models/claude-sonnet-4-6", "/v1/embeddings", "/v1/images/generations", "/v1/audio/speech"]) {
+    //
+    // `/v1/images/generations` is deliberately NOT in this list any more: it
+    // dispatches to a provider, so keeping it here would have made the gateway
+    // skip the request lifecycle for a route that really does call upstream.
+    // `/v1/embeddings` and `/v1/audio/speech` remain — still no handler behind
+    // them, which is the defect the comment warns about.
+    for (const path of ["/v1/models", "/v1/models/claude-sonnet-4-6", "/v1/embeddings", "/v1/audio/speech"]) {
       expect(isProxyDispatchRoute(path)).toBe(false);
     }
+    expect(isProxyDispatchRoute("/v1/images/generations")).toBe(true);
   });
 
-  test("the three removed entries are genuinely absent", () => {
-    // The comment names them specifically: they advertised a surface that 404s.
-    // Asserted so re-adding one is a deliberate act.
-    for (const path of ["/v1/embeddings", "/v1/images/generations", "/v1/audio/speech"]) {
+  test("the remaining removed entries are genuinely absent", () => {
+    // The comment names three that advertised a surface with no handler behind
+    // it. `/v1/images/generations` has since gained one, so only the two that
+    // are still unrouted stay asserted absent.
+    for (const path of ["/v1/embeddings", "/v1/audio/speech"]) {
       expect(isJsonProxyRoutePath(path)).toBe(false);
     }
   });

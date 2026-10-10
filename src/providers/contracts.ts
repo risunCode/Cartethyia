@@ -158,6 +158,54 @@ export interface ProviderAdapter {
     candidate: ProviderDispatchTarget,
     context: ProviderDispatchContext,
   ): Promise<WebSearchOutcome>;
+  /**
+   * Optional native image-generation capability for `POST
+   * /v1/images/generations`. The caller's body is opaque (`{prompt, n, size,
+   * …}`); the adapter maps it onto the provider's own image API and returns the
+   * generated images.
+   *
+   * Optional rather than a required no-op: an adapter that does not implement
+   * it is not eligible for the route, which is what lets a provider advertise
+   * `imageGeneration` in its catalog without every adapter having to answer for
+   * a surface it cannot serve. The route handles the endpoint POST itself when
+   * this is absent, so the capability is reachable through the candidate's
+   * `endpoint_path` either way.
+   */
+  generateImage?(
+    body: Record<string, unknown>,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<ImageGenerationOutcome>;
+  /**
+   * Posts an opaque body to a candidate's own endpoint and returns the raw
+   * upstream response.
+   *
+   * The shared escape hatch for a service the gateway does not model: the
+   * candidate names the path, the adapter supplies the host, and the body is
+   * forwarded untouched. `generateImage` uses it as its fallback so a provider
+   * can serve images from its own path without a bespoke mapping, and it is
+   * what lets `/v1/images/generations` work at all for an adapter that has not
+   * written an image method.
+   */
+  dispatchNativeService?(
+    body: Record<string, unknown>,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<Response>;
+}
+
+/**
+ * The normalized result of one image-generation dispatch.
+ *
+ * Deliberately open: images arrive as URLs or base64 depending on the
+ * provider, and the gateway must not transcode between them. `data` is passed
+ * through exactly as the upstream produced it so a caller that asked for
+ * `b64_json` still receives base64.
+ */
+export interface ImageGenerationOutcome {
+  readonly created?: number;
+  readonly data: readonly Record<string, unknown>[];
+  readonly usage?: Record<string, unknown> | null;
 }
 
 /** One provider-independent web-search hit, normalized from a provider's own response shape. */

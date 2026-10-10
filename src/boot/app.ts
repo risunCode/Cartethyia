@@ -34,6 +34,7 @@ import {
 import { createResponsesCompactHandler } from "../transport/dispatch/responses-compact";
 import { createSystemoneHandler } from "../transport/dispatch/systemone";
 import { createWebsearchHandler } from "../transport/dispatch/websearch";
+import { createImageGenerationHandler } from "../transport/dispatch/image-generation";
 
 import { createTransportPipeline } from "../transport/guards/pipeline";
 import { createDrainHandler } from "../transport/drain-endpoint";
@@ -489,6 +490,20 @@ export function createGatewayApp(deps: GatewayAppDeps) {
       telemetryBuffer: deps.telemetryBuffer,
     });
 
+    const handleImageGeneration = createImageGenerationHandler({
+      db: deps.db,
+      providerAdapters: deps.providerAdapters ?? new Map(),
+      resolveProviderAdapter: deps.resolveProviderAdapter,
+      proxyPreparer: deps.proxyPreparer,
+      stateStore: requestStateStore,
+      poolSelector: deps.poolSelector,
+      networkBindingFactory: deps.networkBindingFactory,
+      snapshotService: deps.snapshotService,
+      resolveOAuthRefresher: deps.resolveOAuthRefresher,
+      oauthRefreshService: deps.oauthRefreshService,
+      telemetryBuffer: deps.telemetryBuffer,
+    });
+
     // Gateway mounting: the pipeline owner composes stages, telemetry, and
     // cleanup; app only registers the public route table.
     app.use(
@@ -500,6 +515,7 @@ export function createGatewayApp(deps: GatewayAppDeps) {
         routes.post("/completions", proxyHandler);
         routes.post("/systemone", handleSystemone);
         routes.post("/search", handleWebsearch);
+        routes.post("/images/generations", handleImageGeneration);
         routes.get("/models", handleModelsList);
         routes.get("/models/info", handleModelsDetail);
         routes.get("/models/*", handleModelsDetail);

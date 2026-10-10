@@ -263,17 +263,21 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
   }
 
   /**
-   * Native System One dispatch: the caller's decision body is posted untouched
-   * to the candidate's own endpoint with this provider's auth/identity headers.
+   * Posts an opaque body to the candidate's own endpoint with this provider's
+   * auth/identity headers.
    *
-   * Deliberately not routed through `preparePayload`/`transformStream`: those
-   * encode a `CanonicalRequest` and decode canonical events, and a decision
-   * payload is neither. The body arrives already-shaped from the caller (the
-   * route handler validates only the trust boundary — `model`, `state`,
-   * `questions` — and leaves question-level shape to upstream), so this method
-   * only stamps headers and posts.
+   * The shared escape hatch for any service the gateway does not model —
+   * System One decisions, image generation, anything a provider serves from its
+   * own path. Deliberately not routed through `preparePayload`/
+   * `transformStream`: those encode a `CanonicalRequest` and decode canonical
+   * events, and these bodies are neither. The body arrives already-shaped from
+   * the caller (the route handler validates only the trust boundary), so this
+   * method only stamps headers and posts.
+   *
+   * `systemone` is kept as a named alias because the `/v1/systemone` route
+   * reads it directly; both names are the same behavior.
    */
-  async systemone(
+  async dispatchNativeService(
     body: Record<string, unknown>,
     candidate: ProviderDispatchTarget,
     context: ProviderDispatchContext,
@@ -288,6 +292,15 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
     const upstream = await postUpstreamJson(fetchUrl, headers, body, context, outboundFetch);
     upstream.release();
     return upstream.res;
+  }
+
+  /** `/v1/systemone` route entry point; see {@link dispatchNativeService}. */
+  async systemone(
+    body: Record<string, unknown>,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<Response> {
+    return this.dispatchNativeService(body, candidate, context);
   }
 
   protected async *transformStream(
