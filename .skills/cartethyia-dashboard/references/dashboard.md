@@ -24,10 +24,24 @@ Order of work, so a step never lands blind:
    `CARTETHYIA_VISUAL_ADMIN_PASSWORD`), and measures through the browser agent
    (`agent-browser`, not a hand-rolled CDP client). Live-by-nature answers are
    stubbed at the browser so they cannot drift a comparison: `/system/health`,
-   `/updates/release`, the `/system/usage/*` and `/quota/overview` telemetry, and
-   the `/logs` snapshot+stream. Client-side non-determinism is pinned by an init
-   script too — `Math.random` (Model Lab session title) and `Date.now` (React
-   Query's `dataUpdatedAt`, which the Quota page renders as a `HH:MM` stamp).
+   `/updates/release`, the `/system/usage/*` and `/quota/overview` telemetry, the
+   `/logs` snapshot+stream, and the discovery-derived fields of
+   `/console/api/providers` (`clientVersion`, `routeIdentityVersions`) that the
+   background npm/PyPI monitor fills. Client-side non-determinism is pinned by
+   an init script too:
+   - `Math.random` is pinned to **one fixed draw**, not a sequence. The Model Lab
+     draws its session name twice — once in the `useState` initializer and again
+     when IndexedDB hydration replaces the session — so a sequence still lets the
+     chip's title change width mid-load, and when both names are the same length
+     the document's text length is unchanged and `settle` cannot see the swap.
+   - `Date.now` is pinned to a fixed instant (React Query's `dataUpdatedAt`,
+     which the Quota page renders as a `HH:MM` stamp). This is a client clock, so
+     no response stub can pin it.
+   - The landing and share pages load star/fork counts as live-width images from
+     the badge host; their `src` is rewritten to a fixed-size local `data:` SVG
+     before the element is created (CSP already admits `data:` in `img-src`).
+     They arrive as images, so they are invisible to the in-flight `fetch`
+     counter that `settle` waits on.
    Everything else stays live.
 3. Build or revise the `ui/` atom, then the `patterns/` block, before the pages
    that use it.

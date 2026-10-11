@@ -35,10 +35,14 @@
  * The globs carry a trailing `*` because agent-browser matches them against the
  * full URL including the query string (`…/summary` alone would let `?period=24h`
  * through to the real gateway). Page-side non-determinism is pinned too, through
- * an init script: the Model Lab names its session from `Math.random()` (pinned to
- * a deterministic LCG), and React Query stamps every query with `Date.now()`,
- * which the Quota page renders as a `HH:MM` "last updated" — a client clock that
- * no response stub can fix, so `Date.now()` is pinned to a fixed instant.
+ * an init script: the Model Lab names its chat session from `Math.random()`
+ * (pinned to one fixed draw, because it draws the name twice — once at first
+ * render and again when IndexedDB hydration replaces the session — and a sequence
+ * would let the chip's title change width mid-load); the landing and share pages
+ * load their star/fork counts as live-width images, pinned to a fixed-size local
+ * SVG; and React Query stamps every query with `Date.now()`, which the Quota page
+ * renders as a `HH:MM` "last updated" — a client clock that no response stub can
+ * fix, so `Date.now()` is pinned to a fixed instant.
  *
  * Everything else is left live: the pages are the real console against a real
  * gateway, which is exactly what a styling regression would break. The dev
@@ -408,8 +412,28 @@ class BrowserAgent {
 
   /**
    * Installs the deterministic init script, registered once before the first
-   * navigation and re-applied by `open` on every load. It does three things:
+   * navigation and re-applied by `open` on every load. It does four things:
    *
+   * - Pins `Math.random` to a single fixed draw. The Model Lab names its chat
+   *   session from `Math.random()` (`sessionName()`), and it draws the name twice:
+   *   once in the `useState` initializer that renders immediately, then again when
+   *   IndexedDB hydration resolves and `setSession` swaps in a freshly minted
+   *   session. A deterministic *sequence* cannot fix that — the two draws sit at
+   *   different positions, so the chip's title changes mid-load. When the two
+   *   names are the same length the document's text length is unchanged, so
+   *   `settle` (which waits on document stability) cannot see the swap, and the
+   *   measured title depends on whether hydration beat the sampler. A constant
+   *   makes both draws identical, so the title never changes. The other consumers
+   *   (combo and message ids) draw only from event handlers, not from render, so a
+   *   constant is safe on every measured surface.
+   * - Pins the GitHub star/fork badges. The landing and share pages render the
+   *   repository's live counts as `<img>` badges whose width tracks the number of
+   *   digits, so a count that crosses a digit boundary between runs — or an image
+   *   still loading when `settle` samples — shifts the chip and everything the
+   *   centred header lays out around it. They arrive as images, so they are
+   *   invisible to `window.__inflight`; the fix rewrites each badge `src` to a
+   *   fixed-size local `data:` image before the element is created (CSP already
+   *   admits `data:` in `img-src`), leaving the chip's own layout untouched.
    * - Pins `Math.random` to a deterministic LCG. The Model Lab welcome screen
    *   names its session from `Math.random()` (`sessionName()`), so without this
    *   the session-title chip's width would differ between the `capture` and
@@ -419,6 +443,12 @@ class BrowserAgent {
    *   `Auto-refresh 60s · HH:MM`; the minute differs between the two runs, and
    *   the glyphs it lands on shift the span's width. It is a client clock, not a
    *   network field, so no response stub can pin it — the clock itself must be.
+   * - Pins the discovery-derived fields of `/console/api/providers`
+   *   (`clientVersion`, `routeIdentityVersions`). The gateway fills them from a
+   *   background npm/PyPI monitor, so a provider's badge tone (`latest` → teal)
+   *   and its version text differ between runs. The values are rewritten in the
+   *   response body rather than stubbed wholesale, so the provider list stays
+   *   the real one and only the volatile fields are fixed.
    * - Tracks in-flight `fetch` calls on `window.__inflight`. Several pages fire
    *   a fan-out of per-entity requests after their list query resolves (the
    *   Providers page reads accounts per provider), and a badge that swaps its
@@ -430,8 +460,20 @@ class BrowserAgent {
     writeFileSync(
       path,
       `(() => {
-  let s = 42;
-  Math.random = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  // One fixed draw, not a sequence. The Model Lab names its chat session from
+  // Math.random() (sessionName()), and it draws the name twice: once in the
+  // useState initializer that renders immediately (StudioPage), then again when
+  // the IndexedDB hydration resolves and setSession replaces it with a freshly
+  // minted session. A deterministic *sequence* cannot help — the two draws sit at
+  // different positions in the sequence, so the chip's title changes mid-load and
+  // its width changes with it. Worse, when the two names happen to be the same
+  // length the document's text length is unchanged, so settle() — which waits on
+  // document stability — cannot see the swap, and the captured title depends on
+  // whether hydration beat the sampler. A constant makes both draws identical, so
+  // the title never changes and the chip's width is fixed. The other consumers
+  // (combo and message ids) are only drawn from event handlers, not from render,
+  // so a constant is safe for every measured surface.
+  Math.random = () => 0.5;
   // A fixed instant, so every clock-derived render (React Query's dataUpdatedAt,
   // relative "… ago"/countdown strings) is identical across capture and compare.
   // Timers (setTimeout/setInterval) use the event loop's own clock, so polling
@@ -439,10 +481,65 @@ class BrowserAgent {
   const FIXED_NOW = 1735689600000;
   Date.now = () => FIXED_NOW;
   window.__inflight = 0;
+  // The star/fork counts are images from the badge host, so their width is the
+  // digit count of a live number and a slow load is invisible to __inflight.
+  // Swap each badge image for a fixed-size local SVG before it is created: the
+  // chip's own layout is untouched, but the image can no longer change width
+  // between runs or load after settle. Guarded against a missing MutationObserver
+  // so a page that lacks it simply skips the pin rather than failing to load.
+  const BADGE_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='20'%3E%3C/svg%3E";
+  const isBadgeSrc = (src) => typeof src === "string" && src.indexOf("img.shields.io") !== -1;
+  const pinBadge = (img) => { if (img && isBadgeSrc(img.getAttribute("src"))) img.setAttribute("src", BADGE_SVG); };
+  if (typeof MutationObserver !== "undefined") {
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.tagName === "IMG") pinBadge(node);
+          if (node.querySelectorAll) for (const img of node.querySelectorAll("img")) pinBadge(img);
+        }
+      }
+    });
+    observer.observe(document.documentElement || document, { childList: true, subtree: true });
+  }
   const realFetch = window.fetch.bind(window);
+  const urlOf = (input) => (typeof input === "string" ? input : (input && input.url) || "");
+  const PINNED_VERSION = "0.0.0";
   window.fetch = (...args) => {
     window.__inflight += 1;
-    return realFetch(...args).finally(() => { window.__inflight -= 1; });
+    const done = () => { window.__inflight -= 1; };
+    const url = urlOf(args[0]);
+    // The provider catalog carries client-version discovery, which the gateway
+    // fills asynchronously from upstream registries, so it is not stable across
+    // runs. Pin it; leave every other field (and every other response) live.
+    if (/\\/console\\/api\\/providers(\\?[^/]*)?$/.test(url)) {
+      return realFetch(...args)
+        .then((res) => {
+          if (!res.ok) return res;
+          return res
+            .clone()
+            .json()
+            .then((data) => {
+              if (!Array.isArray(data)) return res;
+              for (const item of data) {
+                if (!item || typeof item !== "object") continue;
+                if (item.clientVersion && typeof item.clientVersion === "object") {
+                  item.clientVersion = { client: item.clientVersion.client, version: PINNED_VERSION, source: "latest" };
+                }
+                if (item.routeIdentityVersions && typeof item.routeIdentityVersions === "object") {
+                  item.routeIdentityVersions = { codex: PINNED_VERSION, claude: PINNED_VERSION };
+                }
+              }
+              return new Response(JSON.stringify(data), {
+                status: res.status,
+                headers: { "content-type": "application/json" },
+              });
+            })
+            .catch(() => res);
+        })
+        .finally(done);
+    }
+    return realFetch(...args).finally(done);
   };
 })();`,
       "utf8",
