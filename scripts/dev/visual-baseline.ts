@@ -51,13 +51,19 @@
  * the isolated `.env.test` database.
  *
  * ```bash
- * CARTETHYIA_VISUAL_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts capture
- * CARTETHYIA_VISUAL_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts compare
+ * CARTETHYIA_DEV_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts capture
+ * CARTETHYIA_DEV_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts compare
  * ```
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import {
+  ConsoleBrowserAgent,
+  resolveBrowserAgentBinary,
+  resolveDevAdminCredentials,
+  signInToConsole,
+  type AdminCredentials,
+} from "./console-auth";
 
 const projectRoot = resolve(import.meta.dir, "..", "..");
 const dashboardDir = resolve(projectRoot, "dashboard");
@@ -365,31 +371,6 @@ interface Baseline {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves the `agent-browser` executable. `CARTETHYIA_BROWSER_AGENT` wins;
- * otherwise the npm-global binary is located (a `.cmd` shim on Windows cannot
- * be exec'd directly, so the underlying `.exe` is found), and on POSIX the
- * executable shell shim in `PATH` is used.
- */
-function resolveBrowserAgentBinary(): string {
-  const override = process.env.CARTETHYIA_BROWSER_AGENT?.trim();
-  if (override) return override;
-  if (process.platform === "win32") {
-    const appData = process.env.APPDATA?.trim();
-    const candidate = appData
-      ? resolve(appData, "npm", "node_modules", "agent-browser", "bin", "agent-browser-win32-x64.exe")
-      : undefined;
-    if (candidate && existsSync(candidate)) return candidate;
-  }
-  return "agent-browser";
-}
-
-interface AgentResult {
-  readonly code: number;
-  readonly out: string;
-  readonly err: string;
-}
-
-/**
  * One browser-agent session driven through its CLI. Every command is a fresh
  * subprocess against the same named session, so the browser stays up across
  * calls and each command's stdout is a self-contained answer.
@@ -401,14 +382,26 @@ interface AgentResult {
  * a scratch file instead (a file EOFs by size, not by fd count) and is read
  * back after the process exits. The daemon is given a short `--idle-timeout` so
  * it self-cleans if this script is ever killed mid-run.
+ *
+ * The CLI driving, the sign-in form, and the dev-credential resolution now live
+ * in `./console-auth`, shared with `console-session.ts`; this class adds only
+ * what a deterministic baseline run needs.
  */
-class BrowserAgent {
-  private readonly session = `cartethyia-visual-${process.pid}`;
-  private readonly scratchDir = mkdtempSync(join(tmpdir(), "cartethyia-visual-"));
-  private seq = 0;
+class BrowserAgent extends ConsoleBrowserAgent {
   private initScriptPath: string | null = null;
 
-  constructor(private readonly bin: string) {}
+  constructor(bin: string) {
+    // Owns the browser start to finish, and isolates it by pid so two concurrent
+    // baselines cannot share cookies. The short idle budget means the daemon
+    // dies with this script instead of lingering for the default hour.
+    super(bin, ["--idle-timeout", "10s", "--session", `cartethyia-visual-${process.pid}`]);
+  }
+
+  /** Re-applies the init script on every load; the base `open` does not know about it. */
+  override async open(url: string): Promise<void> {
+    const initArgs = this.initScriptPath ? ["--init-script", this.initScriptPath] : [];
+    await super.open(url, initArgs);
+  }
 
   /**
    * Installs the deterministic init script, registered once before the first
@@ -547,54 +540,6 @@ class BrowserAgent {
     this.initScriptPath = path;
   }
 
-  async run(args: readonly string[], stdin?: string, timeoutMs = 90_000): Promise<AgentResult> {
-    const outPath = join(this.scratchDir, `out-${this.seq++}`);
-    const errPath = join(this.scratchDir, `err-${this.seq++}`);
-    const base = [this.bin, "--idle-timeout", "10s", "--session", this.session];
-    const proc = Bun.spawn([...base, ...args], {
-      stdin: stdin !== undefined ? "pipe" : "ignore",
-      stdout: Bun.file(outPath),
-      stderr: Bun.file(errPath),
-    });
-    if (stdin !== undefined && proc.stdin) {
-      proc.stdin.write(stdin);
-      proc.stdin.end();
-    }
-    const outcome = await Promise.race([
-      proc.exited.then((code) => ({ kind: "exit" as const, code })),
-      Bun.sleep(timeoutMs).then(() => ({ kind: "timeout" as const })),
-    ]);
-    if (outcome.kind === "timeout") {
-      proc.kill();
-      throw new Error(`agent-browser ${args[0]} timed out after ${timeoutMs}ms`);
-    }
-    const out = readFileSync(outPath, "utf8").trim();
-    const err = readFileSync(errPath, "utf8").trim();
-    rmSync(outPath, { force: true });
-    rmSync(errPath, { force: true });
-    return { code: outcome.code, out, err };
-  }
-
-  private async must(args: readonly string[], stdin?: string, timeoutMs?: number): Promise<string> {
-    const result = await this.run(args, stdin, timeoutMs);
-    if (result.code !== 0) {
-      throw new Error(`agent-browser ${args[0]} failed (${result.code}): ${(result.err || result.out).slice(0, 600)}`);
-    }
-    return result.out;
-  }
-
-  /** Evaluates a script whose last expression is a JSON-serialisable object. */
-  async evalObject<T>(script: string): Promise<T> {
-    const out = await this.must(["eval", "--stdin"], script, 120_000);
-    const parsed: unknown = JSON.parse(out);
-    return (typeof parsed === "string" ? JSON.parse(parsed) : parsed) as T;
-  }
-
-  async open(url: string): Promise<void> {
-    const initArgs = this.initScriptPath ? ["--init-script", this.initScriptPath] : [];
-    await this.must([...initArgs, "open", url], undefined, 120_000);
-  }
-
   async setViewport(width: number, height: number): Promise<void> {
     await this.must(["set", "viewport", String(width), String(height)]);
   }
@@ -607,29 +552,6 @@ class BrowserAgent {
    */
   async setThemePreference(theme: (typeof THEMES)[number]): Promise<void> {
     await this.must(["storage", "local", "set", "console-theme", theme]);
-  }
-
-  async fill(selector: string, value: string): Promise<void> {
-    await this.must(["fill", selector, value]);
-  }
-
-  async click(selector: string): Promise<void> {
-    await this.must(["click", selector]);
-  }
-
-  async waitForText(text: string): Promise<void> {
-    await this.must(["wait", "--text", text], undefined, 60_000);
-  }
-
-  /** Polls until `selector` exists, so a shell state with no visible marker text is still detectable. */
-  async waitForSelector(selector: string, timeoutMs = 30_000): Promise<void> {
-    const deadline = Date.now() + timeoutMs;
-    for (;;) {
-      const present = await this.evalObject<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`);
-      if (present) return;
-      if (Date.now() > deadline) throw new Error(`selector never appeared: ${selector}`);
-      await Bun.sleep(300);
-    }
   }
 
   async stub(url: string, body: string): Promise<void> {
@@ -687,62 +609,6 @@ async function startGateway(): Promise<{ kill: () => void }> {
 // ---------------------------------------------------------------------------
 // Sign-in and route resolution (real production paths, no seeded rows)
 // ---------------------------------------------------------------------------
-
-interface AdminCredentials {
-  readonly user: string;
-  readonly password: string;
-}
-
-function resolveAdminCredentials(): AdminCredentials {
-  const user = process.env.CARTETHYIA_VISUAL_ADMIN_USER?.trim() || "admin";
-  const password = process.env.CARTETHYIA_VISUAL_ADMIN_PASSWORD?.trim();
-  if (!password) {
-    throw new Error(
-      "CARTETHYIA_VISUAL_ADMIN_PASSWORD is required — the baseline signs in to the console with the real sign-in form",
-    );
-  }
-  return { user, password };
-}
-
-/** Signs the browser in through the real form, handling a fresh first-boot wizard if one appears. */
-async function signIn(agent: BrowserAgent, creds: AdminCredentials): Promise<void> {
-  await agent.open(`${ORIGIN}/console`);
-
-  // The session check is async, so wait for the page to resolve into one of
-  // the three terminal states rather than racing a not-yet-rendered form.
-  const deadline = Date.now() + 20_000;
-  let state = { login: false, setup: false, shell: false };
-  for (;;) {
-    state = await agent.evalObject<{ login: boolean; setup: boolean; shell: boolean }>(
-      `({
-        login: !!document.querySelector("#login-username"),
-        setup: !!document.querySelector("#setup-username"),
-        shell: !!document.querySelector('button[aria-label="Sign out"]'),
-      })`,
-    );
-    if (state.shell || state.login || state.setup) break;
-    if (Date.now() > deadline) throw new Error("sign-in page never resolved into a known state");
-    await Bun.sleep(300);
-  }
-
-  if (state.shell) return;
-
-  if (state.setup) {
-    // First boot: the wizard is the only real way an account comes to exist.
-    await agent.fill("#setup-username", creds.user);
-    await agent.fill("#setup-password", creds.password);
-    await agent.fill("#setup-confirm", creds.password);
-    await agent.click('button[type="submit"]');
-    await agent.waitForText("Sign in");
-  }
-
-  await agent.fill("#login-username", creds.user);
-  await agent.fill("#login-password", creds.password);
-  await agent.click('button[type="submit"]');
-  // The signed-in shell has no visible "Sign out" text (the icon-only button
-  // carries it as an aria-label), so wait on the selector, not visible text.
-  await agent.waitForSelector('button[aria-label="Sign out"]');
-}
 
 /** Signs in over the API (same production route) to resolve live route ids without parsing browser cookies. */
 async function signInViaApi(creds: AdminCredentials): Promise<string> {
@@ -882,8 +748,8 @@ async function captureAll(agent: BrowserAgent): Promise<Baseline> {
   // Trailing `*` is required: agent-browser matches the glob against the full
   // URL including the query string, so `**/system/usage/summary` alone would
   // let `?period=24h` through to the real gateway.
-  const creds = resolveAdminCredentials();
-  await signIn(agent, creds);
+  const creds = resolveDevAdminCredentials();
+  await signInToConsole(agent, creds, ORIGIN);
   await agent.stub("**/system/health", JSON.stringify(HEALTH_STUB));
   await agent.stub("**/updates/release", "null");
   await agent.stub("**/system/usage/summary*", JSON.stringify(USAGE_SUMMARY_STUB));

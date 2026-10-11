@@ -21,7 +21,7 @@ Order of work, so a step never lands blind:
 2. `scripts/dev/visual-baseline.ts` covers the console pages: it builds the
    dashboard, boots the real gateway (serving the built dist and `/console/api`
    on one origin), signs in through the real form (`admin`; password from
-   `CARTETHYIA_VISUAL_ADMIN_PASSWORD`), and measures through the browser agent
+   `CARTETHYIA_DEV_ADMIN_PASSWORD`), and measures through the browser agent
    (`agent-browser`, not a hand-rolled CDP client). Live-by-nature answers are
    stubbed at the browser so they cannot drift a comparison: `/system/health`,
    `/updates/release`, the `/system/usage/*` and `/quota/overview` telemetry, the
@@ -49,21 +49,67 @@ Order of work, so a step never lands blind:
    in the same commit.
 
 Verification per step: `bun run dashboard:typecheck`, `bun run dashboard:test`,
-and `CARTETHYIA_VISUAL_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts
+and `CARTETHYIA_DEV_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts
 compare` (which must stay green while a step only re-expresses styling, and is
 re-captured in the scale-normalization step that intentionally changes pixels).
 
-That script reads `CARTETHYIA_VISUAL_ADMIN_PASSWORD` (required), plus
-`CARTETHYIA_VISUAL_ADMIN_USER`, `CARTETHYIA_VISUAL_PORT`, and
+That script reads `CARTETHYIA_DEV_ADMIN_PASSWORD` (required), plus
+`CARTETHYIA_DEV_ADMIN_USER`, `CARTETHYIA_VISUAL_PORT`, and
 `CARTETHYIA_BROWSER_AGENT` when set. They are dev-tooling only — no runtime
 path reads them, so they are absent from `CONFIG_SPEC` and
 `documentation/reference/configuration.md` — and are listed in `.env.example`
-under "Visual baseline". The password is an operator credential: take it from
+under "Dev console admin". The password is an operator credential: take it from
 the environment, never from a message.
 
 `agent-browser` is what every UI claim is measured through, including this
 script's own measurements; a page can also be measured by driving the CLI
 directly, which is the normal path when no gateway credential is available.
+
+## Authenticated console session
+
+The console needs a sign-in, and the credential is an operator password — so it
+comes from the environment and is never typed into a message. One command does
+the whole thing:
+
+```bash
+bun run dev:console-auth
+```
+
+It reads `CARTETHYIA_DEV_ADMIN_USER` (default `admin`) and
+`CARTETHYIA_DEV_ADMIN_PASSWORD`, signs in through the **real form on the real
+route**, and exits non-zero naming what is missing when either the stack is down
+or the password is unset. Nothing secret is printed — no password, no session
+token.
+
+Afterwards, plain `agent-browser` commands share the same browser and are
+already signed in, so the rest of the verification is ordinary CLI work:
+
+```bash
+agent-browser eval "!!document.querySelector('button[aria-label=\"Sign out\"]')"
+```
+
+Three things worth knowing before it looks broken:
+
+- **It deliberately uses the CLI's default session**, not a named one, and no
+  `--idle-timeout`. Each `--session` is an isolated browser with its own
+  cookies, so a named session would leave the agent's own unfangled commands
+  signed out; the CLI's default idle timeout is one hour, which is what an
+  interactive session wants. (`scripts/dev/visual-baseline.ts` does the opposite
+  on purpose — it owns its browser start to finish.)
+- **A fresh dev database lands on `/console/setup`, not `/console/login`**, and
+  the wizard is the only real way an account comes to exist. `signInToConsole`
+  in `scripts/dev/console-auth.ts` resolves all three terminal states
+  (`setup` / `login` / already-`shell`), which is why re-running the command is
+  safe and a no-op.
+- **5173 serves `dashboard/src` with HMR; 12800 serves the built bundle** from
+  `dist/dashboard` and needs `bun run dashboard:build` after an edit. The
+  command defaults to 5173 and takes an origin argument for the other.
+
+Sign-in, credential resolution, and the `agent-browser` CLI plumbing live in
+`scripts/dev/console-auth.ts`, shared with `visual-baseline.ts` so there is one
+implementation. No production code is touched and no auth gate is weakened: it
+is the same form an operator fills, reached with a credential from the
+environment.
 
 ## Share page
 

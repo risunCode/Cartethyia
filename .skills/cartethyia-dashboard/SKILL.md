@@ -90,6 +90,12 @@ harness around the CLI — `open`, `eval`, `click`, `fill`, `press`, `wait`,
 computed style, focus, or overflow that was not measured with `eval` is
 unverified, whatever else is green. Never substitute markup guesses.
 
+**Console surfaces need a sign-in.** `bun run dev:console-auth` does it from
+`CARTETHYIA_DEV_ADMIN_PASSWORD` through the real form, after which plain
+`agent-browser` commands share that browser already signed in. See
+`references/dashboard.md` "Authenticated console session" — it also covers the
+fresh-database `/console/setup` wizard and which origin serves what.
+
 Pick the tool that can actually answer:
 
 - **Markup/layout structure only** — throwaway SSR script with every query
