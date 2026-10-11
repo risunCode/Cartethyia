@@ -145,54 +145,25 @@ export function ModelPickerModal({
   return (
     <Dialog open={open} onClose={onClose} title={title} footer={<Button variant="secondary" onClick={onClose}>Done</Button>}>
       <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "12px",
-          width: "min(720px, 90vw)",
-          maxWidth: "100%",
-        }}
+        className="flex max-w-full flex-col gap-6"
+        style={{ width: "min(720px, 90vw)" }}
       >
         <div className="relative">
           <Search
             size={14}
-            style={{
-              position: "absolute",
-              left: "10px",
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "var(--text-tertiary)",
-            }}
+            className="absolute left-5 top-1/2 -translate-y-1/2 text-text-tertiary"
           />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search models or providers (e.g. gpt-5.4, codex)"
-            style={{
-              width: "100%",
-              maxWidth: "100%",
-              boxSizing: "border-box",
-              padding: "8px 10px 8px 32px",
-              borderRadius: "8px",
-              border: "1px solid var(--inner-border)",
-              background: "var(--surface-2)",
-              color: "var(--text-primary)",
-              fontSize: "12px",
-            }}
+            className="w-full max-w-full rounded-inset border border-inner-border bg-surface-2 py-4 pr-5 pl-16 text-caption text-text-primary"
           />
         </div>
 
         {multi && selected.length > 0 && (
           <div
-            style={{
-              display: "flex",
-              gap: "6px",
-              flexWrap: "wrap",
-              padding: "8px",
-              borderRadius: "8px",
-              background: "var(--surface-2)",
-              border: "1px solid var(--inner-border)",
-            }}
+            className="flex flex-wrap gap-3 rounded-inset border border-inner-border bg-surface-2 p-4"
           >
             {selected.map((s) => (
               <span key={s} className="font-mono tabular-nums inline-flex items-center gap-2 text-badge bg-accent-soft text-accent py-1 px-3 rounded-chip border border-accent max-w-full overflow-hidden break-all">
@@ -214,20 +185,7 @@ export function ModelPickerModal({
         )}
 
         <div
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            overflowX: "hidden",
-            border: "1px solid var(--inner-border)",
-            borderRadius: "10px",
-            background: "var(--surface-1)",
-            minHeight: "320px",
-            maxHeight: "420px",
-            padding: "12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "16px",
-          }}
+          className="flex min-h-160 max-h-210 flex-1 flex-col gap-8 overflow-x-hidden overflow-y-auto rounded-control border border-inner-border bg-surface-1 p-6"
         >
           {isLoading ? (
             <div
@@ -257,16 +215,7 @@ export function ModelPickerModal({
                 className="flex flex-col gap-4 min-w-0"
               >
                 <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    color: "var(--text-secondary)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                  }}
+                  className="flex items-center gap-3 text-badge font-bold tracking-[0.05em] text-text-secondary uppercase"
                 >
                   {isProviderGroup ? (
                     <ProviderIcon name={groupKey} icon={groupKey} size={16} />
@@ -277,11 +226,9 @@ export function ModelPickerModal({
                   <Badge tone="default">{entries.length}</Badge>
                 </div>
                 <div
+                  className="grid min-w-0 gap-4"
                   style={{
-                    display: "grid",
                     gridTemplateColumns: "repeat(auto-fill, minmax(min(180px, 100%), 1fr))",
-                    gap: "8px",
-                    minWidth: 0,
                   }}
                 >
                   {entries.map((e) => {
@@ -331,18 +278,8 @@ export function ModelPickerModal({
                           {e.kind === "model" && e.entry.serviceKind !== "llm" && (
                             <span
                               title={NATIVE_SERVICE_TOOLTIP(e.entry.serviceKind)}
-                              style={{
-                                marginLeft: "6px",
-                                padding: "0 5px",
-                                borderRadius: "4px",
-                                fontSize: "9px",
-                                fontWeight: 700,
-                                textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                                color: "var(--orange)",
-                                border: "1px solid var(--orange)",
-                                cursor: "help",
-                              }}
+                              className="ml-3 cursor-help rounded-tiny border border-orange px-2.5 font-bold tracking-[0.04em] text-orange uppercase"
+                              style={{ fontSize: "9px" }}
                             >
                               {e.entry.serviceKind}
                             </span>
@@ -350,12 +287,7 @@ export function ModelPickerModal({
                         </span>
                         <span
                           title={e.qualified}
-                          className="font-mono tabular-nums" style={{ fontSize: "10px",
-                            color: "var(--text-tertiary)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            width: "100%" }}
+                          className="font-mono tabular-nums w-full truncate text-micro text-text-tertiary"
                         >
                           {/* An alias/combo is a named routing target, so its
                               target is the useful second line — not token

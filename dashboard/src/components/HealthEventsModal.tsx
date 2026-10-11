@@ -82,17 +82,7 @@ export function HealthEventsModal({
     <Dialog open={true} onClose={onClose} title={`Health & Error Log — ${title}`} size="lg">
       <div className="flex flex-col gap-7 min-w-0">
         <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "10px",
-            padding: "10px 14px",
-            borderRadius: "10px",
-            background: "var(--surface-2)",
-            border: "1px solid var(--inner-border)",
-          }}
+          className="flex flex-wrap items-center justify-between gap-5 rounded-control border border-inner-border bg-surface-2 py-5 px-7"
         >
           <div className="min-w-0">
             <Inline gap="8px" className="flex-wrap">
@@ -123,16 +113,7 @@ export function HealthEventsModal({
 
         {canManageStaticMode ? (
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "12px",
-              padding: "10px 14px",
-              borderRadius: "10px",
-              background: "var(--surface-2)",
-              border: "1px solid var(--inner-border)",
-            }}
+            className="flex items-center justify-between gap-6 rounded-control border border-inner-border bg-surface-2 py-5 px-7"
           >
             <div>
               <div className="text-caption font-semibold">Credential management</div>
@@ -164,12 +145,8 @@ export function HealthEventsModal({
             <EmptyState title="No health events recorded" message={summary.emptyMessage} icon={<Activity size={20} />} />
           ) : (
             <div
-              style={{
-                maxHeight: "min(55dvh, 480px)",
-                overflow: "auto",
-                border: "1px solid var(--inner-border)",
-                borderRadius: "8px",
-              }}
+              className="overflow-auto rounded-inset border border-inner-border"
+              style={{ maxHeight: "min(55dvh, 480px)" }}
             >
               <DataTable headers={["Timestamp", "From → To", "Model", "Category", "Reason / Details"]}>
                 {events.map((ev) => (

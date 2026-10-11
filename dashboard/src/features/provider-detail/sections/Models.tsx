@@ -541,7 +541,7 @@ function ModelCard({
               setCopied(true);
               scheduleCopyReset(() => setCopied(false), 1500);
             }}
-            style={{ flexShrink: 0, padding: "4px", opacity: 0.7 }}
+            className="shrink-0 p-2 opacity-70"
           />
         </div>
 
@@ -551,12 +551,12 @@ function ModelCard({
         >
           <span className="inline-flex gap-2.5">
             {model.reasoning ? (
-              <span title="Reasoning" aria-label="Reasoning" style={{ display: "inline-flex", color: "var(--purple)" }}>
+              <span title="Reasoning" aria-label="Reasoning" className="inline-flex text-purple">
                 <Brain size={12} />
               </span>
             ) : null}
             {model.vision ? (
-              <span title="Vision" aria-label="Vision" style={{ display: "inline-flex", color: "var(--status-info)" }}>
+              <span title="Vision" aria-label="Vision" className="inline-flex text-status-info">
                 <Eye size={12} />
               </span>
             ) : null}
@@ -660,8 +660,7 @@ function ModelCard({
               icon={<Trash2 size={12} />}
               aria-label={`Delete ${model.modelId}`}
               title="Delete model"
-              className="model-card-delete"
-              style={{ flexShrink: 0, padding: "6px 8px", color: "var(--text-tertiary)" }}
+              className="model-card-delete shrink-0 px-4 py-3 text-text-tertiary"
             />
           )}
         </div>
@@ -746,13 +745,7 @@ export function ModelGrid({
                 </span>
                 <span
                   title={group.hint}
-                  style={{
-                    fontSize: "10px",
-                    color: "var(--text-tertiary)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
+                  className="text-micro text-text-tertiary overflow-hidden truncate"
                 >
                   · {group.hint}
                 </span>

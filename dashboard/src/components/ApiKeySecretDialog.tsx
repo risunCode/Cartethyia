@@ -49,11 +49,7 @@ export function ApiKeySecretDialog({
           and any client still using it starts getting 401s.
         </p>
         <code
-          className="block py-5 px-6 rounded-inset bg-surface-1 text-caption text-text-primary"
-          style={{
-            border: "1px solid var(--inner-border)",
-            wordBreak: "break-all",
-          }}
+          className="block rounded-inset border border-inner-border bg-surface-1 py-5 px-6 text-caption text-text-primary break-all"
         >
           {secret}
         </code>

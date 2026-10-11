@@ -235,18 +235,10 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
               ref={contentRef}
               role="dialog"
               aria-label="Notifications"
-              className="popout-enter glass"
+              className="popout-enter glass rounded-sidebar border border-inner-border bg-popover-bg p-8 shadow-popout fixed top-32 right-8"
               style={{
-                position: "fixed",
                 zIndex: 60,
-                top: "64px",
-                right: "16px",
                 width: "min(340px, calc(100vw - 32px))",
-                borderRadius: "20px",
-                padding: "16px",
-                boxShadow: "var(--shadow-popout)",
-                border: "1px solid var(--inner-border)",
-                background: "var(--popover-bg)",
               }}
             >
               <div
@@ -266,22 +258,14 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
                   type="button"
                   aria-label="Close notifications"
                   onClick={() => setOpen(false)}
-                  style={{ fontSize: "12px", color: "var(--text-tertiary)", background: "transparent", border: "none", cursor: "pointer", padding: "4px" }}
+                  className="cursor-pointer border-none bg-transparent p-2 text-caption text-text-tertiary"
                 >
                   <X size={14} />
                 </button>
               </div>
               <div className="flex flex-col gap-5">
                 <div
-                  style={{
-                    padding: "12px",
-                    borderRadius: "14px",
-                    border: "1px solid var(--inner-border)",
-                    background: "var(--surface-2)",
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "10px",
-                  }}
+                  className="flex items-start gap-5 rounded-card border border-inner-border bg-surface-2 p-6"
                 >
                   <div>
                     <p className="font-semibold text-caption">
@@ -384,43 +368,20 @@ function CommandPalette({ open, close }: { readonly open: boolean; readonly clos
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`dialog-panel card-solid${closing ? " closing" : ""}`}
-        style={{
-          width: "min(540px, calc(100vw - 32px))",
-          borderRadius: "20px",
-          overflow: "hidden",
-          boxShadow: "var(--shadow-popout)",
-          background: "var(--surface-1)",
-          border: "1px solid var(--inner-border)",
-        }}
+        className={`dialog-panel card-solid rounded-sidebar overflow-hidden shadow-popout border border-inner-border bg-surface-1${closing ? " closing" : ""}`}
+        style={{ width: "min(540px, calc(100vw - 32px))" }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="palette-title"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "14px 18px",
-            borderBottom: "1px solid var(--inner-border)",
-          }}
+          className="flex items-center gap-5 border-b border-inner-border py-7 px-9"
         >
           <Search size={16} className="text-text-tertiary" />
           <h2
             id="palette-title"
-            style={{
-              position: "absolute",
-              width: "1px",
-              height: "1px",
-              padding: 0,
-              margin: "-1px",
-              overflow: "hidden",
-              clip: "rect(0, 0, 0, 0)",
-              whiteSpace: "nowrap",
-              border: 0,
-            }}
+            className="sr-only"
           >
             Command palette
           </h2>
@@ -436,24 +397,10 @@ function CommandPalette({ open, close }: { readonly open: boolean; readonly clos
             aria-activedescendant={
               filtered.length === 0 ? undefined : `command-palette-option-${clampedIndex}`
             }
-            style={{
-              flex: 1,
-              background: "transparent",
-              border: "none",
-              outline: "none",
-              fontSize: "14px",
-              color: "var(--text-primary)",
-            }}
+            className="flex-1 border-none bg-transparent text-body-lg text-text-primary outline-none"
           />
           <kbd
-            style={{
-              fontSize: "10px",
-              padding: "2px 6px",
-              borderRadius: "6px",
-              background: "var(--hover)",
-              border: "1px solid var(--inner-border)",
-              color: "var(--text-tertiary)",
-            }}
+            className="rounded-chip border border-inner-border bg-hover py-1 px-3 text-micro text-text-tertiary"
           >
             ESC
           </kbd>
@@ -778,13 +725,7 @@ export function DashboardShell({
                 <Search size={14} />
                 <span>Command palette</span>
                 <kbd
-                  style={{
-                    fontSize: "10px",
-                    padding: "1px 5px",
-                    borderRadius: "4px",
-                    background: "var(--surface-1)",
-                    border: "1px solid var(--inner-border)",
-                  }}
+                  className="rounded-tiny border border-inner-border bg-surface-1 px-2.5 py-0.5 text-micro"
                 >
                   ⌘K
                 </kbd>

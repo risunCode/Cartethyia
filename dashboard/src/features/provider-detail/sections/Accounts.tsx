@@ -730,14 +730,7 @@ export function AccountsList({
             <Search
               size={13}
               aria-hidden="true"
-              style={{
-                position: "absolute",
-                left: "10px",
-                top: "50%",
-                transform: "translateY(-50%)",
-                color: "var(--text-tertiary)",
-                pointerEvents: "none",
-              }}
+              className="absolute left-5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none"
             />
             <Input
               id="accounts-search"
@@ -745,7 +738,7 @@ export function AccountsList({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search accounts..."
               aria-label="Search accounts"
-              style={{ paddingLeft: "30px" }}
+              className="pl-15"
             />
           </div>
         <div className="account-bulk-actions">
@@ -1083,17 +1076,7 @@ export function AddAccountModal({
               placeholder="Paste one credential, or many — one per line, a JSON array, or newline-delimited OAuth exports. Kind and account naming are detected automatically…"
               rows={6}
               spellCheck={false}
-              className="font-mono tabular-nums" style={{ flex: 1,
-                minWidth: 0,
-                minHeight: "130px",
-                borderRadius: "10px",
-                border: "1px solid var(--inner-border)",
-                background: "var(--input-bg)",
-                padding: "10px 12px",
-                fontSize: "12px",
-                color: "var(--text-primary)",
-                resize: "vertical",
-                boxSizing: "border-box" }}
+              className="font-mono tabular-nums flex-1 min-w-0 min-h-65 rounded-control border border-inner-border bg-input-bg px-6 py-5 text-caption text-text-primary resize-y box-border"
             />
             <Button
               variant="secondary"
@@ -1124,17 +1107,7 @@ export function AddAccountModal({
         </Stack>
         {isBatch && (
           <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px",
-              maxHeight: "150px",
-              overflowY: "auto",
-              borderRadius: "10px",
-              border: "1px solid var(--inner-border)",
-              background: "var(--surface-2)",
-              padding: "8px 10px",
-            }}
+            className="flex flex-col gap-2 max-h-75 overflow-y-auto rounded-control border border-inner-border bg-surface-2 px-4 py-5"
           >
             {entries.map((entry, index) => (
               // eslint-disable-next-line react/no-array-index-key

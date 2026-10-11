@@ -181,7 +181,7 @@ function AliasesSection(): ReactNode {
                       icon={<Trash2 size={13} />}
                       onClick={() => setDeleteConfirm(a)}
                       title="Delete alias"
-                      style={{ color: "var(--red)" }}
+                      className="text-red"
                     />
                   </Inline>
                 }
@@ -517,7 +517,7 @@ function CombosSection(): ReactNode {
                         icon={<Trash2 size={13} />}
                         onClick={() => setDeleteConfirm(c)}
                         title="Delete combo"
-                        style={{ color: "var(--red)" }}
+                        className="text-red"
                       />
                     </Inline>
                   </Inline>
@@ -639,7 +639,7 @@ function CombosSection(): ReactNode {
                   renderItem={(m) => (
                     <ListRow
                       density="compact"
-                      leading={<GripVertical size={12} style={{ color: "var(--text-tertiary)", cursor: "grab" }} />}
+                      leading={<GripVertical size={12} className="text-text-tertiary cursor-grab" />}
                       actions={
                         <button
                           type="button"

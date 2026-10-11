@@ -436,7 +436,7 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
         size="sm"
         icon={<Trash2 size={12} />}
         onClick={() => setDeleteOpen(true)}
-        className="absolute top-[4px] right-[4px] p-2 text-text-tertiary"
+        className="absolute top-2 right-2 p-2 text-text-tertiary"
         title={`Delete ${customProvider.label || customProvider.providerId}`}
       />
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete Custom Provider">
@@ -749,7 +749,7 @@ const ProviderCard = memo(function ProviderCard({
         >
           <span
             className={cn(
-              "absolute top-[18px] right-[-22px] w-38 py-1 rotate-45 bg-accent-soft",
+              "absolute top-9 -right-11 w-38 py-1 rotate-45 bg-accent-soft",
               "text-accent text-micro font-extrabold tracking-[0.04em] leading-[1.05]",
               "text-center uppercase shadow-[0_1px_3px_rgba(0,0,0,0.12)]",
             )}

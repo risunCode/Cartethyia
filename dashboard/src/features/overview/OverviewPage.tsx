@@ -77,7 +77,7 @@ function SystemHealthCard(): ReactNode {
           <div className="grid grid-cols-1 gap-4 min-[820px]:grid-cols-2">
             <section className="nested-panel rounded-card border border-inner-border bg-surface-2 p-4.5">
               <div className="flex items-center gap-3.5">
-                <span className="grid size-11 place-items-center rounded-inset text-white" style={{ background: "var(--purple)" }}><MemoryStick size={12} /></span>
+                <span className="grid size-11 place-items-center rounded-inset bg-purple text-white"><MemoryStick size={12} /></span>
                 <div><div className="text-caption font-bold leading-none">RAM & Memory</div><div className="mt-1 text-micro text-text-tertiary">Process + database</div></div>
               </div>
               <div className="mt-3 font-mono text-display font-bold leading-none tabular-nums">{formatBytes(health.memory_bytes).replace(" ", "")} <span className="text-micro text-text-tertiary">RSS</span></div>
@@ -91,7 +91,7 @@ function SystemHealthCard(): ReactNode {
 
             <section className="nested-panel rounded-card border border-inner-border bg-surface-2 p-4.5">
               <div className="flex items-center gap-3.5">
-                <span className="grid size-11 place-items-center rounded-inset text-white" style={{ background: "var(--status-info)" }}><Database size={12} /></span>
+                <span className="grid size-11 place-items-center rounded-inset bg-status-info text-white"><Database size={12} /></span>
                 <div><div className="text-caption font-bold leading-none">Coordination</div><div className="mt-1 text-micro text-text-tertiary">Database and Redis</div></div>
               </div>
               <div className="mt-3 font-mono text-display font-bold leading-none tabular-nums">{health.database_healthy && (!health.redis_configured || health.redis_healthy) ? "Ready" : "Degraded"}</div>

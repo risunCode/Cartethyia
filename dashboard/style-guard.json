@@ -1,22 +1,14 @@
 {
   "src/apps/landing/page.tsx": {
     "staticInline": 0,
-    "arbitrary": 4
-  },
-  "src/components/ApiKeyForm.tsx": {
-    "staticInline": 2,
-    "arbitrary": 0
-  },
-  "src/components/ApiKeySecretDialog.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
+    "arbitrary": 2
   },
   "src/components/ErrorBoundary.tsx": {
     "staticInline": 1,
     "arbitrary": 0
   },
   "src/components/HealthEventsModal.tsx": {
-    "staticInline": 3,
+    "staticInline": 1,
     "arbitrary": 0
   },
   "src/components/ModelBansDialog.tsx": {
@@ -24,11 +16,11 @@
     "arbitrary": 0
   },
   "src/components/ModelPicker.tsx": {
-    "staticInline": 9,
+    "staticInline": 3,
     "arbitrary": 0
   },
   "src/components/Shell.tsx": {
-    "staticInline": 9,
+    "staticInline": 2,
     "arbitrary": 0
   },
   "src/components/ui/input.tsx": {
@@ -36,27 +28,15 @@
     "arbitrary": 1
   },
   "src/features/cli-tools/CliToolDetailPage.tsx": {
-    "staticInline": 7,
+    "staticInline": 5,
     "arbitrary": 0
-  },
-  "src/features/cli-tools/CliToolsPage.tsx": {
-    "staticInline": 2,
-    "arbitrary": 0
-  },
-  "src/features/customization/CustomizationPage.tsx": {
-    "staticInline": 0,
-    "arbitrary": 2
   },
   "src/features/overview/OverviewPage.tsx": {
-    "staticInline": 2,
+    "staticInline": 0,
     "arbitrary": 1
   },
   "src/features/provider-detail/ProviderDetailPage.tsx": {
-    "staticInline": 3,
-    "arbitrary": 0
-  },
-  "src/features/provider-detail/sections/Accounts.tsx": {
-    "staticInline": 4,
+    "staticInline": 1,
     "arbitrary": 0
   },
   "src/features/provider-detail/sections/CredentialNotice.tsx": {
@@ -64,27 +44,27 @@
     "arbitrary": 0
   },
   "src/features/provider-detail/sections/Models.tsx": {
-    "staticInline": 8,
+    "staticInline": 3,
     "arbitrary": 0
   },
   "src/features/provider-detail/sections/RoutingStrategyCard.tsx": {
-    "staticInline": 4,
+    "staticInline": 1,
     "arbitrary": 0
   },
   "src/features/providers/ProvidersPage.tsx": {
     "staticInline": 0,
-    "arbitrary": 5
+    "arbitrary": 1
   },
   "src/features/proxy/ProxyPage.tsx": {
-    "staticInline": 8,
+    "staticInline": 4,
     "arbitrary": 0
   },
   "src/features/quota/QuotaPage.tsx": {
-    "staticInline": 10,
+    "staticInline": 2,
     "arbitrary": 0
   },
   "src/features/routing/CombosPage.tsx": {
-    "staticInline": 5,
+    "staticInline": 2,
     "arbitrary": 0
   },
   "src/features/session/Banned.tsx": {

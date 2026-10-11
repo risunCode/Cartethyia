@@ -45,15 +45,8 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
           </div>
 
           <div
-            style={{
-              padding: "14px",
-              borderRadius: "12px",
-              background: "var(--surface-2)",
-              border: "1px solid var(--inner-border)",
-              fontSize: "12.5px",
-              color: "var(--text-secondary)",
-              lineHeight: 1.5,
-            }}
+            className="rounded-panel border border-inner-border bg-surface-2 p-7 leading-normal text-text-secondary"
+            style={{ fontSize: "12.5px" }}
           >
             <strong className="block text-text-primary mb-2">
               Rendering error

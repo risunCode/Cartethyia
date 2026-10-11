@@ -332,14 +332,7 @@ function CliToolDetailBody({
 
             {status?.settingsPath ? (
               <div
-                className="font-mono tabular-nums" style={{ marginTop: "10px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
-                  background: "var(--surface-2)",
-                  border: "1px solid var(--inner-border)",
-                  fontSize: "11px",
-                  color: "var(--text-secondary)",
-                  wordBreak: "break-all" }}
+                className="font-mono tabular-nums mt-5 px-6 py-4 rounded-inset bg-surface-2 border border-inner-border text-badge text-text-secondary break-all"
               >
                 Config file: {status.settingsPath}
               </div>
@@ -631,16 +624,7 @@ function CliToolDetailBody({
                             onClick={() =>
                               setMappingTargets((prev) => ({ ...prev, [model.alias]: "" }))
                             }
-                            style={{
-                              marginLeft: "6px",
-                              border: "none",
-                              background: "none",
-                              padding: 0,
-                              fontSize: "10px",
-                              color: "var(--text-tertiary)",
-                              cursor: "pointer",
-                              textDecoration: "underline",
-                            }}
+                            className="ml-3 border-none bg-none p-0 text-micro text-text-tertiary cursor-pointer underline"
                           >
                             clear
                           </button>

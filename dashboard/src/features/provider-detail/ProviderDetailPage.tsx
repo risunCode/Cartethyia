@@ -692,15 +692,7 @@ export default function ProviderDetail(): ReactNode {
                       setSearchModelId(event.target.value);
                       setSearchTestResult(null);
                     }}
-                    style={{
-                      width: "100%",
-                      minHeight: "34px",
-                      borderRadius: "8px",
-                      border: "1px solid var(--inner-border)",
-                      background: "var(--surface-1)",
-                      color: "var(--text-primary)",
-                      padding: "0 9px",
-                    }}
+                    className="w-full min-h-17 rounded-inset border border-inner-border bg-surface-1 text-text-primary px-4.5 py-0"
                   >
                     {searchModels.map((model) => (
                       <option key={`${model.modelId}:${model.route}`} value={model.modelId}>
@@ -721,15 +713,7 @@ export default function ProviderDetail(): ReactNode {
                       }
                     }}
                     placeholder="What is the latest news about AI?"
-                    style={{
-                      width: "100%",
-                      minHeight: "34px",
-                      borderRadius: "8px",
-                      border: "1px solid var(--inner-border)",
-                      background: "var(--surface-1)",
-                      color: "var(--text-primary)",
-                      padding: "0 9px",
-                    }}
+                    className="w-full min-h-17 rounded-inset border border-inner-border bg-surface-1 text-text-primary px-4.5 py-0"
                   />
                 </label>
                 <Inline gap="8px" className="items-center flex-wrap">

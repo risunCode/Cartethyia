@@ -70,12 +70,8 @@ export function ModelBansDialog({ onClose }: { readonly onClose: () => void }): 
               />
             ) : (
               <div
-                style={{
-                  maxHeight: "min(55dvh, 480px)",
-                  overflow: "auto",
-                  border: "1px solid var(--inner-border)",
-                  borderRadius: "8px",
-                }}
+                className="overflow-auto rounded-inset border border-inner-border"
+                style={{ maxHeight: "min(55dvh, 480px)" }}
               >
                 <DataTable headers={["Client IP", "Lapses", ""]}>
                   {bans.map((ban) => (

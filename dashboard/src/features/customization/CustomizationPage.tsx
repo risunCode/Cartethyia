@@ -308,7 +308,7 @@ function BackgroundPreview({
       ) : (
         <img src={url} alt="" className="size-full" style={frame} />
       )}
-      <span className="absolute bottom-[8px] left-[10px] rounded-control bg-surface-1 px-4 py-1 text-micro text-text-secondary">
+      <span className="absolute bottom-4 left-5 rounded-control bg-surface-1 px-4 py-1 text-micro text-text-secondary">
         {kind === "video" ? "Video" : "Image"}
         {bytes !== null ? ` · ${formatBytes(bytes)}` : ""}
         {settings.backgroundEnabled ? "" : " · hidden"}

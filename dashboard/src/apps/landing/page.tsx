@@ -327,7 +327,7 @@ export function LandingPage(): ReactElement {
       </header>
 
       {showAll ? (
-        <main className="mx-auto w-[min(100%-2rem,1280px)] pb-17.5 pt-44 sm:w-[min(100%-3rem,1280px)]">
+        <main className="story-shell pb-17.5 pt-44">
           <div className="mb-10.5 flex flex-wrap items-end justify-between gap-5.25">
             <div>
               <p className="text-badge font-bold uppercase tracking-[0.18em] text-white/50">All chapters · 7 stories</p>

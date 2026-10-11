@@ -570,11 +570,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
           />
         </div>
         <div
-          className="flex items-center justify-between gap-6 px-6 py-5 bg-surface-2"
-          style={{
-            borderRadius: "12px",
-            border: "1px solid var(--inner-border)",
-          }}
+          className="flex items-center justify-between gap-6 rounded-panel border border-inner-border px-6 py-5 bg-surface-2"
         >
           <div>
             <div className="text-caption font-bold text-text-primary">
@@ -587,10 +583,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             </p>
           </div>
           <div
-            className="flex gap-2 p-1 rounded-inset bg-surface-1"
-            style={{
-              border: "1px solid var(--inner-border)",
-            }}
+            className="flex gap-2 rounded-inset border border-inner-border bg-surface-1 p-1"
           >
             <button
               type="button"

@@ -457,7 +457,7 @@ function QuotaCard({
             title="Delete account"
             aria-label={`Delete ${account.name}`}
             onClick={() => onDelete(account)}
-            style={{ color: "var(--red)" }}
+            className="text-red"
             icon={<Trash2 size={12} />}
           />
           <Switch
@@ -472,17 +472,7 @@ function QuotaCard({
 
       {cardError && (
         <div
-          className="flex items-center justify-center gap-3.5 border-t border-inner-border px-7 py-5.25 text-center text-badge text-red"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            borderTop: "1px solid var(--inner-border)",
-            padding: "10px 16px",
-            fontSize: "11px",
-            color: "var(--red)",
-          }}
+          className="flex items-center justify-center gap-4 border-t border-inner-border px-8 py-5 text-center text-badge text-red"
           role="alert"
         >
           <TriangleAlert size={13} className="shrink-0" />
@@ -493,14 +483,7 @@ function QuotaCard({
       {/* Quota progress bars */}
       {quota?.windows.length ? (
         <div
-          className="quota-window-list"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-            borderTop: "1px solid var(--inner-border)",
-            padding: "9px 14px",
-          }}
+          className="quota-window-list flex flex-col gap-4 border-t border-inner-border px-7 py-4.5"
         >
           <div className="quota-window-section-label text-micro font-bold tracking-label text-text-tertiary">
             QUOTA WINDOWS
@@ -536,19 +519,13 @@ function QuotaCard({
                   </span>
                 </div>
                 <div
-                  className="quota-bar-track quota-window-bar"
+                  className="quota-bar-track quota-window-bar h-5 rounded-tiny bg-inner-border overflow-hidden"
                   role="progressbar"
                   aria-label={`${label} remaining quota`}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={remaining === null ? undefined : quotaFillPct}
                   aria-valuetext={remaining === null ? "Quota only" : `${formatPercent(remaining)}% remaining`}
-                  style={{
-                    height: "10px",
-                    borderRadius: "4px",
-                    background: "var(--inner-border)",
-                    overflow: "hidden",
-                  }}
                 >
                   <div
                     className="quota-bar-fill"
@@ -590,15 +567,7 @@ function QuotaCard({
           {pagination.pageCount > 1 && (
             <nav
               aria-label={`Quota windows for ${account.name}`}
-              className="quota-window-pagination"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "8px",
-                borderTop: "1px solid var(--inner-border)",
-                paddingTop: "8px",
-              }}
+              className="quota-window-pagination flex items-center justify-between gap-4 border-t border-inner-border pt-4"
             >
               <span
                 aria-live="polite"
@@ -614,7 +583,7 @@ function QuotaCard({
                   disabled={pagination.page === 0}
                   icon={<ChevronLeft size={13} />}
                   onClick={() => setQuotaWindowPage(pagination.page - 1)}
-                  style={{ height: "28px", padding: "0 8px" }}
+                  className="h-14 px-4 py-0"
                 >
                   Previous
                 </Button>
@@ -625,7 +594,7 @@ function QuotaCard({
                   disabled={pagination.page >= pagination.pageCount - 1}
                   icon={<ChevronRight size={13} />}
                   onClick={() => setQuotaWindowPage(pagination.page + 1)}
-                  style={{ height: "28px", padding: "0 8px" }}
+                  className="h-14 px-4 py-0"
                 >
                   Next
                 </Button>
@@ -635,14 +604,7 @@ function QuotaCard({
         </div>
       ) : !cardError ? (
         <div
-          className="border-t border-inner-border py-7 text-center text-badge text-text-tertiary"
-          style={{
-            borderTop: "1px solid var(--inner-border)",
-            padding: "18px 14px",
-            textAlign: "center",
-            fontSize: "11px",
-            color: "var(--text-tertiary)",
-          }}
+          className="border-t border-inner-border px-7 py-9 text-center text-badge text-text-tertiary"
         >
           {/* A pending fill is a real state with a known end, so it gets its own
               copy instead of the misleading "No quota data" a settled empty

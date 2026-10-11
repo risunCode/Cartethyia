@@ -129,8 +129,7 @@ export function RoutingStrategyCard({
                     if (Number.isFinite(value))
                       routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
                   }}
-                  className="form-input"
-                  style={{ width: "72px", flexShrink: 0, textAlign: "center", padding: "6px 8px" }}
+                  className="form-input w-36 shrink-0 text-center px-4 py-3"
                 />
               }
             >
@@ -190,12 +189,7 @@ export function RoutingStrategyCard({
             }}
           >
             <div
-              style={{
-                padding: "10px 12px",
-                borderRadius: "10px",
-                border: "1px solid var(--inner-border)",
-                minWidth: 0,
-              }}
+              className="px-6 py-5 rounded-control border border-inner-border min-w-0"
             >
               <Inline gap="6px" className="text-body font-semibold mb-3">
                 <Fingerprint
@@ -231,12 +225,7 @@ export function RoutingStrategyCard({
             </div>
 
             <div
-              style={{
-                padding: "10px 12px",
-                borderRadius: "10px",
-                border: "1px solid var(--inner-border)",
-                minWidth: 0,
-              }}
+              className="px-6 py-5 rounded-control border border-inner-border min-w-0"
             >
               <label htmlFor="routing-max-inflight" className="form-label">
                 <Inline gap="6px" className="text-body font-semibold">

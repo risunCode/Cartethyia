@@ -78,12 +78,7 @@ export default function CliTools(): ReactNode {
               <Card
                 key={tool.id}
                 interactive
-                style={{
-                  position: "relative",
-                  overflow: "hidden",
-                  border: "1px solid var(--inner-border)",
-                  borderRadius: "12px",
-                }}
+                className="relative overflow-hidden rounded-panel"
               >
                 <Link
                   to={`/cli-tools/${tool.id}`}
@@ -139,12 +134,7 @@ export default function CliTools(): ReactNode {
             <Card
               key={tool.id}
               interactive
-              style={{
-                position: "relative",
-                overflow: "hidden",
-                border: "1px solid var(--inner-border)",
-                borderRadius: "12px",
-              }}
+              className="relative overflow-hidden rounded-panel"
             >
               <Link
                 to={`/cli-tools/${tool.id}`}

@@ -260,7 +260,7 @@ function PoolEditForm({
           className="font-mono tabular-nums" style={{ ...inputStyle }}
         />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+      <div className="grid grid-cols-2 gap-5">
         <div>
           <Input
             label="Max concurrent"
@@ -496,14 +496,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
       </div>
       {error && (
         <div
-          style={{
-            padding: "8px 12px",
-            borderRadius: "8px",
-            fontSize: "11px",
-            whiteSpace: "pre-line",
-            background: "var(--red-soft)",
-            color: "var(--red)",
-          }}
+          className="px-6 py-4 rounded-inset text-badge whitespace-pre-line bg-red-soft text-red"
         >
           {error}
         </div>
@@ -1223,12 +1216,7 @@ function PoolHealthDialog({
             {events.map((event) => (
               <div
                 key={event.id}
-                style={{
-                  padding: "12px",
-                  border: "1px solid var(--inner-border)",
-                  borderRadius: "10px",
-                  background: "var(--surface-1)",
-                }}
+                className="p-6 border border-inner-border rounded-control bg-surface-1"
               >
                 <div
                   className="flex flex-wrap items-center justify-between gap-4"
@@ -1665,14 +1653,7 @@ export default function Proxy(): ReactNode {
                     onValueChange={(value) => setSpeedBytes(Number(value))}
                     options={SPEED_TEST_SIZES}
                     disabled={speedTestingIds.size > 0 || speedTest.isPending}
-                    style={{
-                      width: "auto",
-                      minWidth: "76px",
-                      height: "30px",
-                      borderTopLeftRadius: 0,
-                      borderBottomLeftRadius: 0,
-                      marginLeft: "-1px",
-                    }}
+                    className="w-auto min-w-38 h-15 rounded-tl-none rounded-bl-none -ml-0.5"
                   />
                 </div>
                 <Button
