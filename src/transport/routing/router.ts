@@ -212,11 +212,43 @@ function resolveAlias(
  * `disabled` stays a hard exclusion: it is an operator decision, and only an
  * operator restores it.
  */
+/**
+ * Carries a cooling deadline onto a decision only when there is one.
+ *
+ * A spread rather than a bare field because `exactOptionalPropertyTypes` treats
+ * `cooldown_until: undefined` as a *present* property, which would assert a
+ * deadline exists for a candidate that has none.
+ */
+function spreadDeadline(cooldownUntil: number | undefined): { cooldown_until?: number } {
+  return cooldownUntil === undefined ? {} : { cooldown_until: cooldownUntil };
+}
+
+/**
+ * The earliest instant any cooling candidate recovers, in epoch ms.
+ *
+ * `undefined` when no decision carries a deadline — which is the honest answer
+ * for a set whose exclusions have no reset (`disabled`, `locked`), and keeps
+ * `accountsRateLimitedError` from reporting a number nobody measured. The
+ * minimum, not the maximum: the client can be served as soon as the *first*
+ * account comes back, so quoting the slowest would hold it off longer than it
+ * has to wait.
+ */
+function earliestResetMs(decisions: readonly EligibilityDecision[]): number | undefined {
+  let earliest: number | undefined;
+  for (const decision of decisions) {
+    const until = decision.cooldown_until;
+    if (typeof until !== "number" || !Number.isFinite(until) || until <= Date.now()) continue;
+    if (earliest === undefined || until < earliest) earliest = until;
+  }
+  return earliest;
+}
+
 export class EligibilityEvaluator {
   evaluate(candidate: RouteCandidate): EligibilityDecision {
     const state = candidate as RouteCandidate & {
       readonly health_status?: string;
       readonly cooldown_kind?: "hard" | "soft";
+      readonly cooldown_until?: number;
       readonly account_locked?: boolean;
       readonly locked?: boolean;
       readonly usage_floor?: number;
@@ -228,9 +260,9 @@ export class EligibilityEvaluator {
     if (state.health_status === "disabled")
       return { eligible: false, reason: "disabled", candidate };
     if (state.health_status === "model_cooldown")
-      return { eligible: false, reason: "model_cooldown", candidate };
+      return { eligible: false, reason: "model_cooldown", candidate, ...spreadDeadline(state.cooldown_until) };
     if (state.health_status === "cooldown" && state.cooldown_kind === "hard")
-      return { eligible: false, reason: "cooldown_hard", candidate };
+      return { eligible: false, reason: "cooldown_hard", candidate, ...spreadDeadline(state.cooldown_until) };
     // The floor is checked here, not after selection: the old minimum-balance
     // feature computed the number and never consulted it, so an account below
     // its floor still won the route. An account with no reading is left
@@ -238,7 +270,7 @@ export class EligibilityEvaluator {
     if (belowUsageFloor(state))
       return { eligible: false, reason: "quota_exhausted", candidate };
     if (state.health_status === "cooldown")
-      return { eligible: true, reason: "cooldown", candidate };
+      return { eligible: true, reason: "cooldown", candidate, ...spreadDeadline(state.cooldown_until) };
     return { eligible: true, reason: "healthy", candidate };
   }
 
@@ -457,7 +489,7 @@ export class RoutingEngine {
         (d) => d.reason === "cooldown_hard" || d.reason === "model_cooldown",
       );
       if (rateLimited) {
-        throw accountsRateLimitedError(requestedModel, resolved.model);
+        throw accountsRateLimitedError(requestedModel, resolved.model, earliestResetMs(decisions));
       }
       // Combo members without any routable candidate never reach the client
       // envelope — but the operator needs them to fix the combo, so they go
@@ -486,7 +518,7 @@ export class RoutingEngine {
       (d) => d.eligible && d.reason !== "cooldown",
     ).length;
     if (healthyCount === 0) {
-      throw accountsRateLimitedError(requestedModel, resolved.model);
+      throw accountsRateLimitedError(requestedModel, resolved.model, earliestResetMs(decisions));
     }
     // Cooling accounts are eligible but tried last: a healthy candidate that
     // can serve the request must win, while a deployment whose only account is

@@ -83,6 +83,13 @@ export interface TestRoute {
   readonly healthStatus?: "cooldown" | "model_cooldown" | "disabled";
   /** Cooldown class the catalog projects when `healthStatus` is `cooldown`. */
   readonly cooldownKind?: "hard" | "soft";
+  /**
+   * Epoch ms at which the cooling window ends — what `route-catalog.ts` derives
+   * from the account row's own deadline and attaches to the candidate. Only the
+   * evaluator and `plan()` read it, to report a real `retry-after` on the
+   * all-accounts-cooling answer.
+   */
+  readonly cooldownUntil?: number;
 }
 
 /** Optional routing tables a suite needs beyond the candidate list. */
@@ -524,6 +531,7 @@ export function buildSnapshot(
     // `EligibilityEvaluator` reads it from there, so the fixture sets it there.
     ...(route.healthStatus === undefined ? {} : { health_status: route.healthStatus }),
     ...(route.cooldownKind === undefined ? {} : { cooldown_kind: route.cooldownKind }),
+    ...(route.cooldownUntil === undefined ? {} : { cooldown_until: route.cooldownUntil }),
     tenant_id: null,
   }));
   return {

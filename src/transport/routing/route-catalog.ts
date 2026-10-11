@@ -74,6 +74,13 @@ export function cliMappingSourceKeys(toolId: string, sourceModel: string): reado
 type RouteCandidateWithHealth = RouteCandidate & {
   health_status?: "cooldown" | "model_cooldown" | "disabled";
   cooldown_kind?: "hard" | "soft";
+  /**
+   * Epoch milliseconds at which this candidate's cooling window ends, when one
+   * is in force. Routing-internal: it is what lets `plan()` report a real reset
+   * on the all-accounts-cooling answer, and it never reaches a client verbatim —
+   * only the derived `retry-after` does.
+   */
+  cooldown_until?: number;
 };
 
 const HARD_COOLDOWN_CATEGORIES: Readonly<Record<string, true>> = {
@@ -586,6 +593,11 @@ class RouteCatalogRepository {
             candidate.cooldown_kind = hardCooldownCategory(account.lastErrorCategory)
               ? "hard"
               : "soft";
+            // The deadline rides with the exclusion it explains. `plan()` reads
+            // it to answer the all-cooling case with the real reset instead of
+            // a bare 429, so a client backs off for the window that is actually
+            // open rather than inventing one.
+            candidate.cooldown_until = account.cooldownUntil.getTime();
           }
         }
 
@@ -608,6 +620,7 @@ class RouteCatalogRepository {
         const modelCooldownUntil = modelCooldowns?.[model.modelId];
         if (modelCooldownUntil && new Date(modelCooldownUntil).getTime() > Date.now()) {
           candidate.health_status = "model_cooldown";
+          candidate.cooldown_until = new Date(modelCooldownUntil).getTime();
         }
         if (tenantId === undefined || candidate.tenant_id === null || candidate.tenant_id === tenantId) {
           candidates.push(candidate);

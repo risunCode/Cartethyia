@@ -174,6 +174,14 @@ export interface EligibilityDecision {
   readonly eligible: boolean;
   readonly reason: EligibilityReason;
   readonly candidate: RouteCandidate;
+  /**
+   * Epoch milliseconds at which this candidate's cooling window ends, when the
+   * exclusion that produced this decision carries one. Absent for a healthy
+   * candidate and for every reason with no deadline (`disabled`, `locked`,
+   * `quota_exhausted` from the usage floor). `plan()` takes the minimum across
+   * the cooling set to report the earliest reset a client could retry against.
+   */
+  readonly cooldown_until?: number;
 }
 
 export interface Reservation {
@@ -321,13 +329,29 @@ export function accountsUnavailableError(
 export function accountsRateLimitedError(
   requested: string,
   routed: string = requested,
+  /** Earliest epoch-ms instant any cooling candidate recovers, when known. */
+  earliestResetMs?: number,
 ): GatewayError {
   const routeNote = routed === requested ? "" : ` (routed to '${routed}')`;
+  // The reset rides as `retryAfterMs`, the same hint every other retryable
+  // failure uses, so `error-lifecycle.ts` turns it into a real `retry-after`
+  // header instead of the one-second floor it falls back to. Reporting the
+  // actual earliest recovery is the difference between a client that waits out
+  // the window and one that re-dials a resting account every second.
+  const retryAfterMs =
+    earliestResetMs !== undefined && earliestResetMs > Date.now()
+      ? earliestResetMs - Date.now()
+      : undefined;
   return new GatewayError(
     "accounts_rate_limited",
     429,
     `Every account serving '${requested}'${routeNote} is cooling down after hitting upstream limits. The request is fine — retry once the cooldown resets.`,
-    { model: requested, routed_model: routed, reason: "all_accounts_cooling" },
+    {
+      model: requested,
+      routed_model: routed,
+      reason: "all_accounts_cooling",
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    },
   );
 }
 

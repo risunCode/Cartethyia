@@ -113,6 +113,32 @@ describe("EligibilityEvaluator", () => {
     const target = candidate({ health_status: "cooldown" });
     expect(evaluator.evaluate(target).candidate).toBe(target);
   });
+
+  // A cooling decision carries the deadline that produced it, so `plan()` can
+  // report the real reset instead of a bare 429. Before this the deadline lived
+  // only on the account row at snapshot-build time and was dropped at the
+  // evaluator, so the all-accounts-cooling answer had no wait to quote and every
+  // client fell back to `retry-after: 1`.
+  test("a cooling decision carries the deadline the exclusion was built from", () => {
+    const until = Date.now() + 600_000;
+    expect(evaluator.evaluate(candidate({ health_status: "cooldown", cooldown_until: until })).cooldown_until).toBe(until);
+    expect(
+      evaluator.evaluate(candidate({ health_status: "cooldown", cooldown_kind: "hard", cooldown_until: until }))
+        .cooldown_until,
+    ).toBe(until);
+    expect(
+      evaluator.evaluate(candidate({ health_status: "model_cooldown", cooldown_until: until })).cooldown_until,
+    ).toBe(until);
+  });
+
+  test("a decision with no deadline carries none, rather than undefined-as-present", () => {
+    // `exactOptionalPropertyTypes` makes `cooldown_until: undefined` a *present*
+    // property, which would assert a window exists for a candidate that has
+    // none. Absent must mean absent.
+    const healthy = evaluator.evaluate(candidate({ health_status: "active" }));
+    expect("cooldown_until" in healthy).toBe(false);
+    expect(evaluator.evaluate(candidate({ health_status: "cooldown" }))).not.toHaveProperty("cooldown_until");
+  });
 });
 
 dbDescribe("account failover", () => {
@@ -280,6 +306,84 @@ dbDescribe("account failover", () => {
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("accounts_rate_limited");
     expect(dispatchedAccountIds()).toEqual([]);
+  });
+
+  test("the all-cooling 429 reports the real reset in retry-after", async () => {
+    // The 429 already told the client to "retry once the cooldown resets", but
+    // carried no deadline, so `error-lifecycle.ts` fell back to `retry-after: 1`
+    // and a client re-dialled a resting account every second for the whole
+    // window. The earliest cooling deadline is now the reported wait.
+    const cooling = await world.addAccount({ label: "only-cooling" });
+    gateway.setRoutes([
+      {
+        providerId: world.providerId,
+        modelId: world.modelId,
+        accountId: cooling,
+        healthStatus: "cooldown",
+        cooldownUntil: Date.now() + 600_000,
+      },
+    ]);
+    gateway.adapter(world.providerId);
+
+    const response = await chat();
+    expect(response.status).toBe(429);
+    // ~600s, allowing for the clock ticking between the fixture and the header.
+    const retryAfter = Number(response.headers.get("retry-after"));
+    expect(Number.isFinite(retryAfter)).toBe(true);
+    expect(retryAfter).toBeGreaterThan(590);
+    expect(retryAfter).toBeLessThanOrEqual(600);
+    expect(dispatchedAccountIds()).toEqual([]);
+  });
+
+  test("with several cooling accounts the earliest reset is reported", async () => {
+    // The minimum, not the maximum: the request can be served as soon as the
+    // first account recovers, so quoting the slowest would hold the client off
+    // longer than it has to wait.
+    const soon = await world.addAccount({ label: "soon" });
+    const later = await world.addAccount({ label: "later" });
+    gateway.setRoutes([
+      {
+        providerId: world.providerId,
+        modelId: world.modelId,
+        accountId: soon,
+        healthStatus: "cooldown",
+        cooldownUntil: Date.now() + 120_000,
+      },
+      {
+        providerId: world.providerId,
+        modelId: world.modelId,
+        accountId: later,
+        healthStatus: "cooldown",
+        cooldownUntil: Date.now() + 7_200_000,
+      },
+    ]);
+    gateway.adapter(world.providerId);
+
+    const response = await chat();
+    expect(response.status).toBe(429);
+    const retryAfter = Number(response.headers.get("retry-after"));
+    expect(retryAfter).toBeGreaterThan(110);
+    expect(retryAfter).toBeLessThanOrEqual(120);
+  });
+
+  test("an exclusion with no deadline reports no invented wait", async () => {
+    // `disabled` has no reset — only an operator can lift it. Reporting a
+    // fabricated backoff would send the client into a retry loop that can never
+    // succeed, so the 503 path must not grow a `retry-after` from nothing.
+    const off = await world.addAccount({ label: "disabled" });
+    gateway.setRoutes([
+      {
+        providerId: world.providerId,
+        modelId: world.modelId,
+        accountId: off,
+        healthStatus: "disabled",
+      },
+    ]);
+    gateway.adapter(world.providerId);
+
+    const response = await chat();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBeNull();
   });
 
   test("a non-retryable upstream failure is not retried against a sibling", async () => {

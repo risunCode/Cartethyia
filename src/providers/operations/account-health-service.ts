@@ -8,6 +8,7 @@ import { healthEvents, providerAccounts } from "../../persistence/schema";
 
 import { parseProviderResetDuration, parseUpstreamBackoff } from "../../transport/failure-policy";
 import {
+  resolveAccountCooldownEscalationMaxMs,
   resolveAccountModelCapacityCooldownMs,
   resolveAccountQuotaCooldownMs,
   resolveAccountRateLimitCooldownMs,
@@ -148,6 +149,70 @@ export interface AccountErrorClassification {
   readonly reason: string;
   readonly retryAt: Date | null;
   readonly mutatesAccount: boolean;
+  /**
+   * True when `cooldownMs` came from the provider's own statement — a parsed
+   * `Retry-After`-family header, or a reset quoted in its message — rather than
+   * from one of this module's fallback constants.
+   *
+   * A property of the *evidence*, not of the category, so it is the same for
+   * every branch of one classification. Only {@link escalateFallbackCooldown}
+   * reads it: a provider-stated window is the truth and is never multiplied.
+   */
+  readonly providerStated?: boolean;
+}
+
+/**
+ * How many doublings a fallback cooldown may take before the cap takes over.
+ *
+ * Four is enough to reach the cap from every fallback default (the longest is
+ * the 1h quota fallback, which reaches it on the first doubling) while keeping
+ * the ladder short enough to reason about.
+ */
+const COOLDOWN_ESCALATION_MAX_LEVEL = 4;
+
+/**
+ * Escalates a *fallback* cooldown for an account that keeps failing.
+ *
+ * `consecutiveFailures` has been incremented on every account failure since the
+ * health machine was written, but nothing ever read it — so a broken upstream
+ * was re-dialled once a minute forever, and an account whose quota had an
+ * unstated reset came straight back into rotation every time its short fallback
+ * lapsed. The count is now a backoff level: each further consecutive failure
+ * doubles the fallback, clamped to {@link resolveAccountCooldownEscalationMaxMs}.
+ *
+ * Two guards keep it from overriding the provider. A duration the provider
+ * *stated* is never multiplied — that window is the truth. And the caller writes
+ * the result through a monotonic maximum, so a burst of concurrent in-flight
+ * failures advances the deadline to the longest of them instead of compounding
+ * once per failure.
+ */
+function escalateFallbackCooldown(
+  cooldownMs: number,
+  providerStated: boolean,
+  consecutiveFailures: number,
+): number {
+  if (providerStated || cooldownMs <= 0) return cooldownMs;
+  const level = Math.min(Math.max(0, consecutiveFailures), COOLDOWN_ESCALATION_MAX_LEVEL);
+  return Math.min(cooldownMs * 2 ** level, resolveAccountCooldownEscalationMaxMs());
+}
+
+/**
+ * The later of a candidate deadline and the one already recorded.
+ *
+ * Every fallback duration is recomputed from *now* on each failure, so writing
+ * it unconditionally let a fresh short failure *shorten* a longer window already
+ * in force: a 60-second unclassified cooldown overwrote the provider's own
+ * "Try again in 11h" and released the pair back into rotation inside a window
+ * the upstream had closed, where it failed again — once a minute, forever.
+ * A cooling deadline may only ever move later.
+ */
+function latestDeadlineMs(...candidates: readonly (number | undefined | null)[]): number {
+  let latest = 0;
+  for (const value of candidates) {
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    if (value > latest) latest = value;
+  }
+  return latest;
 }
 
 
@@ -203,6 +268,9 @@ export function classifyAccountError(
     options?.retryAfterMs ??
     parseUpstreamBackoff({ get: getHeader });
   const messageCooldown = parseProviderResetDuration(message);
+  // Whether the provider itself named a window. Decided once, from the
+  // evidence, so every branch of this classification agrees about it.
+  const providerStated = headerCooldown !== null || messageCooldown !== null;
   const reason = (prefix: string): string => `${prefix}: ${message.slice(0, 160)}`;
   const result = (
     category: AccountErrorCategory,
@@ -218,6 +286,7 @@ export function classifyAccountError(
     reason: explanation,
     retryAt,
     mutatesAccount,
+    providerStated,
   });
 
   // A price refusal is a verdict on the *request*, not on the account. inferhub
@@ -584,12 +653,28 @@ export async function recordAccountFailure(
       effective.category === "model_capacity" ||
       effective.category === "model_unreachable";
     const shouldModelCooldown = modelId !== undefined && isThrottle;
+    // The account-wide streak, escalated for a provider-stated window. Read once
+    // so the model-scoped and account-wide paths below cannot disagree about it:
+    // this is the count *before* this failure, which the UPDATE below increments.
+    const streak = Math.max(0, account.consecutiveFailures ?? 0);
+    const escalatedCooldownMs = escalateFallbackCooldown(
+      effective.cooldownMs,
+      effective.providerStated === true,
+      streak,
+    );
 
     if (shouldModelCooldown) {
       const existing = (account.modelCooldowns as Record<string, string> | null) ?? {};
-      const nextUntil =
-        effective.retryAt?.toISOString() ??
-        new Date(Date.now() + effective.cooldownMs).toISOString();
+      // Monotonic: never move an in-force window earlier (see `latestDeadlineMs`).
+      // A provider-stated deadline wins outright because it is already the later
+      // of the two whenever the provider really parked the pair longer.
+      const nextUntil = new Date(
+        latestDeadlineMs(
+          effective.retryAt?.getTime(),
+          Date.now() + escalatedCooldownMs,
+          existing[modelId] ? Date.parse(existing[modelId]!) : undefined,
+        ),
+      ).toISOString();
       const previousUntil = existing[modelId];
       // A re-statement is not an event: what the audit row reports is the
       // *entry* into a cooling episode, and the deadline itself is not a
@@ -608,10 +693,17 @@ export async function recordAccountFailure(
       // The error fields ARE written, because they are what provider detail and
       // the health dialog read to explain *why* a model is cooling — without
       // them the row showed "1 model cooling" with no reason at all.
+      //
+      // The streak advances here too. Without it the most common throttle — a
+      // model-scoped rate limit — never escalated, because the counter was only
+      // incremented on the account-wide path below, and `consecutiveFailures`
+      // stays honest about what it always claimed to count: how many failures in
+      // a row this account has just produced.
       await client
         .update(providerAccounts)
         .set({
           modelCooldowns: { ...existing, [modelId]: nextUntil },
+          consecutiveFailures: sql`${providerAccounts.consecutiveFailures} + 1`,
           lastError: effective.reason,
           lastErrorCategory: effective.category,
           lastErrorAt: now,
@@ -646,7 +738,16 @@ export async function recordAccountFailure(
         lastError: effective.reason,
         lastErrorCategory: effective.category,
         lastErrorAt: now,
-        cooldownUntil: effective.retryAt,
+        // Monotonic against the account's own in-force deadline, for the same
+        // reason as the model path: an unclassified 60-second failure must not
+        // release an account the provider parked for hours.
+        cooldownUntil: new Date(
+          latestDeadlineMs(
+            effective.retryAt?.getTime(),
+            Date.now() + escalatedCooldownMs,
+            account.cooldownUntil?.getTime?.(),
+          ),
+        ),
       })
       .where(eq(providerAccounts.id, accountId));
 

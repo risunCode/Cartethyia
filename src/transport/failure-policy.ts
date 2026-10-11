@@ -618,6 +618,43 @@ export interface UpstreamErrorClassification {
   readonly rateLimitScope?: "provider";
 }
 
+/**
+ * Statuses whose meaning is authoritative and must survive a body identifier.
+ *
+ * `401`, `402` and `429` name the failure class outright — the credential was
+ * rejected, the account cannot pay, or the bucket is exhausted — and no field in
+ * the error body can change what the status already decided. A generic body type
+ * must therefore not be allowed to demote them.
+ *
+ * The demotion it prevents is not cosmetic. `invalid_request_error` /
+ * `invalid_argument` / `invalid_parameter` / `bad_request` map to
+ * `invalid_request` at HTTP 400, which `classifyUpstreamFailure` does **not**
+ * consider retryable, so `runAttemptLoop` stops on the first candidate even when
+ * healthy siblings remain — and because an `invalid_request` carries no
+ * `credentialEvidence`, `classifyAccountError` leaves the account `unknown` with
+ * `mutatesAccount: false`, so the credential that was just rejected stays in
+ * rotation and fails the next request the same way. Reproduced end to end: an
+ * upstream `401` whose body reads `{"error":{"type":"invalid_request_error"}}`
+ * produced `invalid_request` / 400 / non-retryable / account unmarked, where the
+ * same status with `authentication_error` correctly produced
+ * `authentication_failed` / 401 / retryable / account `disabled`.
+ *
+ * `403` is deliberately absent. It is genuinely ambiguous, and two known
+ * providers depend on reading it: the buddy family answers a deterministic
+ * content-policy rejection with `403` + `11140` (which must not be treated as an
+ * auth signal, because refreshing a token cannot change a safety verdict), and
+ * Google Cloud Code / Antigravity answers a single-model entitlement gap with
+ * `403` + "you do not have a valid license of this product" (which must not
+ * disable an account whose other models are healthy). Leaving `403` out is what
+ * keeps those rules reachable.
+ *
+ * An absent status is not authoritative either: a stream error frame carries no
+ * HTTP status, and its body type is then the only evidence there is.
+ */
+function isAuthoritativeFailureStatus(status: number | undefined): boolean {
+  return status === 401 || status === 402 || status === 429;
+}
+
 /** Maps a machine-readable provider identifier before falling back to status alone. */
 export function classifyUpstreamError(
   status: number | undefined,
@@ -695,10 +732,11 @@ export function classifyUpstreamError(
   )
     return { code: "deadline_exceeded", status: 504, origin: "upstream" };
   if (
-    normalized === "invalid_request_error" ||
-    normalized === "invalid_argument" ||
-    normalized === "invalid_parameter" ||
-    normalized === "bad_request"
+    !isAuthoritativeFailureStatus(status) &&
+    (normalized === "invalid_request_error" ||
+      normalized === "invalid_argument" ||
+      normalized === "invalid_parameter" ||
+      normalized === "bad_request")
   )
     return { code: "invalid_request", status: 400, origin: "upstream" };
   const code = statusToGatewayErrorCode(upstreamStatus);

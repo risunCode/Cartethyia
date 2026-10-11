@@ -48,6 +48,21 @@ export function resolveAccountUnclassifiedCooldownMs(): number {
   );
 }
 
+/**
+ * Ceiling an escalated fallback cooldown may reach (default 1h).
+ *
+ * A fallback duration is one the provider never stated, so escalating it is our
+ * own estimate. The cap keeps that estimate from outliving a short transient
+ * window: an account that recovers on its own must not sit parked for a day
+ * because a burst of 5xx happened to arrive while it was already cooling.
+ */
+export function resolveAccountCooldownEscalationMaxMs(): number {
+  return readInt(
+    "CARTETHYIA_ACCOUNT_COOLDOWN_ESCALATION_MAX_MS",
+    CONFIG_SPEC.CARTETHYIA_ACCOUNT_COOLDOWN_ESCALATION_MAX_MS,
+  );
+}
+
 /** How long a proxy pool stays `cooldown` after a transport fault (default 2m). */
 export function resolvePoolCooldownMs(): number {
   return readInt("CARTETHYIA_POOL_COOLDOWN_MS", CONFIG_SPEC.CARTETHYIA_POOL_COOLDOWN_MS);

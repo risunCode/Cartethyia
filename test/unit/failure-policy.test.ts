@@ -1427,6 +1427,67 @@ describe("classifyUpstreamError", () => {
       origin: "upstream",
     });
   });
+
+  // An upstream frequently pairs an authoritative status with the generic
+  // `invalid_request_error` body type. Letting the body demote the status broke
+  // two machines at once: `invalid_request`/400 is not retryable, so failover
+  // stopped on the first candidate with healthy siblings left; and it carries no
+  // `credentialEvidence`, so the rejected credential was never marked and was
+  // chosen again on the next request. These cases pin the status as authoritative.
+  describe("an authoritative status is not demoted by a generic body type", () => {
+    test("a 401 stays an auth failure and carries credential evidence", () => {
+      expect(classifyUpstreamError(401, "invalid_request_error")).toEqual({
+        code: "authentication_failed",
+        status: 401,
+        origin: "upstream",
+        credentialEvidence: true,
+      });
+    });
+
+    test("a 429 stays a rate limit so failover and the account cooldown both run", () => {
+      expect(classifyUpstreamError(429, "invalid_request_error")).toEqual({
+        code: "quota_exceeded",
+        status: 429,
+        origin: "upstream",
+        rateLimitScope: "provider",
+      });
+    });
+
+    test("a 402 stays a billing failure", () => {
+      // No `rateLimitScope`: that flag is what makes `shouldCooldownPool` cool an
+      // IP-scoped pool, and a billing refusal is not a rate limit.
+      expect(classifyUpstreamError(402, "invalid_request_error")).toEqual({
+        code: "quota_exceeded",
+        status: 402,
+        origin: "upstream",
+      });
+    });
+
+    test("every generic invalid-request identifier is covered", () => {
+      for (const identifier of ["invalid_request_error", "invalid_argument", "invalid_parameter", "bad_request"]) {
+        expect(classifyUpstreamError(401, identifier).code).toBe("authentication_failed");
+        expect(classifyUpstreamError(429, identifier).code).toBe("quota_exceeded");
+      }
+    });
+
+    test("a body identifier still decides when the status says nothing", () => {
+      // A stream error frame carries no HTTP status; its body type is the only
+      // evidence, so the identifier must keep winning there.
+      expect(classifyUpstreamError(undefined, "invalid_request_error")).toEqual({
+        code: "invalid_request",
+        status: 400,
+        origin: "upstream",
+      });
+    });
+
+    test("403 stays ambiguous, so the provider policy rules remain reachable", () => {
+      // The buddy `11140` content-policy block and the Antigravity
+      // single-model entitlement gap both arrive as a 403 and must not be
+      // reclassified as auth or quota.
+      expect(classifyUpstreamError(403, "invalid_request_error").code).toBe("invalid_request");
+      expect(classifyUpstreamError(403, "11140").code).toBe("policy_rejected");
+    });
+  });
 });
 
 describe("isContextLengthFailure", () => {
