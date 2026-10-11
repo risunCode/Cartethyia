@@ -97,3 +97,127 @@ describe("classifyAccountError — a regional model rejection", () => {
     expect(classification.mutatesAccount).toBe(true);
   });
 });
+
+/**
+ * The other half of the distinction: an auth rejection that names no revocation
+ * must NOT park the account.
+ *
+ * The branch above is deliberate — a revocation is the one auth outcome with no
+ * expiry to wait out and no refresh to run. But `disabled` is also the one state
+ * no sweep recovers (`sweepExpiredCooldowns` selects `status = "cooldown"` only,
+ * and `recordAccountSuccess` returns early on `disabled`), so every *other* auth
+ * rejection reaching it removed the account from rotation until an operator
+ * noticed by hand.
+ *
+ * A bare `401`/`403` is weak evidence: clock skew, a key rotated upstream a
+ * moment ago, an edge answering before the credential loads. All of them used to
+ * cost the account permanently. `disabled` must now require the upstream to
+ * actually name the revocation.
+ */
+describe("classifyAccountError — a rejection that names no revocation cools down", () => {
+  test("a bare 401 cools the account instead of disabling it", () => {
+    const error = new GatewayError(
+      "authentication_failed",
+      401,
+      "Invalid Authentication",
+      { credentialEvidence: true },
+      "upstream",
+    );
+    const classification = classifyAccountError(error, {
+      origin: "upstream",
+      scope: "account",
+      credentialEvidence: true,
+    });
+    // `cooldown`, not `disabled`: the deadline is what lets the sweep return it.
+    expect(classification.status).toBe("cooldown");
+    expect(classification.category).toBe("auth_invalidated");
+    expect(classification.mutatesAccount).toBe(true);
+    expect(classification.cooldownMs).toBeGreaterThan(0);
+    expect(classification.retryAt).toBeInstanceOf(Date);
+  });
+
+  test("a 403 credential rejection cools down too", () => {
+    const error = new GatewayError(
+      "authentication_failed",
+      403,
+      "Incorrect API key provided",
+      { credentialEvidence: true },
+      "upstream",
+    );
+    expect(
+      classifyAccountError(error, { origin: "upstream", scope: "account", credentialEvidence: true }).status,
+    ).toBe("cooldown");
+  });
+
+  test("an OAuth expiry cools down whether or not the credential kind is known", () => {
+    // Dispatch builds its evidence as `{...classifyUpstreamFailure(error)}`,
+    // which carries no `credentialKind`, so the refresh-aware branch was
+    // unreachable from the request path and an expired OAuth token was parked
+    // exactly like a revoked one. Both must cool; `recordAccountFailure` fills
+    // the kind in from the account row.
+    const error = new GatewayError(
+      "authentication_failed",
+      401,
+      "token expired",
+      { credentialEvidence: true },
+      "upstream",
+    );
+    expect(
+      classifyAccountError(error, { origin: "upstream", scope: "account", credentialEvidence: true }).status,
+    ).toBe("cooldown");
+    expect(
+      classifyAccountError(error, {
+        origin: "upstream",
+        scope: "account",
+        credentialEvidence: true,
+        credentialKind: "oauth",
+      }).status,
+    ).toBe("cooldown");
+  });
+
+  test("a generic rejection never reports the revocation wording", () => {
+    // The reason is what the health dialog shows an operator. Claiming a
+    // credential was *revoked* on a bare 401 would send them to re-authenticate
+    // a key that was never revoked.
+    const error = new GatewayError(
+      "authentication_failed",
+      401,
+      "Invalid Authentication",
+      { credentialEvidence: true },
+      "upstream",
+    );
+    const classification = classifyAccountError(error, {
+      origin: "upstream",
+      scope: "account",
+      credentialEvidence: true,
+    });
+    expect(classification.reason).not.toMatch(/revoked/i);
+  });
+
+  test("a named revocation still parks the account", () => {
+    // The companion rule: without a refresh to run and no window to wait out, a
+    // cooldown only returns a dead credential to rotation to fail again.
+    for (const message of ["token_revoked", "token revoked", "invalidated oauth token"]) {
+      const error = new GatewayError(
+        "authentication_failed",
+        401,
+        message,
+        { credentialEvidence: true },
+        "upstream",
+      );
+      const classification = classifyAccountError(error, {
+        origin: "upstream",
+        scope: "account",
+        credentialEvidence: true,
+      });
+      expect(classification.status).toBe("disabled");
+      expect(classification.mutatesAccount).toBe(true);
+    }
+  });
+
+  test("a local-origin rejection mutates nothing either way", () => {
+    // Only an upstream verdict is evidence about the credential.
+    const error = new GatewayError("authentication_failed", 401, "bad key", {}, "cartethyia");
+    expect(classifyAccountError(error, { origin: "cartethyia" }).mutatesAccount).toBe(false);
+  });
+});

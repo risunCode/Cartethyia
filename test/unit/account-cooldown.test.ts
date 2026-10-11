@@ -254,3 +254,63 @@ describe("recordAccountFailure — the streak counts every throttle", () => {
     expect(onlyUpdate(captured).consecutiveFailures).toBeDefined();
   });
 });
+
+describe("recordAccountFailure — an auth rejection writes a cooldown, not a disable", () => {
+  test("an expired OAuth token cools the account", async () => {
+    // `disabled` is the one state no sweep recovers, and an expiry is the
+    // clearest case that must never reach it: there is a refresh to run. This
+    // pins the auth split at the write, so a regression that parks expiries
+    // again fails here rather than in production.
+    const account = coolingAccount();
+    account["status"] = "active";
+    account["cooldownUntil"] = null;
+    account["credentialKind"] = "oauth";
+    account["consecutiveFailures"] = 0;
+    const { db, captured } = dbDouble(account);
+    await recordAccountFailure(
+      db,
+      "acc-1",
+      new Error("token expired"),
+      { origin: "upstream", scope: "account", statusCode: 401 },
+    );
+    const payload = onlyUpdate(captured);
+    expect(payload.status).toBe("cooldown");
+    expect(payload.cooldownUntil).toBeInstanceOf(Date);
+  });
+
+  test("a bare 401 cools the account", async () => {
+    // The weak-evidence case the old branch got wrong: clock skew, a key rotated
+    // upstream a moment ago, an edge answering before the credential loads.
+    const account = coolingAccount();
+    account["status"] = "active";
+    account["cooldownUntil"] = null;
+    account["consecutiveFailures"] = 0;
+    const { db, captured } = dbDouble(account);
+    await recordAccountFailure(
+      db,
+      "acc-1",
+      new Error("401 Unauthorized"),
+      { origin: "upstream", scope: "account", statusCode: 401 },
+    );
+    expect(onlyUpdate(captured).status).toBe("cooldown");
+  });
+
+  test("a named revocation still disables the account", async () => {
+    // The carve-out the split must preserve: a dead credential has no window to
+    // wait out and no refresh to run, so a cooldown only returns it to rotation
+    // to fail again.
+    const account = coolingAccount();
+    account["status"] = "active";
+    account["cooldownUntil"] = null;
+    account["credentialKind"] = "oauth";
+    account["consecutiveFailures"] = 0;
+    const { db, captured } = dbDouble(account);
+    await recordAccountFailure(
+      db,
+      "acc-1",
+      new Error("token_revoked"),
+      { origin: "upstream", scope: "account", statusCode: 401 },
+    );
+    expect(onlyUpdate(captured).status).toBe("disabled");
+  });
+});

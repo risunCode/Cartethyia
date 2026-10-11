@@ -8,8 +8,10 @@ import { healthEvents, providerAccounts } from "../../persistence/schema";
 
 import { parseProviderResetDuration, parseUpstreamBackoff } from "../../transport/failure-policy";
 import {
+  resolveAccountAuthRejectedCooldownMs,
   resolveAccountCooldownEscalationMaxMs,
   resolveAccountModelCapacityCooldownMs,
+  resolveAccountPolicyBlockCooldownMs,
   resolveAccountQuotaCooldownMs,
   resolveAccountRateLimitCooldownMs,
   resolveAccountTransientCooldownMs,
@@ -54,26 +56,18 @@ const UNCLASSIFIED_COOLDOWN_MS = resolveAccountUnclassifiedCooldownMs;
  */
 const GROK_QUOTA_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 /**
- * The buddy family (CodeBuddy `cb`/`cbcn`, WorkBuddy) answers a content-policy
- * rejection with HTTP 403 code `11140` ("request illegal" / "did not pass the
- * safety review"). Unlike a normal one-off content filter, the account stays
- * blocked for *every* subsequent invocation until the upstream cools off, so
- * the account is parked for a long cooldown instead of being left in rotation
- * to fail every request. It is a cooldown, not `disabled`: the credential is
- * valid and the block clears on its own, so an operator does not have to
- * re-enable it by hand.
+ * The buddy family's policy/channel block (`11140`, `11128`) is a *base* backoff,
+ * not a flat penalty — see {@link resolveAccountPolicyBlockCooldownMs}. It used
+ * to be two constants, 24h for the content block and 6h for the channel one,
+ * both applied on the first observation. That was wrong in the direction that
+ * costs most: `11140` is also what a wrong desktop `User-Agent` brand answers
+ * (`workbuddy-shared.ts`), so after we fixed a header regression every buddy
+ * account stayed dead for up to a further day, and one prompt that failed a
+ * safety review cost a whole account a day. As a base it escalates through the
+ * consecutive-failure ladder, which tells the two causes apart by what they do
+ * next — a genuinely blocked account is refused again immediately and parks
+ * itself within minutes.
  */
-const POLICY_BLOCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-/**
- * The buddy family also answers with HTTP 400 code `11128` ("Illegal API
- * invocation from an unapproved channel") when it rejects the calling channel
- * rather than the content. Like the policy block it is account-wide and
- * repeats on every invocation until the upstream lifts it, so the account is
- * parked the same way. Shorter than the policy block: a channel rejection can
- * follow a transient upstream rule change, while a content-policy block
- * follows a request the account itself made.
- */
-const CHANNEL_BLOCK_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 /**
  * Backoff for a model the upstream says does not exist for this account
  * (Cursor answers Connect `not_found` for a model the credential's plan does
@@ -355,8 +349,8 @@ export function classifyAccountError(
     return result(
       "policy_blocked",
       "cooldown",
-      POLICY_BLOCK_COOLDOWN_MS,
-      new Date(Date.now() + POLICY_BLOCK_COOLDOWN_MS),
+      resolveAccountPolicyBlockCooldownMs(),
+      new Date(Date.now() + resolveAccountPolicyBlockCooldownMs()),
       reason("Provider content-policy block"),
       origin === "upstream",
     );
@@ -377,8 +371,8 @@ export function classifyAccountError(
     return result(
       "policy_blocked",
       "cooldown",
-      CHANNEL_BLOCK_COOLDOWN_MS,
-      new Date(Date.now() + CHANNEL_BLOCK_COOLDOWN_MS),
+      resolveAccountPolicyBlockCooldownMs(),
+      new Date(Date.now() + resolveAccountPolicyBlockCooldownMs()),
       reason("Provider channel rejection"),
       origin === "upstream",
     );
@@ -434,19 +428,34 @@ export function classifyAccountError(
       !staticTokenRecovery &&
       options?.credentialKind === "oauth" &&
       (lower.includes("expired") || lower.includes("refresh"));
-    const recoverable = staticTokenRecovery || oauthRecovery;
-    const cooldownMs = recoverable ? 5 * 60 * 1000 : 0;
+    // A *named* revocation is the one auth outcome that still parks the account.
+    // The upstream said the credential itself is dead — not that it expired, not
+    // that this request was refused — so there is no window to wait out and no
+    // refresh to run, and a cooldown would only return it to rotation to fail
+    // again. Every other auth rejection is weak evidence (clock skew, a key
+    // rotated a moment ago, an edge answering before the credential loads) and
+    // cools down instead.
+    //
+    // This distinction is the whole fix. The generic `401`/`403` branch used to
+    // reach `disabled` too, which no sweep recovers, so one transient rejection
+    // removed the account from rotation until an operator noticed — the exact
+    // outcome the comment above says a static token must not suffer.
+    const revoked = revocationNamed;
+    const recoverable = staticTokenRecovery || oauthRecovery || !revoked;
+    const cooldownMs = recoverable ? resolveAccountAuthRejectedCooldownMs() : 0;
     return result(
       "auth_invalidated",
       recoverable ? "cooldown" : "disabled",
       cooldownMs,
       recoverable ? new Date(Date.now() + cooldownMs) : null,
       reason(
-        staticTokenRecovery
-          ? "Static token rejected; retrying without a refresh"
-          : oauthRecovery
-            ? "OAuth credential requires refresh"
-            : "Provider credential rejected",
+        !revoked
+          ? "Provider credential rejected; retrying after a backoff"
+          : staticTokenRecovery
+            ? "Static token rejected; retrying without a refresh"
+            : oauthRecovery
+              ? "OAuth credential requires refresh"
+              : "Provider credential revoked",
       ),
       canMutate,
     );
