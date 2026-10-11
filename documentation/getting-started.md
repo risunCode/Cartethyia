@@ -109,6 +109,11 @@ running. Setup configures the installation; it does not start it. Pick one of
 the two ways in below, then open the console — the first visit creates the
 admin user.
 
+`CARTETHYIA_DB_MODE` is required and has no default: the gateway throws at boot
+when it is absent, because the two modes are different databases with separate
+migration sets and a silent guess would pick which one an install's data is read
+against. `bun setup` writes it.
+
 To choose Full without the prompt, set `CARTETHYIA_DB_MODE=full` and a reachable
 `DATABASE_URL` in `.env`, then run:
 

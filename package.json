@@ -27,6 +27,8 @@
     "test-db:up": "docker compose -f docker-compose.test.yml up -d --wait postgres-test",
     "dev:backend": "bun run --hot src/main.ts",
     "dev:console-auth": "bun run scripts/dev/console-session.ts",
+    "dev:visual-baseline": "bun run scripts/dev/visual-baseline.ts",
+    "build:assets": "bun run scripts/build/compress-assets.ts",
     "build:binary": "bun run scripts/build/binary.ts",
     "test:backend": "bun run scripts/ci-run-tests.ts --scope backend",
     "test-db:down": "docker compose -f docker-compose.test.yml down",

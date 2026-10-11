@@ -53,9 +53,12 @@ closest owner instead — one folder, one skill.
   command for environment creation, encryption-key generation, Lite/Full
   selection, database checks, and optional Redis checks. Use
   `bun setup --non-interactive` for automation.
-- `.env.example` defaults to `CARTETHYIA_DB_MODE=lite`; Docker Compose defaults
-  to Full with external PostgreSQL and bundled Redis configuration. Keep these
-  defaults intentional and document changes in `documentation/getting-started.md`.
+- `CARTETHYIA_DB_MODE` is **required and has no default** — the gateway throws at
+  boot when it is absent, because the two modes are different databases with
+  separate migration sets and a silent guess would pick which one an install's
+  data is read against. `.env.example` ships `lite` (the zero-dependency first
+  run); Docker Compose supplies `full`. Keep these choices intentional and
+  document changes in `documentation/getting-started.md`.
 - Lite uses embedded SQLite and in-process coordination when `REDIS_URL` is
   absent. Full uses external PostgreSQL; Redis remains optional unless shared
   coordination is required. Do not reintroduce `REDIS_MODE` or

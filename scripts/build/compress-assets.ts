@@ -18,8 +18,8 @@
  * Destructive git commands are forbidden, so originals stay recoverable from the
  * index until the change set is committed. Run from the repository root:
  *
- *   bun scripts/compress-assets.ts            # report only
- *   bun scripts/compress-assets.ts --write    # rewrite files that shrink
+ *   bun scripts/build/compress-assets.ts  # report only
+ *   bun scripts/build/compress-assets.ts --write    # rewrite files that shrink
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";

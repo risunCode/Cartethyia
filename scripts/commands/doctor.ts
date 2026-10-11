@@ -9,7 +9,7 @@ import {
   readEnvFile,
 } from "../internal/env";
 import type { ProbeResult } from "../internal/env";
-import { resolveDataDir, resolveDbMode } from "../../src/persistence/db-mode";
+import { resolveDataDir, resolveDbMode, type DbMode } from "../../src/persistence/db-mode";
 
 interface DoctorConfig {
   envPath: string;
@@ -127,12 +127,24 @@ async function doctor(): Promise<void> {
   // full mode only; lite keeps its database in the data dir. Redis is never
   // required — unset means the in-memory backend.
   const envVars = await readEnvFile(config.envPath);
-  const dbMode = resolveDbMode({ ...process.env, ...envVars });
-  const required =
-    dbMode === "lite"
-      ? ["CARTETHYIA_ENCRYPTION_KEY"]
-      : ["DATABASE_URL", "CARTETHYIA_ENCRYPTION_KEY"];
+  // `CARTETHYIA_DB_MODE` has no default and throws when absent, which is the
+  // right answer at boot but the wrong one here: this command exists to report
+  // a broken environment readably, so the missing key joins the checklist
+  // instead of crashing before it prints.
   const missing: string[] = [];
+  let dbMode: DbMode | null = null;
+  try {
+    dbMode = resolveDbMode({ ...process.env, ...envVars });
+  } catch {
+    console.log("  ✗ CARTETHYIA_DB_MODE is not set — run: bun setup");
+    // Counted as missing so this command exits non-zero. A boot would throw on
+    // the same key, so a green doctor here would be a false all-clear.
+    missing.push("CARTETHYIA_DB_MODE");
+  }
+  const required =
+    dbMode === "full"
+      ? ["DATABASE_URL", "CARTETHYIA_ENCRYPTION_KEY"]
+      : ["CARTETHYIA_ENCRYPTION_KEY"];
 
   for (const key of required) {
     const value = envVars[key] ?? process.env[key];

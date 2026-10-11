@@ -6,11 +6,29 @@ import { join } from "node:path";
 export type DbMode = "full" | "lite";
 
 /**
- * Reads `CARTETHYIA_DB_MODE`. Defaults to `full` so existing deployments never
- * change behavior unless they opt in; anything else fails closed at boot.
+ * Reads `CARTETHYIA_DB_MODE`, which is required and has no default.
+ *
+ * It used to default to `full`, which left the same key carrying three
+ * different answers: `.env.example` shipped `lite`, the `bun setup` prompt
+ * offered `lite`, and an environment that set nothing at all booted `full`.
+ * The third one is the one that bit — a clone without a `.env` came up in Full
+ * mode and then failed on a missing `DATABASE_URL`, when the documented intent
+ * was the self-contained Lite path.
+ *
+ * Failing closed is the honest fix: the two modes are different databases with
+ * different migration sets (`migrations/lite-sqlite3/` vs
+ * `migrations/full-postgres/`), so guessing one silently picks which migrations
+ * an operator's data is read against. `bun setup`, `install-lite.sh`,
+ * `.env.example`, `.env.test`, and `docker-compose.yml` all set it explicitly,
+ * so requiring it costs an existing deployment nothing.
  */
 export function resolveDbMode(env: NodeJS.ProcessEnv = process.env): DbMode {
-  const raw = (env.CARTETHYIA_DB_MODE ?? "full").trim();
+  const raw = env.CARTETHYIA_DB_MODE?.trim();
+  if (!raw) {
+    throw new Error(
+      "CARTETHYIA_DB_MODE is required and must be lite or full — run `bun setup`, or set it in .env (lite is embedded SQLite; full needs DATABASE_URL)",
+    );
+  }
   if (raw !== "full" && raw !== "lite") {
     throw new Error(`CARTETHYIA_DB_MODE must be lite or full (got "${env.CARTETHYIA_DB_MODE}")`);
   }
