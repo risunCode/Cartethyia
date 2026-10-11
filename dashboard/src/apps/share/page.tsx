@@ -80,43 +80,43 @@ function ModelCard({
     (modality) => modality === "image" || modality === "vision",
   );
   return (
-    <div className="share-model-card">
-      <div className="share-model-card-head">
-        <span className="share-model-card-icon" aria-hidden="true">
+    <div className="flex min-w-0 flex-col gap-2.5 rounded-control border border-inner-border bg-surface-2 p-3">
+      <div className="flex min-w-0 items-start gap-2">
+        <span className="inline-flex size-13 shrink-0 items-center justify-center rounded-lg bg-teal-soft text-teal" aria-hidden="true">
           <Bot size={14} />
         </span>
-        <span className="share-model-card-name" title={id}>
+        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-caption font-semibold leading-[1.35] text-text-primary" title={id}>
           {label}
         </span>
       </div>
-      <div className="share-model-card-meta">
-        <span className="share-model-card-icons">
+      <div className="flex min-w-0 items-center gap-1.5 text-text-secondary text-badge">
+        <span className="inline-flex gap-1 [&>span]:inline-flex">
           {info?.reasoning ? (
-            <span title="Reasoning" aria-label="Reasoning" className="is-reasoning">
+            <span title="Reasoning" aria-label="Reasoning" className="text-purple">
               <Brain size={12} />
             </span>
           ) : null}
           {vision ? (
-            <span title="Vision" aria-label="Vision" className="is-vision">
+            <span title="Vision" aria-label="Vision" className="text-status-info">
               <Eye size={12} />
             </span>
           ) : null}
           {info?.toolCall ? (
-            <span title="Tool calling" aria-label="Tool calling" className="is-tools">
+            <span title="Tool calling" aria-label="Tool calling" className="text-orange">
               <Wrench size={12} />
             </span>
           ) : null}
           {info?.webSearch ? (
-            <span title="Web search" aria-label="Web search" className="is-web">
+            <span title="Web search" aria-label="Web search" className="text-teal">
               <Globe size={12} />
             </span>
           ) : null}
         </span>
-        <span className="share-model-card-limits">
+        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
           {info?.contextLength != null ? (
             `${formatModelTokens(info.contextLength)} ctx`
           ) : (
-            <span title={UNKNOWN_LIMITS_TOOLTIP} className="is-unknown">
+            <span title={UNKNOWN_LIMITS_TOOLTIP} className="cursor-help">
               n/a ctx
             </span>
           )}
@@ -124,20 +124,20 @@ function ModelCard({
           {info?.maxOutputTokens != null ? (
             `${formatModelTokens(info.maxOutputTokens)} out`
           ) : (
-            <span title={UNKNOWN_LIMITS_TOOLTIP} className="is-unknown">
+            <span title={UNKNOWN_LIMITS_TOOLTIP} className="cursor-help">
               n/a out
             </span>
           )}
         </span>
       </div>
       {result?.ok ? (
-        <div className="share-model-card-result" role="status">
+        <div className="flex flex-wrap items-center gap-4 font-mono text-badge text-text-secondary [&>strong]:font-sans [&>strong]:text-green" role="status">
           <strong>OK</strong>
           <span>TTFT {formatProbeDuration(result.ttftMs)}</span>
           <span>Done {formatProbeDuration(result.totalMs)}</span>
         </div>
       ) : null}
-      <div className="share-model-card-actions">
+      <div className="mt-auto grid min-w-0 grid-cols-2 items-center gap-4 [&>*]:w-full [&>*]:min-w-0 [&_.btn]:w-full [&_.btn]:min-w-0">
         {canProbe ? (
           <Button
             variant="secondary"
@@ -392,12 +392,13 @@ export function SharePage(): ReactElement {
   }
   return (
     <ShareStatsProvider path={`${path}/stats/stream`}>
-      <div className="share-page">
-      <header className="share-topbar">
-        <div className="share-topbar-inner">
-          <a className="share-brand" href="/">
-            <span className="share-brand-mark" aria-hidden="true">
+      <div className="min-h-screen text-text-primary font-sans">
+      <header className="backdrop-blur-md backdrop-saturate-150 border-b border-glass-border-2 bg-glass-bg">
+        <div className="mx-auto flex min-h-33 w-full max-w-480 items-center justify-between gap-8 px-12 py-6 max-narrow:min-h-29 max-narrow:gap-5 max-narrow:px-7 max-narrow:py-5">
+          <a className="inline-flex items-center gap-5 font-head text-lead tracking-[-0.03em] text-text-primary no-underline" href="/">
+            <span className="grid size-17 place-items-center overflow-hidden rounded-control border border-inner-border bg-accent-soft text-accent" aria-hidden="true">
               <img
+                className="block size-full object-cover"
                 src={`${import.meta.env.BASE_URL}assets/brand/favicon.jpg`}
                 alt=""
                 width={34}
@@ -406,11 +407,11 @@ export function SharePage(): ReactElement {
             </span>
             <b>Cartethyia</b>
           </a>
-          <div className="share-topbar-actions">
-            <GithubBadge className="share-github-badge" />
+          <div className="inline-flex items-center gap-4 max-narrow:gap-3">
+            <GithubBadge className="max-narrow:min-w-17 max-narrow:justify-center max-narrow:px-0 max-narrow:[&_.github-badge-metric]:hidden" />
             <button
               type="button"
-              className="share-icon-button"
+              className="grid size-17 cursor-pointer place-items-center rounded-pill border border-inner-border bg-surface-2 text-text-secondary hover:border-border-strong hover:text-text-primary focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2"
               onClick={() => {
                 const next: ConsoleThemeChoice = isDarkEffective(theme) ? "light" : "dark";
                 setTheme(next);
@@ -422,21 +423,21 @@ export function SharePage(): ReactElement {
             >
               {isDarkEffective(theme) ? <Sun size={15} /> : <Moon size={15} />}
             </button>
-            <a href="/" className="share-home-link">
+            <a href="/" className="inline-flex min-h-17 items-center gap-3 rounded-pill border border-inner-border bg-surface-2 px-6 text-badge font-semibold text-text-secondary no-underline hover:border-border-strong hover:text-text-primary max-narrow:px-5">
               <Home size={13} aria-hidden="true" /> Home
             </a>
           </div>
         </div>
       </header>
-      <main className="share-main">
+      <main className="mx-auto flex w-full max-w-480 flex-col gap-8 px-12 pb-24 pt-14 max-narrow:gap-6 max-narrow:px-6 max-narrow:pb-16 max-narrow:pt-9">
         {state.loading ? (
-          <Card className="share-hud-card">
+          <Card surface="muted" className="min-w-0 border-glass-border-2 bg-glass-bg backdrop-blur-md backdrop-saturate-150 p-5">
             <CardBody>
               <LoadingState label="Loading enrollment policy…" />
             </CardBody>
           </Card>
         ) : state.error ? (
-          <Card className="share-hud-card">
+          <Card surface="muted" className="min-w-0 border-glass-border-2 bg-glass-bg backdrop-blur-md backdrop-saturate-150 p-5">
             <CardBody>
               <ErrorState
                 title={state.code === "link_disabled" ? "Key paused" : "Link not available"}
@@ -447,20 +448,20 @@ export function SharePage(): ReactElement {
           </Card>
         ) : data ? (
           <>
-            <Card className="share-hud-card share-hero">
-              <p className="share-eyebrow">
+            <Card surface="muted" className="min-w-0 border-glass-border-2 bg-glass-bg backdrop-blur-md backdrop-saturate-150 p-7 max-sm:p-5">
+              <p className="text-text-secondary font-mono text-micro font-bold tracking-label leading-normal">
                 {data.kind === "handoff" ? "SHARED ACCESS / KEY" : "SHARED ACCESS / ENROLLMENT"}
               </p>
               <h1>{data.name || "Shared API access"}</h1>
               {data.kind === "handoff" ? (
-                <p className="share-hero-description">
+                <p className="mt-2.5 text-text-secondary text-body leading-[1.55]">
                   The API key for this gateway, provided through a share link. It is subject to the
                   limits below.
                 </p>
               ) : null}
-              <div className="share-hero-meta">
+              <div className="mt-5 flex flex-wrap items-center gap-2">
                 {data.expiresAt ? (
-                  <span className="share-meta-pill">
+                  <span className="inline-flex min-h-7 items-center gap-1.5 rounded-full border border-inner-border bg-surface-2 px-2.5 py-1 text-text-secondary font-mono text-micro leading-[1.3]">
                     Link expires {new Date(data.expiresAt).toLocaleString()}
                   </span>
                 ) : null}
@@ -468,10 +469,10 @@ export function SharePage(): ReactElement {
               <LiveShareQuotaPanel policy={data} />
             </Card>
 
-            <div className="share-credentials">
-              <Card className="share-hud-card share-endpoint">
-                <h2 className="share-eyebrow">BASE URL</h2>
-                <div className="share-endpoint-field">
+            <div className="grid grid-cols-2 gap-8 max-md:grid-cols-1">
+              <Card surface="muted" className="flex min-w-0 flex-col items-start gap-6 border-glass-border-2 bg-glass-bg backdrop-blur-md backdrop-saturate-150 p-5">
+                <h2 className="text-text-secondary font-mono text-micro font-bold tracking-label leading-normal">BASE URL</h2>
+                <div className="flex w-full min-w-0 items-center gap-4 [&>code]:block [&>code]:min-w-0 [&>code]:flex-1 [&>code]:overflow-hidden [&>code]:text-ellipsis [&>code]:whitespace-nowrap [&>code]:rounded-inset [&>code]:border [&>code]:border-inner-border [&>code]:bg-code-surface [&>code]:p-5 [&>code]:text-text-primary [&>code]:font-mono [&>code]:text-caption [&>code]:leading-normal [&>button]:shrink-0">
                   <code>{baseUrl}/v1</code>
                   <ClipboardButton
                     value={`${baseUrl}/v1`}
@@ -482,32 +483,32 @@ export function SharePage(): ReactElement {
                     aria-label="Copy Base URL"
                   />
                 </div>
-                <p>Point your SDK, Opencode, Claude Code, Droid, and any other CLI</p>
+                <p className="text-caption leading-[1.55] text-text-secondary">Point your SDK, Opencode, Claude Code, Droid, and any other CLI</p>
                 {data.sharePopup.enabled ? (
                   <button
                     type="button"
-                    className="share-support-trigger"
+                    className="flex w-full min-w-0 cursor-pointer items-center gap-6 rounded-panel border border-orange/30 bg-gradient-to-br from-orange-soft to-surface-2 p-6 text-left text-text-primary transition-transform duration-150 ease-spring hover:-translate-y-px hover:border-orange"
                     onClick={() => setSharePopupOpen(true)}
                     aria-haspopup="dialog"
                     aria-label="Open popup"
                   >
-                    <span className="share-support-icon" aria-hidden="true">♡</span>
-                    <span>
-                      <strong>{data.sharePopup.title || "More information"}</strong>
+                    <span className="grid size-19 flex-none place-items-center rounded-control bg-orange-soft text-xl text-orange" aria-hidden="true">♡</span>
+                    <span className="grid min-w-0 gap-1.5">
+                      <strong className="text-caption">{data.sharePopup.title || "More information"}</strong>
                     </span>
-                    <span className="share-support-arrow" aria-hidden="true">↗</span>
+                    <span className="ml-auto text-lead text-orange" aria-hidden="true">↗</span>
                   </button>
                 ) : null}
               </Card>
               <div ref={apiKeyPanelRef} tabIndex={-1}>
-              <Card className="share-hud-card share-key-panel">
-                <h2 className="share-eyebrow">YOUR API KEY</h2>
+              <Card surface="muted" className="flex min-w-0 flex-col items-start gap-6 border-glass-border-2 bg-glass-bg backdrop-blur-md backdrop-saturate-150 p-5">
+                <h2 className="text-text-secondary font-mono text-micro font-bold tracking-label leading-normal">YOUR API KEY</h2>
                 {data.kind === "handoff" ? (
                   handoffKey ? (
-                    <div className="share-issued-secret" role="status">
-                      <p className="share-once-notice">REVEALED BY THE LINK OWNER</p>
-                      <code>{handoffKey}</code>
-                      <div className="share-secret-actions">
+                    <div className="flex w-full min-w-0 flex-col gap-5" role="status">
+                      <p className="font-mono text-micro font-bold tracking-label text-orange">REVEALED BY THE LINK OWNER</p>
+                      <code className="block min-w-0 flex-1 overflow-hidden rounded-inset border border-inner-border bg-code-surface p-5 font-mono text-caption leading-normal text-text-primary [overflow-wrap:anywhere] [user-select:all]">{handoffKey}</code>
+                      <div className="flex flex-wrap items-center gap-5 [&>span]:font-mono [&>span]:text-micro [&>span]:text-text-tertiary">
                         <ClipboardButton
                           value={handoffKey}
                           size="sm"
@@ -530,21 +531,21 @@ export function SharePage(): ReactElement {
                         </Button>
                         <span>Prefix {data.keyPrefix ?? "—"}</span>
                       </div>
-                      <p>
+                      <p className="text-caption leading-[1.55] text-text-secondary">
                         This link reveals the key itself, so anyone holding the URL can read it.
                         Keep the URL private; the link owner regenerates it to replace this key.
                       </p>
                     </div>
                   ) : (
-                    <p className="share-key-placeholder">
+                    <p className="text-caption leading-normal text-text-secondary">
                       This link can no longer reveal its key. Ask the link owner to regenerate it.
                     </p>
                   )
                 ) : visibleSecret ? (
-                  <div className="share-issued-secret" role="status">
-                    <p className="share-once-notice">GENERATED ONCE · COPY AND KEEP IT</p>
-                    <code>{visibleSecret.key}</code>
-                    <div className="share-secret-actions">
+                  <div className="flex w-full min-w-0 flex-col gap-5" role="status">
+                    <p className="font-mono text-micro font-bold tracking-[0.06em] text-orange">GENERATED ONCE · COPY AND KEEP IT</p>
+                    <code className="block min-w-0 flex-1 overflow-hidden rounded-inset border border-inner-border bg-code-surface p-5 font-mono text-caption leading-normal text-text-primary [overflow-wrap:anywhere] [user-select:all]">{visibleSecret.key}</code>
+                    <div className="flex flex-wrap items-center gap-5 [&>span]:font-mono [&>span]:text-micro [&>span]:text-text-tertiary">
                       <ClipboardButton
                         value={visibleSecret.key}
                         size="sm"
@@ -567,7 +568,7 @@ export function SharePage(): ReactElement {
                       </Button>
                       <span>Key ID {visibleSecret.keyId.slice(0, 12)}…</span>
                     </div>
-                    <p>
+                    <p className="text-caption leading-[1.55] text-text-secondary">
                       Saved in this browser while this enrollment link remains valid. It is not
                       shown again from another browser, and an expired, revoked, or unavailable
                       link does not restore a local copy.
@@ -575,14 +576,14 @@ export function SharePage(): ReactElement {
                   </div>
                 ) : (
                   <>
-                    <p className="share-key-placeholder">
+                    <p className="text-caption leading-normal text-text-secondary">
                       {canIssue
                         ? "Issue a personal key to use the shared endpoint."
                         : "No key is available in this browser."}
                     </p>
                     {canIssue ? (
                       <>
-                        <label className="share-name-field">
+                        <label className="flex w-full flex-col gap-1.5 text-text-secondary text-micro font-bold [&>input]:w-full [&>input]:min-h-11 [&>input]:rounded-control [&>input]:border [&>input]:border-inner-border [&>input]:bg-surface-1 [&>input]:px-3 [&>input]:text-text-primary [&>input]:text-body [&>input]:font-medium [&>input]:focus-visible:outline-2 [&>input]:focus-visible:outline-focus-ring [&>input]:focus-visible:outline-offset-2">
                           <span>Your name</span>
                           <input
                             type="text"
@@ -592,11 +593,11 @@ export function SharePage(): ReactElement {
                             autoComplete="nickname"
                             onChange={(event) => setNameHint(event.target.value)}
                           />
-                          <span className="share-name-hint">
+                          <span className="text-text-tertiary text-micro font-normal leading-normal">
                             Shown on your key (best kept to ~5 letters) — the gateway appends its own code.
                           </span>
                         </label>
-                        <p className="share-name-required">Enter your name to generate a personal key.</p>
+                        <p className="-mt-3 text-text-tertiary text-micro font-normal leading-normal">Enter your name to generate a personal key.</p>
                         <Button
                           variant="primary"
                           size="sm"
@@ -611,7 +612,7 @@ export function SharePage(): ReactElement {
                   </>
                 )}
                 {data.kind === "enroll" && !canIssue && !visibleSecret ? (
-                  <p role="status" className="share-warning">
+                  <p role="status" className="w-full rounded-inset border border-orange-soft bg-orange-soft px-5 py-4 text-badge leading-normal text-orange">
                     {enrollment?.alreadyIssued || issueConflict
                       ? "An active key has already been issued from this IP."
                       : issueError ?? "This enrollment link is not currently accepting key requests."}
@@ -625,7 +626,7 @@ export function SharePage(): ReactElement {
 
             {sharePopupOpen && data.sharePopup.enabled ? (
               <div
-                className="share-support-overlay"
+                className="fixed inset-0 z-drawer grid place-items-center overflow-y-auto bg-black/70 p-10 backdrop-blur max-sm:place-items-end max-sm:p-5"
                 role="presentation"
                 onClick={(event) => {
                   if (event.target === event.currentTarget) setSharePopupOpen(false);
@@ -634,34 +635,34 @@ export function SharePage(): ReactElement {
                 <section
                   ref={sharePopupRef}
                   tabIndex={-1}
-                  className="share-support-dialog"
+                  className="relative grid max-h-[min(calc(var(--spacing)*340),calc(100dvh-var(--spacing)*20))] w-full max-w-380 grid-cols-2 overflow-auto rounded-hero border border-glass-border-2 bg-surface-1 shadow-popout max-sm:max-h-[calc(100dvh-var(--spacing)*10)] max-sm:w-full max-sm:max-w-240 max-sm:grid-cols-1 max-sm:rounded-card"
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="share-support-title"
                 >
-                  <button type="button" className="share-support-close" onClick={() => setSharePopupOpen(false)} aria-label="Close popup">
+                  <button type="button" className="absolute top-6 right-6 z-card grid size-18 place-items-center rounded-pill border border-inner-border bg-surface-1 text-text-secondary focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2" onClick={() => setSharePopupOpen(false)} aria-label="Close popup">
                     <X size={18} aria-hidden="true" />
                   </button>
                   {data.sharePopup.hasImage ? (
                     <img
-                      className="share-support-image"
+                      className="h-full min-h-180 w-full object-cover max-sm:h-auto max-sm:max-h-[min(52dvh,calc(var(--spacing)*210))] max-sm:min-h-0 max-sm:object-contain"
                       src={`/share/${linkToken}/popup-image`}
                       alt=""
                     />
                   ) : (
-                    <div className="share-support-image-placeholder" aria-hidden="true">
+                    <div className="grid h-full min-h-180 w-full place-items-center bg-gradient-to-br from-orange-soft to-surface-2 text-7xl text-orange max-sm:h-[clamp(calc(var(--spacing)*85),34dvh,calc(var(--spacing)*130))] max-sm:min-h-85 max-sm:max-h-130" aria-hidden="true">
                       <span>♡</span>
                     </div>
                   )}
-                  <div className="share-support-content">
-                    <h2 id="share-support-title">{data.sharePopup.title || "More information"}</h2>
+                  <div className="flex flex-col justify-center gap-7 p-[clamp(calc(var(--spacing)*12),5vw,calc(var(--spacing)*22))] max-sm:gap-6 max-sm:p-11">
+                    <h2 id="share-support-title" className="pr-10 font-head text-display leading-tight tracking-tight wrap-anywhere">{data.sharePopup.title || "More information"}</h2>
                     {data.sharePopup.body ? (
-                      <p id="share-support-message" className="share-support-message">
+                      <p id="share-support-message" className="text-body leading-loose whitespace-pre-wrap text-text-secondary wrap-anywhere">
                         {data.sharePopup.body}
                       </p>
                     ) : null}
-                    <div className="share-support-actions">
-                      <button type="button" className="share-support-dismiss" onClick={() => setSharePopupOpen(false)}>
+                    <div className="mt-4 flex flex-wrap items-center gap-5 [&>*]:flex-auto">
+                      <button type="button" className="inline-flex min-h-21 items-center justify-center rounded-pill border border-inner-border bg-surface-2 px-8 text-caption font-bold text-text-primary no-underline hover:brightness-110 focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-2" onClick={() => setSharePopupOpen(false)}>
                         Close
                       </button>
                     </div>
@@ -670,25 +671,25 @@ export function SharePage(): ReactElement {
               </div>
             ) : null}
             {data.notes.title || data.notes.subtitle || data.notes.body ? (
-              <Card className="share-hud-card share-notes">
-                <h2 className="share-eyebrow">NOTES</h2>
-                {data.notes.title ? <h3>{data.notes.title}</h3> : null}
-                {data.notes.subtitle ? <p className="share-notes-subtitle">{data.notes.subtitle}</p> : null}
-                {data.notes.body ? <p className="share-notes-body">{data.notes.body}</p> : null}
+              <Card surface="muted" className="min-w-0 border-glass-border-2 bg-glass-bg backdrop-blur-md backdrop-saturate-150 p-5">
+                <h2 className="text-text-secondary font-mono text-micro font-bold tracking-label leading-normal">NOTES</h2>
+                {data.notes.title ? <h3 className="mt-5 font-head text-title font-semibold">{data.notes.title}</h3> : null}
+                {data.notes.subtitle ? <p className="mt-3 text-caption font-semibold text-text-secondary">{data.notes.subtitle}</p> : null}
+                {data.notes.body ? <p className="mt-5 text-body leading-loose whitespace-pre-wrap text-text-secondary">{data.notes.body}</p> : null}
               </Card>
             ) : null}
 
             <LiveShareStatsSection />
 
-            <Card className="share-hud-card share-models">
-              <div className="share-section-heading">
+            <Card surface="muted" className="min-w-0 border-glass-border-2 bg-glass-bg backdrop-blur-md backdrop-saturate-150 p-5">
+              <div className="flex items-center justify-between gap-6">
                 <div>
-                  <p className="share-eyebrow">MODEL ACCESS</p>
-                  <h2>Allowed models</h2>
+                  <p className="text-text-secondary font-mono text-micro font-bold tracking-label leading-normal">MODEL ACCESS</p>
+                  <h2 className="mt-3 font-head text-lead font-semibold tracking-tight">Allowed models</h2>
                 </div>
-                <div className="share-section-actions">
+                <div className="inline-flex items-center gap-4">
                   <div
-                    className="share-view-switch"
+                    className="inline-flex rounded-pill border border-inner-border bg-surface-2 p-1"
                     role="tablist"
                     aria-label="Allowed model layout"
                   >
@@ -696,7 +697,7 @@ export function SharePage(): ReactElement {
                       type="button"
                       role="tab"
                       aria-selected={modelView === "raw"}
-                      className={modelView === "raw" ? "is-selected" : undefined}
+                      className={`min-h-13 cursor-pointer rounded-pill border-0 bg-transparent px-5 font-mono text-micro font-bold tracking-label text-text-secondary uppercase hover:text-text-primary${modelView === "raw" ? " bg-accent text-accent-foreground" : ""}`}
                       onClick={() => setModelView("raw")}
                     >
                       Raw
@@ -705,7 +706,7 @@ export function SharePage(): ReactElement {
                       type="button"
                       role="tab"
                       aria-selected={modelView === "grouped"}
-                      className={modelView === "grouped" ? "is-selected" : undefined}
+                      className={`min-h-13 cursor-pointer rounded-pill border-0 bg-transparent px-5 font-mono text-micro font-bold tracking-label text-text-secondary uppercase hover:text-text-primary${modelView === "grouped" ? " bg-accent text-accent-foreground" : ""}`}
                       onClick={() => setModelView("grouped")}
                     >
                       Grouped
@@ -725,20 +726,20 @@ export function SharePage(): ReactElement {
               </div>
               {modelGroups.size ? (
                 modelView === "raw" ? (
-                  <div className="share-model-grid">
+                  <div className="mt-8 grid grid-cols-3 gap-4 max-wide:grid-cols-2 max-narrow:grid-cols-1">
                     {data.models.map((model) => (
                       <ModelCard key={model} id={model} label={model} info={data.modelInfo?.[model]} canProbe={canProbe} probing={probingModels.has(model)} onProbe={probeModel} result={probeResults.get(model)} />
                     ))}
                   </div>
                 ) : (
-                  <div className="share-model-groups">
+                  <div className="mt-8 grid grid-cols-2 gap-6 min-extra-wide:grid-cols-3 max-medium:grid-cols-1">
                     {[...modelGroups].sort(([a], [b]) => a.localeCompare(b)).map(([provider, models]) => (
-                      <section className="share-model-group" key={provider} aria-label={`${provider} models`}>
-                        <div className="share-model-group-heading">
-                          <h3>{provider}</h3>
-                          <span>{models.length}</span>
+                      <section className="min-w-0 overflow-hidden rounded-panel border border-inner-border bg-surface-2" key={provider} aria-label={`${provider} models`}>
+                        <div className="flex items-center justify-between gap-6 border-b border-inner-border px-6 py-5">
+                          <h3 className="font-mono text-badge font-bold text-text-primary wrap-anywhere">{provider}</h3>
+                          <span className="rounded-pill bg-accent-soft px-4 py-1 font-mono text-micro font-bold text-accent">{models.length}</span>
                         </div>
-                        <div className="share-model-grid">
+                        <div className="mt-0 grid max-h-150 grid-cols-1 gap-3 overflow-y-auto p-4">
                           {models.map((model) => (
                             <ModelCard
                               key={model}
@@ -757,15 +758,15 @@ export function SharePage(): ReactElement {
                   </div>
                 )
               ) : (
-                <p className="share-model-empty">Model access follows the share template policy.</p>
+                <p className="mt-8 rounded-control border border-inner-border bg-surface-2 p-7 text-caption text-text-secondary">Model access follows the share template policy.</p>
               )}
               {data.modelPrefix ? (
-                <p className="share-model-policy">Required model prefix: {data.modelPrefix}</p>
+                <p className="mt-6 text-badge leading-normal text-text-secondary wrap-anywhere">Required model prefix: {data.modelPrefix}</p>
               ) : null}
             </Card>
           </>
         ) : (
-          <Card className="share-hud-card">
+          <Card surface="muted" className="min-w-0 border-glass-border-2 bg-glass-bg backdrop-blur-md backdrop-saturate-150 p-5">
             <CardBody>
               <EmptyState
                 title="No enrollment data"

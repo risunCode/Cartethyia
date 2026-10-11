@@ -50,8 +50,8 @@ function PersonalKeyReveal({ keyId }: { readonly keyId: string }): ReactNode {
   };
 
   return (
-    <div className="share-link-row">
-      <code title={visible && secret ? secret : undefined}>
+    <div className="flex min-w-0 items-center gap-4 rounded-control border border-inner-border bg-surface-2 px-5 py-4 text-text-tertiary">
+      <code title={visible && secret ? secret : undefined} className="min-w-0 flex-auto overflow-hidden font-mono text-caption text-text-primary text-ellipsis whitespace-nowrap">
         {visible && secret ? secret : "••••••••••••••••"}
       </code>
       <Button
@@ -74,9 +74,9 @@ function PersonalKeyReveal({ keyId }: { readonly keyId: string }): ReactNode {
 /** One limit rendered as a compact labelled figure; "Unlimited" when unset. */
 function Limit({ label, value }: { label: string; value: number | null | undefined }): ReactNode {
   return (
-    <div className="share-stat">
-      <dt>{label}</dt>
-      <dd>{value == null ? "Unlimited" : count(value)}</dd>
+    <div className="min-w-0 flex-1 basis-60 rounded-control border border-inner-border bg-surface-2 px-5 py-3">
+      <dt className="text-badge font-normal tracking-label text-text-tertiary uppercase">{label}</dt>
+      <dd className="mt-1 text-caption font-normal text-text-primary tabular-nums">{value == null ? "Unlimited" : count(value)}</dd>
     </div>
   );
 }
@@ -136,17 +136,17 @@ function BudgetBar({
   // operator they are past it, and a bar that shrinks back would imply headroom.
   const exhausted = !unlimited && consumed >= budget;
   return (
-    <div className="share-budget">
-      <div className="share-budget-head">
+    <div className="grid flex-auto basis-full gap-2.5 rounded-control border border-inner-border bg-surface-2 px-5 py-3.5">
+      <div className="flex items-baseline justify-between gap-4 text-badge tracking-label text-text-tertiary uppercase">
         <span>Lifetime budget</span>
-        <span className="share-budget-figures">
+        <span className="text-caption font-normal text-text-primary tabular-nums normal-case tracking-normal">
           {unlimited
             ? `${compactTokens(consumed)} · Unlimited`
             : `${compactTokens(consumed)} / ${compactTokens(budget)}`}
         </span>
       </div>
       <div
-        className="share-bar-track"
+        className="h-3 overflow-hidden rounded bg-inner-border"
         role="progressbar"
         aria-label="Lifetime token budget consumed"
         aria-valuemin={0}
@@ -159,7 +159,7 @@ function BudgetBar({
         }
       >
         <div
-          className={`share-bar-fill${exhausted ? " share-bar-fill--exhausted" : ""}`}
+          className={exhausted ? "h-full rounded bg-status-danger" : "h-full rounded bg-status-success"}
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -197,10 +197,10 @@ function ParentQuotaBar({
 }): ReactNode {
   if (budget == null) {
     return (
-      <div className="share-budget">
-        <div className="share-budget-head">
+      <div className="grid flex-auto basis-full gap-2.5 rounded-control border border-inner-border bg-surface-2 px-5 py-3.5">
+        <div className="flex items-baseline justify-between gap-4 text-badge tracking-label text-text-tertiary uppercase">
           <span>Total quota used</span>
-          <span className="share-budget-figures">{compactTokens(consumed)}</span>
+          <span className="text-caption font-normal text-text-primary tabular-nums normal-case tracking-normal">{compactTokens(consumed)}</span>
         </div>
       </div>
     );
@@ -211,21 +211,21 @@ function ParentQuotaBar({
   const colors = quotaBarTone(consumed >= budget ? 0 : remaining);
   const exhausted = consumed >= budget;
   return (
-    <div className="share-budget">
-      <div className="share-budget-head">
+    <div className="grid flex-auto basis-full gap-2.5 rounded-control border border-inner-border bg-surface-2 px-5 py-3.5">
+      <div className="flex items-baseline justify-between gap-4 text-badge tracking-label text-text-tertiary uppercase">
         <span>Total quota</span>
-        <span className="share-budget-figures">
+        <span className="text-caption font-normal text-text-primary tabular-nums normal-case tracking-normal">
           {compactTokens(consumed)} / {compactTokens(budget)}
         </span>
         <span
-          className="share-quota-pill"
+          className="border rounded-chip px-4 py-0.5 text-caption font-bold whitespace-nowrap tabular-nums"
           style={{ color: colors.text, borderColor: colors.text }}
         >
           {exhausted ? "Exhausted" : `${compactTokens(left)} left`}
         </span>
       </div>
       <div
-        className="share-bar-track"
+        className="h-3 overflow-hidden rounded bg-inner-border"
         role="progressbar"
         aria-label="Total quota consumed"
         aria-valuemin={0}
@@ -234,7 +234,7 @@ function ParentQuotaBar({
         aria-valuetext={`${compactTokens(consumed)} of ${compactTokens(budget)} tokens consumed`}
       >
         <div
-          className={`share-bar-fill${exhausted ? " share-bar-fill--exhausted" : ""}`}
+          className={exhausted ? "h-full rounded bg-status-danger" : "h-full rounded"}
           style={{ width: `${pct}%`, background: exhausted ? undefined : colors.bar }}
         />
       </div>
@@ -258,12 +258,12 @@ export function ChildDetail({ parentId, childId }: { parentId: string; childId: 
   const activity: SharedKeyActivityDetail | undefined = detail.data;
   if (!activity) return null;
   return (
-    <div className="share-child-detail">
+    <div className="grid min-w-0 gap-6 border-t border-inner-border bg-surface-1 px-6 py-5">
       <section>
-        <h4 className="share-detail-heading">Top models</h4>
+        <h4 className="mb-3 text-caption font-bold text-text-primary">Top models</h4>
         {activity.models.length ? (
           <div className="data-table-container">
-            <table className="data-table share-table">
+            <table className="data-table text-caption">
               <thead>
                 <tr>
                   <th scope="col">Model</th>
@@ -285,14 +285,14 @@ export function ChildDetail({ parentId, childId }: { parentId: string; childId: 
             </table>
           </div>
         ) : (
-          <p className="share-detail-empty">No model activity yet.</p>
+          <p className="py-3 text-caption text-text-tertiary">No model activity yet.</p>
         )}
       </section>
       <section>
-        <h4 className="share-detail-heading">Recent requests</h4>
+        <h4 className="mb-3 text-caption font-bold text-text-primary">Recent requests</h4>
         {activity.requests.length ? (
           <div className="data-table-container">
-            <table className="data-table share-table">
+            <table className="data-table text-caption">
               <thead>
                 <tr>
                   <th scope="col">Model</th>
@@ -319,7 +319,7 @@ export function ChildDetail({ parentId, childId }: { parentId: string; childId: 
             </table>
           </div>
         ) : (
-          <p className="share-detail-empty">No recent requests.</p>
+          <p className="py-3 text-caption text-text-tertiary">No recent requests.</p>
         )}
       </section>
     </div>
@@ -400,7 +400,7 @@ export function ShareManagementContent({
   const warning = regenerateWarning(isPersonal);
 
   return (
-    <div className="share-modal">
+    <div className="grid min-w-0 gap-6">
       <section aria-label="Link">
         {link.isPending ? (
           <LoadingState label="Loading link…" compact />
@@ -411,11 +411,11 @@ export function ShareManagementContent({
             onRetry={() => void link.refetch()}
           />
         ) : url ? (
-          <div className="share-link-row">
-            <Link2 size={14} aria-hidden="true" />
+          <div className="flex min-w-0 flex-wrap items-center gap-4 rounded-control border border-inner-border bg-surface-2 px-5 py-4 text-text-tertiary">
+            <Link2 size={14} aria-hidden="true" className="shrink-0" />
             {/* The URL truncates to keep the row from scrolling the modal; the
                 full value stays readable on hover and Copy takes it verbatim. */}
-            <code title={url}>{url}</code>
+            <code title={url} className="min-w-0 flex-auto overflow-hidden font-mono text-caption text-text-primary text-ellipsis whitespace-nowrap">{url}</code>
             <ClipboardButton value={url} size="sm" variant="secondary" label="Copy" copiedLabel="Copied" />
             <Button
               variant="secondary"
@@ -429,9 +429,9 @@ export function ShareManagementContent({
             </Button>
           </div>
         ) : (
-          <div className="share-link-row">
-            <Link2 size={14} aria-hidden="true" />
-            <span className="share-link-empty">No link yet.</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-4 rounded-control border border-inner-border bg-surface-2 px-5 py-4 text-text-tertiary">
+            <Link2 size={14} aria-hidden="true" className="shrink-0" />
+            <span className="flex-auto text-caption text-text-tertiary">No link yet.</span>
             <Button variant="primary" size="sm" loading={busy} disabled={busy} onClick={onEnsureLink}>
               Create link
             </Button>
@@ -440,23 +440,23 @@ export function ShareManagementContent({
       </section>
 
       {isPersonal ? (
-        <section aria-label="API key" className="share-section">
-          <div className="share-section-head">
-            <strong>API key</strong>
+        <section aria-label="API key" className="grid gap-3">
+          <div className="flex items-center justify-between gap-4">
+            <strong className="text-caption">API key</strong>
           </div>
           <PersonalKeyReveal keyId={parent.id} />
         </section>
       ) : null}
 
       {isPersonal ? (
-        <section aria-label="Usage" className="share-section">
-          <div className="share-section-head">
-            <strong>Usage</strong>
+        <section aria-label="Usage" className="grid gap-3">
+          <div className="flex items-center justify-between gap-4">
+            <strong className="text-caption">Usage</strong>
           </div>
-          <dl className="share-stats">
-            <div className="share-stat">
-              <dt>Lifetime tokens</dt>
-              <dd>{compactTokens(parent.tokensConsumed)}</dd>
+          <dl className="m-0 flex flex-wrap gap-3">
+            <div className="min-w-0 flex-1 basis-60 rounded-control border border-inner-border bg-surface-2 px-5 py-3">
+              <dt className="text-badge font-normal tracking-label text-text-tertiary uppercase">Lifetime tokens</dt>
+              <dd className="mt-1 text-caption font-normal text-text-primary tabular-nums">{compactTokens(parent.tokensConsumed)}</dd>
             </div>
             <Limit label="Requests / min" value={parent.requestsPerMinute} />
             <Limit label="Daily tokens" value={parent.dailyTokenLimit} />
@@ -466,22 +466,22 @@ export function ShareManagementContent({
         </section>
       ) : (
         <>
-          <section aria-label="Total quota" className="share-section">
-            <div className="share-section-head">
-              <strong>Total quota</strong>
+          <section aria-label="Total quota" className="grid gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <strong className="text-caption">Total quota</strong>
             </div>
             <ParentQuotaBar
               consumed={childrenTotal(children)}
               budget={parent.lifetimeTokenBudget}
             />
           </section>
-          <section aria-label="Recipients" className="share-section">
-          <div className="share-section-head">
-            <strong>Recipients</strong>
+          <section aria-label="Recipients" className="grid gap-3">
+          <div className="flex items-center justify-between gap-4">
+            <strong className="text-caption">Recipients</strong>
             {/* Counting only unrevoked children: a revoked key is still listed
                 for its usage history, but it can no longer be used, so folding
                 it into "active" would overstate who can still call the gateway. */}
-            <span className="share-active-count">
+            <span className="mr-2 ml-auto text-caption text-text-tertiary tabular-nums">
               Active users: {activeChildCount(children)}
             </span>
             <Button
@@ -514,17 +514,17 @@ export function ShareManagementContent({
               message="Keys generated through this link appear here with their masked client IP and token usage."
             />
           ) : (
-            <div className="data-table-container share-table-container">
-              <table className="data-table share-table">
+            <div className="data-table-container max-h-[46vh]">
+              <table className="data-table text-caption">
                 <thead>
                   <tr>
-                    <th scope="col" className="share-col-toggle" aria-label="Expand" />
+                    <th scope="col" className="w-12" aria-label="Expand" />
                     <th scope="col">Key</th>
                     <th scope="col">Status</th>
                     <th scope="col">Today</th>
                     <th scope="col">Lifetime</th>
                     <th scope="col">Last activity</th>
-                    <th scope="col" className="share-col-actions">
+                    <th scope="col" className="text-right whitespace-nowrap">
                       Actions
                     </th>
                   </tr>
@@ -538,7 +538,7 @@ export function ShareManagementContent({
                           <td>
                             <button
                               type="button"
-                              className="share-expand-toggle"
+                              className="grid h-11 w-11 place-items-center rounded-chip border-0 bg-transparent p-0 text-text-secondary hover:bg-hover hover:text-text-primary"
                               aria-expanded={open}
                               aria-label={open ? "Collapse recipient" : "Expand recipient"}
                               onClick={() => setExpanded(open ? null : child.id)}
@@ -548,7 +548,7 @@ export function ShareManagementContent({
                           </td>
                           <td>
                             <code>{child.label || child.keyPrefix || "key"}…</code>
-                            <div className="share-recipient-context">
+                            <div className="mt-1 text-badge text-text-tertiary wrap-anywhere">
                               {child.issuedClientIp ?? "IP hidden"}
                             </div>
                           </td>
@@ -556,7 +556,7 @@ export function ShareManagementContent({
                           <td>{compactTokens(child.today.totalTokens)}</td>
                           <td>{compactTokens(child.allTime.totalTokens)}</td>
                           <td>{stamp(child.lastUsedAt)}</td>
-                          <td className="share-col-actions">
+                          <td className="text-right whitespace-nowrap">
                             <Button
                               variant="danger"
                               size="sm"

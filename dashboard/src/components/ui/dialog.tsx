@@ -93,8 +93,8 @@ export function Dialog({
           submit.click();
         }}
       >
-        <div className="modal-header">
-          <div className="window-traffic-lights" role="group" aria-label="Window controls">
+        <div className="modal-header flex items-center justify-between gap-6 border-b border-inner-border px-9 py-7">
+          <div className="window-traffic-lights flex shrink-0 items-center gap-4" role="group" aria-label="Window controls">
             <button
               type="button"
               className="traffic-light traffic-light-close"
@@ -126,13 +126,13 @@ export function Dialog({
               <Maximize2 size={8} strokeWidth={2.5} aria-hidden="true" />
             </button>
           </div>
-          <h3 id={titleId} className="modal-title">
+          <h3 id={titleId} className="modal-title min-w-0 flex-1 overflow-hidden text-center text-lead font-bold text-text-primary text-ellipsis whitespace-nowrap">
             {title}
           </h3>
-          <span className="window-traffic-lights-spacer" aria-hidden="true" />
+          <span className="window-traffic-lights-spacer w-29 shrink-0" aria-hidden="true" />
         </div>
-        {minimized ? null : <div className="modal-body">{children}</div>}
-        {minimized || footer === undefined ? null : <div className="modal-footer">{footer}</div>}
+        {minimized ? null : <div className="modal-body min-h-0 flex-auto overflow-y-auto px-9 py-8">{children}</div>}
+        {minimized || footer === undefined ? null : <div className="modal-footer flex shrink-0 items-center justify-end gap-4 border-t border-inner-border px-9 py-6">{footer}</div>}
         {description ? (
           // `sr-only` is exactly the visually-hidden pattern that was inlined here
           // (1px box, clipped, no border) — the description stays available to a

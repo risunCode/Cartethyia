@@ -317,7 +317,7 @@ export default function Setup(): ReactNode {
 
         {mode === "restore" ? (
           <div className="flex flex-col gap-7">
-            <div className="setup-restore-row">
+            <div className="flex items-center gap-2 min-h-10">
               <Button
                 type="button"
                 variant="secondary"
@@ -360,8 +360,8 @@ export default function Setup(): ReactNode {
             {preview ? <BackupSummary preview={preview} /> : null}
 
             {needsAdmin ? (
-              <div className="setup-admin-needed">
-                <p className="setup-note">
+              <div className="flex flex-col gap-3 p-3 border border-[color-mix(in_srgb,var(--status-warning)_35%,transparent)] rounded-control">
+                <p className="m-0 text-text-secondary text-caption">
                   This backup has no console accounts, so nothing could sign in
                   after restoring it. Set an administrator below — the rest of
                   the file is restored either way.
@@ -485,47 +485,47 @@ function BackupSummary({ preview }: { readonly preview: BackupPreview }): ReactN
   const exported = preview.exportedAt ? preview.exportedAt.replace("T", " ").slice(0, 19) : "unknown";
 
   return (
-    <div className="setup-preview">
-      <div className="setup-preview-head">
-        <span className="setup-preview-file" title={preview.fileName}>
+    <div className="flex flex-col gap-2 p-3 border border-inner-border rounded-control bg-surface-2">
+      <div className="flex items-center flex-wrap gap-1.5">
+        <span className="min-w-0 overflow-hidden whitespace-nowrap text-ellipsis text-body font-semibold" title={preview.fileName}>
           {preview.fileName}
         </span>
-        <span className="setup-badge">v{preview.version}</span>
+        <span className="inline-flex items-center flex-none px-3.5 py-px border border-inner-border rounded-md bg-surface-2 text-text-secondary text-badge tabular-nums">v{preview.version}</span>
         {preview.hasConsoleUsers ? (
-          <span className="setup-badge setup-badge-ok">accounts</span>
+          <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--green)_40%,transparent)] text-green">accounts</span>
         ) : (
-          <span className="setup-badge setup-badge-warn">no accounts</span>
+          <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] text-status-warning">no accounts</span>
         )}
         {unsupported.length > 0 ? (
-          <span className="setup-badge setup-badge-warn">
+          <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] text-status-warning">
             {unsupported.length} unsupported
           </span>
         ) : null}
       </div>
-      <p className="setup-note">
+      <p className="m-0 text-text-secondary text-caption">
         {preview.total} rows across {preview.rows.length} tables · exported {exported}
       </p>
       {unsupported.length > 0 ? (
-        <p className="setup-note setup-note-warn">
+        <p className="m-0 text-caption text-status-warning">
           {unsupported.length === preview.rows.length
             ? "None of these tables exist in this build, so nothing can be restored."
             : "This build no longer has some of these tables. The rest still restores."}
         </p>
       ) : null}
       {preview.rows.length === 0 ? (
-        <p className="setup-note">This backup is empty.</p>
+        <p className="m-0 text-text-secondary text-caption">This backup is empty.</p>
       ) : (
-        <div className="setup-preview-scroll">
+        <div className="max-h-110 overflow-auto">
           <DataTable headers={["Table", "Section", "Rows"]} dense>
             {[...supported, ...unsupported].map((row) => (
               <tr key={`${row.section}/${row.table}`}>
                 <td>{row.table}</td>
                 <td>{row.section}</td>
-                <td className="setup-col-count">
+                <td className="text-right">
                   {row.supported ? (
                     row.count
                   ) : (
-                    <span className="setup-badge setup-badge-warn">unsupported</span>
+                    <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] text-status-warning">unsupported</span>
                   )}
                 </td>
               </tr>

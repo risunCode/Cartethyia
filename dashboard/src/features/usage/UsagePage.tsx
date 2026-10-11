@@ -358,7 +358,7 @@ function StatusCodeWithExplainer({
       {open ? (
         <span
           role="status"
-          className="absolute z-30 top-[calc(100%+6px)] left-0 whitespace-normal min-w-110 max-w-140 border border-inner-border rounded-control bg-popover-bg shadow-[0_12px_32px_rgba(0,0,0,0.16)] px-5 py-4 font-sans font-normal text-badge leading-[1.5] text-text-secondary"
+          className="absolute top-full z-30 mt-1.5 left-0 whitespace-normal min-w-110 max-w-140 border border-inner-border rounded-control bg-popover-bg shadow-popout px-5 py-4 font-sans font-normal text-badge leading-snug text-text-secondary"
         >
           {explainer}
         </span>
@@ -534,18 +534,19 @@ function StatusFilterButton({
   readonly onToggle: (status: number) => void;
 }): ReactNode {
   const label = httpStatusLabel(status);
+  const tone = httpStatusTone(status);
   return (
     <button
       type="button"
-      className="usage-status-filter"
-      data-tone={httpStatusTone(status)}
+      className={`inline-flex items-center gap-2.5 min-h-10.5 px-3 py-0.5 border rounded-chip bg-surface-1 font-sans text-micro font-semibold leading-none whitespace-nowrap cursor-pointer ${pressed ? "border-current" : "border-inner-border text-text-secondary hover:border-current"} ${tone === "ok" ? "text-green" : tone === "warn" ? "text-orange" : "text-red"} ${pressed ? "" : "hover:bg-surface-muted"}`}
+      data-tone={tone}
       aria-pressed={pressed}
       aria-label={`Filter ${label}: ${formatNumber(count)} requests`}
       title={`Show ${formatNumber(count)} requests with HTTP ${label}`}
       onClick={() => onToggle(status)}
     >
       <span>{label}</span>
-      <span className="usage-status-filter-count">{formatNumber(count)}</span>
+      <span className="font-mono tabular-nums opacity-65" aria-hidden="true">· {formatNumber(count)}</span>
     </button>
   );
 }
@@ -589,7 +590,7 @@ function StatusFilters({
 
   if (present.length === 0) return null;
   return (
-    <div className="usage-status-filters" role="group" aria-label="Filter requests by HTTP status">
+    <div className="inline-flex items-center flex-wrap gap-2" role="group" aria-label="Filter requests by HTTP status">
       {pinned.map((entry) => (
         <StatusFilterButton
           key={entry.status}
@@ -603,7 +604,7 @@ function StatusFilters({
         <div ref={rootRef} className="relative">
           <button
             type="button"
-            className="usage-status-filter"
+            className={`inline-flex items-center gap-2.5 min-h-10.5 px-3 py-0.5 border rounded-chip bg-surface-1 font-sans text-micro font-semibold leading-none whitespace-nowrap cursor-pointer ${restActive ? "border-current" : "border-inner-border text-text-secondary hover:border-current hover:bg-surface-muted"} ${restActive ? (httpStatusTone(active ?? 0) === "ok" ? "text-green" : httpStatusTone(active ?? 0) === "warn" ? "text-orange" : "text-red") : ""}`}
             data-tone={restActive ? httpStatusTone(active ?? 0) : undefined}
             aria-pressed={restActive}
             aria-expanded={open}
@@ -612,14 +613,14 @@ function StatusFilters({
             onClick={() => setOpen((value) => !value)}
           >
             <span>More</span>
-            <span className="usage-status-filter-count">{formatNumber(restTotal)}</span>
+            <span className="font-mono tabular-nums opacity-65" aria-hidden="true">· {formatNumber(restTotal)}</span>
             <ChevronDown size={10} aria-hidden="true" className={cn("transition-transform", open && "rotate-180")} />
           </button>
           {open ? (
             <div
               role="menu"
               aria-label="Other HTTP statuses"
-              className="absolute z-[50] top-[calc(100%+4px)] right-0 min-w-90 flex flex-col gap-1 border border-inner-border rounded-control bg-popover-bg shadow-popout p-2"
+              className="absolute top-full z-50 mt-1 right-0 min-w-90 flex flex-col gap-1 border border-inner-border rounded-control bg-popover-bg shadow-popout p-2"
             >
               {rest.map((entry) => (
                 <div key={entry.status} role="none" className="[&>button]:w-full [&>button]:justify-between">
@@ -754,7 +755,7 @@ function BreakdownSnapshot({
     return `${rows.length} ${plural} · ${formatNumber(totalRequests)} hits · ${pct}% ok`;
   })();
   return (
-    <Card className={wide ? "grid-span-full" : ""}>
+    <Card className={wide ? "col-span-full" : ""}>
       <CardHeader
         title="Breakdown"
         subtitle={breakdownSubtitle}
@@ -964,7 +965,7 @@ function RequestDetailDrawer({
 
 
           {detail.errorKind ? (
-            <div role="alert" className="status-callout flex flex-col gap-2 [overflow-wrap:anywhere] break-words" data-tone="err">
+            <div role="alert" className="flex flex-col gap-2 rounded-control border border-[color-mix(in_srgb,var(--red)_40%,transparent)] bg-[color-mix(in_srgb,var(--red)_8%,transparent)] px-5 py-4 text-caption text-[var(--red)] [overflow-wrap:anywhere] break-words">
               <strong className="text-caption">
                 {errorLabel(detail.status, detail.errorKind, detail.errorOrigin, detail.httpStatus)}
               </strong>
@@ -1012,7 +1013,7 @@ function RequestDetailDrawer({
             return (
               <section
                 aria-label="Session signals"
-                className="grid grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-4 border border-inner-border rounded-control p-5 bg-surface-2"
+                className="signal-grid grid gap-4 border border-inner-border rounded-control p-5 bg-surface-2"
               >
                 {signalItems.map(({ label, value, icon: Icon }) => (
                   <div
@@ -1468,7 +1469,7 @@ export default function Usage(): ReactNode {
           icon={<Activity size={16} />}
         />
         <CardBody className="flex flex-col gap-8">
-      <div className="metric-grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+      <div className="metric-grid grid gap-7 w-full min-w-0">
         <RequestsStatCard
           pending={summaryQuery.isPending}
           requests={summary?.requests}
@@ -1533,7 +1534,7 @@ export default function Usage(): ReactNode {
         />
       </div>
 
-      <div className="two-column-grid">
+      <div className="grid grid-cols-2 gap-8 w-full min-w-0 max-medium:grid-cols-1">
 
         <BreakdownSnapshot
           period={period}
@@ -1543,7 +1544,7 @@ export default function Usage(): ReactNode {
           onToggleWide={() => togglePanel(setWidePanels, "breakdown")}
         />
         <Card
-          className={widePanels.has("traffic") ? "grid-span-full" : ""}
+          className={widePanels.has("traffic") ? "col-span-full" : ""}
         >
           <CardHeader
             title="Traffic"
@@ -1681,7 +1682,7 @@ export default function Usage(): ReactNode {
                           {hideProviderName ? "Mysterious" : rowProviderId ? (providerNames.get(rowProviderId) ?? rowProviderId) : "—"}
                         </span>
                       </div>
-                      <div className="truncate subline" title={row.model ?? "—"}>
+                      <div className="truncate font-mono text-badge text-text-tertiary mt-px" title={row.model ?? "—"}>
                         {hideProviderName && row.model && row.model.includes("/")
                           ? row.model.slice(row.model.indexOf("/") + 1)
                           : row.model ?? "—"}
@@ -1694,7 +1695,7 @@ export default function Usage(): ReactNode {
                       >
                         {usageApiKeyLabel(row)}
                       </div>
-                      <div className="truncate subline" title={usageClientLabel(row)}>
+                      <div className="truncate font-mono text-badge text-text-tertiary mt-px" title={usageClientLabel(row)}>
                         {usageClientLabel(row)}
                       </div>
                     </td>
@@ -1712,11 +1713,11 @@ export default function Usage(): ReactNode {
                           httpStatus={row.httpStatus}
                         />
                       </div>
-                      <div className="truncate subline max-w-110" title={surfaceFamilyLabel(row.surface)}>
+                      <div className="truncate font-mono text-badge text-text-tertiary mt-px max-w-110" title={surfaceFamilyLabel(row.surface)}>
                         {surfaceFamilyLabel(row.surface)}
                       </div>
                     </td>
-                    <td className="mono">
+                    <td className="font-mono text-badge whitespace-nowrap text-right tabular-nums">
                       <div className="flex gap-6 justify-end">
                         <span className="inline-flex items-center gap-2 text-text-secondary">
                           <ArrowUp size={10} aria-label="Input tokens" /> IN {formatNumber(row.inputTokens)}
@@ -1745,10 +1746,10 @@ export default function Usage(): ReactNode {
                         ) : null}
                       </div>
                     </td>
-                    <td className="num whitespace-nowrap">
+                    <td className="font-mono text-caption text-right text-text-secondary whitespace-nowrap">
                       {formatSpeed(row.tokensPerSec)}
                     </td>
-                    <td className="num">
+                    <td className="font-mono text-caption text-right text-text-secondary">
                       <div>{formatDuration(row.ttfbMs)}</div>
                       {row.resolveMs !== undefined ? (
                         <div
@@ -1759,7 +1760,7 @@ export default function Usage(): ReactNode {
                         </div>
                       ) : null}
                     </td>
-                    <td className="num">
+                    <td className="font-mono text-caption text-right text-text-secondary">
                       {formatDuration(row.durationMs)}
                     </td>
                     </tr>

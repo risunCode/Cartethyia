@@ -2,19 +2,20 @@
 
 `dashboard/` is the React/Vite client for the landing page, authenticated
 `/console` surface, and public `/share/:token` enrollment app. One `index.html`
-dispatches by pathname. Every app loads the same `src/styles/base.css`
-(Tailwind, theme tokens, resets, and shared UI primitives) followed by one
-direct, app-specific extension import: `console.css`, `landing.css`, or
-`share.css`. There is no CSS barrel or duplicate global theme source.
-Console-only shell and route styles stay in `console.css`; Landing's dark
-story and manual chapter navigation stay in `landing.css`; Share's public HUD
-stays in `share.css`, without a decorative background and with the same
-`console-theme` preference as Console. Landing's GitHub badge sits immediately
+dispatches by pathname. Every app loads the same stylesheets: `src/styles/base.css`
+(Tailwind, theme tokens, resets, and shared UI primitives) plus `src/styles/app.css`
+(the shell frame and the rules a utility cannot express). There are no per-app
+stylesheets and no CSS barrel; a page styles through the one dialect,
+**token → utility → primitive**, so a change in `src/styles/tokens.css` restyles
+every surface. Landing's dark story, Share's public HUD (same `console-theme`
+preference as Console) with document-level backdrop art, and Console's shell are
+composed from `components/ui/` atoms, `components/patterns/` blocks, and Tailwind
+utilities. Landing's GitHub badge sits immediately
 before All view and links the repository with live star and fork counts; the
 badge images come from external hosts admitted only under `img-src`; share-popup
 images are HTTPS-only. `connect-src` remains same-origin, so the dashboard cannot
 call arbitrary third-party APIs. Chapter auto-scroll is disabled.
-- Public share links may include an owner-configured donation or information popup, click-opened from the Base URL card. `share.css` provides the responsive dialog layout for desktop and mobile.
+- Public share links may include an owner-configured donation or information popup, click-opened from the Base URL card; its responsive dialog layout is utilities, not a stylesheet.
 Production serves the built files from `dist/dashboard`.
 
 ## Verification

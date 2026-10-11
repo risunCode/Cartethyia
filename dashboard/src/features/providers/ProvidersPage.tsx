@@ -23,7 +23,7 @@ import { Switch } from "../../components/ui/switch";
 import { Inline } from "../../components/ui/inline";
 import { Stack } from "../../components/ui/stack";
 const CARD_SHELL = cn(
-  "provider-card relative flex flex-col border border-inner-border rounded-card",
+  "relative flex flex-col min-w-0 border border-inner-border rounded-card",
   "transition-[transform,border-color,box-shadow]",
 );
 
@@ -311,7 +311,7 @@ function AddCompatibleModal({
         <ListRow className="justify-between">
           <div>
             <div className="text-body font-semibold">Auto-fetch models</div>
-            <div className="form-section-caption">
+            <div className="mt-1 text-badge text-text-tertiary">
               Discover this provider's model list automatically after creation
             </div>
           </div>
@@ -322,7 +322,7 @@ function AddCompatibleModal({
             <div className="text-body font-semibold">
               {isAnthropic ? "Send request as Claude CLI" : "Send request as Codex CLI"}
             </div>
-            <div className="form-section-caption">
+            <div className="mt-1 text-badge text-text-tertiary">
               {isAnthropic
                 ? "Emits official Claude CLI User-Agent and Stainless headers to upstream"
                 : "Emits official codex_cli_rs User-Agent and originator headers to upstream"}
@@ -1078,7 +1078,7 @@ export default function Providers(): ReactNode {
                   {section.title} ({section.providers.length}){collapsed ? " (Hidden)" : ""}
                 </h2>
                 {!collapsed && section.subtitle ? (
-                  <p className="form-section-caption">
+                  <p className="mt-1 text-badge text-text-tertiary">
                     {section.subtitle}
                   </p>
                 ) : null}

@@ -67,7 +67,11 @@ export function Select({
         // same-specificity height classes would otherwise be resolved by stylesheet
         // order, not by the caller's intent, and the control would silently take the
         // atom's size instead of the one asked for.
-        className={cn("radix-select-trigger", SIZE_HEIGHT_CLASS[size], className)}
+        className={cn(
+          "radix-select-trigger inline-flex items-center justify-between gap-4 w-full px-6 rounded-control border border-inner-border bg-surface-2 text-text-primary text-caption font-sans text-left cursor-pointer transition-[border-color,background-color] duration-150 ease-spring hover:border-border-strong focus-visible:outline-2 focus-visible:outline-focus-ring focus-visible:outline-offset-1 aria-disabled:opacity-70 aria-disabled:cursor-default aria-disabled:pointer-events-none [&_svg]:text-text-tertiary [&_svg]:transition-transform [&_svg]:duration-150 [&_svg]:ease-spring data-[state=open]:[&_svg]:rotate-180",
+          SIZE_HEIGHT_CLASS[size],
+          className,
+        )}
         style={{
           ...style,
           // Runtime-computed (depends on `disabled`), so they stay inline: the
@@ -90,7 +94,7 @@ export function Select({
         <RadixSelect.Content
           position="popper"
           sideOffset={4}
-          className="radix-select-content"
+          className="radix-select-content z-toast min-w-[var(--radix-select-trigger-width)] max-h-140 max-h-[var(--radix-select-content-available-height)] overflow-hidden overflow-y-auto border border-border-strong rounded-card bg-popover-bg shadow-popout backdrop-blur-xl p-2.5 box-border"
         >
           <RadixSelect.Viewport>
             {options.map((option) => (
@@ -98,11 +102,11 @@ export function Select({
                 key={option.value}
                 value={option.value}
                 disabled={option.disabled}
-                className="radix-select-item"
+                className="radix-select-item flex items-center justify-between gap-4 px-5 py-4 rounded-control text-caption font-medium text-text-primary cursor-pointer outline-none transition-colors duration-150 select-none data-[highlighted]:bg-surface-hover data-[state=checked]:font-semibold data-[disabled]:opacity-40 data-[disabled]:cursor-not-allowed"
                 textValue={option.label}
               >
                 <span>{option.label}</span>
-                <RadixSelect.ItemIndicator className="radix-select-indicator">
+                <RadixSelect.ItemIndicator className="radix-select-indicator inline-flex items-center text-accent">
                   <Check size={14} />
                 </RadixSelect.ItemIndicator>
               </RadixSelect.Item>

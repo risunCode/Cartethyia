@@ -1,7 +1,6 @@
 /*
- * Shell frame and irreducible rules. Phase 2 of the styling rebuild moves the
- * app shell (topbar/sidebar grid, page scroller) and the rules a utility cannot
- * express here, out of console.css.
+ * Shared shell frame and irreducible application rules: topbar/sidebar layout,
+ * page scroller, document framing, and effects utilities cannot express.
  */
 @layer components {
 /* ===== shell ===== */
@@ -425,11 +424,6 @@ main.route-enter .card-body-content {
   display: flex;
   flex-direction: column;
 }
-.console-log-toolbar {
-  flex-direction: row;
-  align-items: center;
-  min-height: 0;
-}
 /* Tables keep card width; scoped to the container so grids do not get a forced
    min-width that makes cells overflow and cards overlap. */
 main.route-enter .card-body-content > .data-table-container {
@@ -625,4 +619,168 @@ main.route-enter .state-viewport-compact {
 .status-indicator-dot.pulse {
   animation: pulse-subtle 1.8s infinite;
 }
+
+/* Public share document framing and key-art backdrop. Page visuals are utilities. */
+html[data-app="share"],
+html[data-app="share"] body {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html[data-app="share"] #root {
+  height: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: visible;
+}
+
+html[data-app="share"] body {
+  --share-backdrop-veil: 0.8;
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--page-bg) calc(var(--share-backdrop-veil) * 100%), transparent),
+      color-mix(in srgb, var(--page-bg) calc(var(--share-backdrop-veil) * 100%), transparent)
+    ),
+    url("/assets/brand/bansos_page.png");
+  background-position: center, center 28%;
+  background-repeat: no-repeat, no-repeat;
+  background-size: cover, cover;
+  background-attachment: fixed, fixed;
+}
+
+html[data-app="share"][data-theme="dark"] body {
+  --share-backdrop-veil: 0.6;
+}
+
+/* Landing document framing is viewport-level and cannot be expressed by a child utility. */
+html[data-app="landing"] {
+  height: auto;
+  min-height: 100%;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #05070d;
+  color: #f5faff;
+  font-size: 16px;
+  color-scheme: dark;
+}
+
+html[data-app="landing"] body {
+  height: auto;
+  min-height: 100%;
+  min-height: 100dvh;
+  overflow: visible;
+  background: #05070d;
+  background-image: none;
+  color: #f5faff;
+}
+
+html[data-app="landing"] #root {
+  display: block;
+  height: auto;
+  min-height: 100%;
+  min-height: 100dvh;
+  overflow: visible;
+}
+
+::view-transition-group(story-backdrop),
+::view-transition-group(story-copy) {
+  animation-duration: 620ms;
+  animation-timing-function: cubic-bezier(.22,.61,.36,1);
+}
+
+::view-transition-old(story-backdrop),
+::view-transition-new(story-backdrop) {
+  animation-duration: 620ms;
+}
+
+::view-transition-old(story-copy),
+::view-transition-new(story-copy) {
+  animation-duration: 420ms;
+}
+
+@keyframes story-reveal-up {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: translateY(0); }
+}
+}
+
+/* Preserve the account row layout at narrow widths; container sizing belongs to
+   the list, so this follows the actual provider-detail panel rather than viewport. */
+@container account-list (max-width: 560px) {
+  .account-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 8px;
+  }
+  .account-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+/* Auto-fit column templates: a narrow shell drops a column instead of crushing
+   the cards. Utilities cannot express `repeat(auto-fit, minmax(min(100%, Npx), 1fr))`
+   without smuggling the whole function through an arbitrary value, so each
+   breakpoint gets one named class, beside `.metric-grid` and `.provider-grid`. */
+.signal-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 110px), 1fr));
+}
+
+/* Range input tracks and thumbs require browser-specific pseudo-elements. The
+   fill percentage and unlimited state are supplied by the routing control. */
+.routing-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 28px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--inner-border);
+  background: var(--surface-2);
+  cursor: pointer;
+  --slider-fill: var(--accent);
+}
+.routing-slider[data-unlimited="true"] {
+  --slider-fill: var(--status-success);
+}
+.routing-slider:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+.routing-slider::-webkit-slider-runnable-track {
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: linear-gradient(
+    to right,
+    var(--slider-fill) var(--slider-pct, 0%),
+    transparent var(--slider-pct, 0%)
+  );
+}
+.routing-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 8px;
+  height: 18px;
+  margin-top: 5px;
+  border-radius: 4px;
+  background: var(--accent-foreground);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 35%, transparent);
+}
+.routing-slider::-moz-range-track {
+  height: 28px;
+  border-radius: var(--radius-control);
+  background: transparent;
+}
+.routing-slider::-moz-range-progress {
+  height: 28px;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  background: var(--slider-fill);
+}
+.routing-slider::-moz-range-thumb {
+  width: 8px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: var(--accent-foreground);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 35%, transparent);
 }

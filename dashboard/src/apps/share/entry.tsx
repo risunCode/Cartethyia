@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 
 import { SharePage } from "./page";
 import "../../styles/base.css";
-import "../../styles/share.css";
+import "../../styles/app.css";
 
 const root = document.getElementById("root");
 

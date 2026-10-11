@@ -609,8 +609,8 @@ function ProxySummaryTiles({ pools }: { readonly pools: readonly NetworkPoolResp
   }, [pools, byId, live]);
   return (
     <div
-      className="metric-grid"
-      style={{ marginBottom: "14px", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}
+      className="metric-grid grid gap-7 w-full min-w-0 mb-7"
+      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}
     >
       <StatCard
         label="Enabled pool"
@@ -1699,7 +1699,7 @@ export default function Proxy(): ReactNode {
           {isPending && <LoadingState />}
           {isError && <ErrorState title="Error" message="Failed to load network pools" />}
           {!isPending && !isError && pools.length === 0 && (
-            <div className="empty-panel">
+            <div className="flex-1 flex items-center justify-center p-12 border border-dashed border-transparent rounded-card bg-transparent text-center">
               <EmptyState
                 title="No proxy pools configured"
                 message="The summary above is empty because nothing is routing yet. Use Add proxies or Deploy relay in the header to start one."

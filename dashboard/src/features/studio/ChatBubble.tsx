@@ -93,71 +93,71 @@ export function ChatBubble({
   };
 
   return (
-    <div className={mine ? "mlab-turn mlab-turn-user mlab-msg-in" : "mlab-turn mlab-turn-assistant mlab-msg-in"}>
+    <div className={mine ? "mlab-turn flex flex-col w-full max-w-380 gap-2 items-end ml-auto mlab-msg-in" : "mlab-turn flex flex-col w-full max-w-380 gap-2 items-start mr-auto mlab-msg-in"}>
       {mine ? null : (
-        <div className="mlab-profile">
-          <span className="mlab-avatar" aria-hidden="true">
+        <div className="flex items-center gap-3 min-h-12 text-text-tertiary text-caption">
+          <span className="grid place-items-center w-11 h-11 rounded-control border border-inner-border bg-surface-2 text-text-secondary" aria-hidden="true">
             <Bot size={13} />
           </span>
-          <span className="mlab-who" title={provider.length > 0 ? provider : undefined}>{name || "Model"}</span>
+          <span className="font-bold text-text-secondary" title={provider.length > 0 ? provider : undefined}>{name || "Model"}</span>
         </div>
       )}
 
       {thinking.length > 0 ? (
-        <div className="mlab-thinking">
-          <button type="button" className="mlab-thinking-toggle" aria-expanded={thinkingOpen} onClick={() => setThinkingOpen((current) => !current)}>
+        <div className="flex flex-col gap-3 w-full max-w-280 text-text-tertiary font-sans text-caption">
+          <button type="button" className="inline-flex items-center gap-2.5 w-fit h-12 px-4 border border-inner-border rounded-pill bg-surface-2 text-text-secondary font-sans text-badge font-semibold cursor-pointer hover:border-border-strong hover:bg-hover hover:text-text-primary [&_svg]:flex-none [&_svg[data-open=true]]:rotate-180" aria-expanded={thinkingOpen} onClick={() => setThinkingOpen((current) => !current)}>
             <Brain size={12} />
             <span>{live && message.text.length === 0 ? "Thinking" : "Thought"}</span>
             <ChevronDown size={12} data-open={thinkingOpen ? "true" : "false"} />
           </button>
           {thinkingOpen ? (
-            <div className="mlab-thinking-window">{thinking}</div>
+            <div className="max-h-[calc(1.5em*5)] overflow-auto px-5 py-4 border border-inner-border rounded-control bg-surface-2 text-text-secondary italic leading-normal whitespace-pre-wrap select-text cursor-text">{thinking}</div>
           ) : null}
         </div>
       ) : null}
       <div
         className={
           mine
-            ? "mlab-bubble mlab-bubble-user"
+            ? "max-w-full max-medium:max-w-[88%] text-lead leading-[1.35] wrap-break-word px-7 py-4 border border-border-strong rounded-hero rounded-br-tiny bg-surface-active text-text-primary whitespace-pre-wrap"
             : message.error === true
-              ? "mlab-bubble mlab-bubble-assistant mlab-bubble-error"
-              : "mlab-bubble mlab-bubble-assistant"
+              ? "max-w-full max-medium:max-w-[88%] text-lead leading-[1.35] wrap-break-word py-1 pr-1 text-red"
+              : "max-w-full max-medium:max-w-[88%] text-lead leading-[1.35] wrap-break-word py-1 pr-1 text-text-primary"
         }
       >
         {waiting ? (
-          <span className="mlab-typing" aria-label="Model is writing">
-            <span className="mlab-typing-dot" />
-            <span className="mlab-typing-dot" />
-            <span className="mlab-typing-dot" />
+          <span className="inline-flex items-center gap-2 h-11 px-2" aria-label="Model is writing">
+            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-[mlab-typing-bounce_1.2s_ease-in-out_infinite]" />
+            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-[mlab-typing-bounce_1.2s_ease-in-out_infinite] [animation-delay:0.15s]" />
+            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-[mlab-typing-bounce_1.2s_ease-in-out_infinite] [animation-delay:0.3s]" />
           </span>
         ) : editing ? (
           <form
-            className="mlab-edit"
+            className="flex flex-col gap-4 min-w-140 max-w-[70vw]"
             onSubmit={(event) => {
               event.preventDefault();
               onEdit?.(draft);
               setEditing(false);
             }}
           >
-            <textarea value={draft} aria-label="Edit message" onChange={(event) => setDraft(event.target.value)} />
-            <span>
-              <button type="button" onClick={() => setEditing(false)}>Cancel</button>
-              <button type="submit">Send</button>
+            <textarea value={draft} aria-label="Edit message" onChange={(event) => setDraft(event.target.value)} className="w-full min-h-32 border-0 outline-none resize-y bg-transparent text-text-primary caret-text-primary font-inherit" />
+            <span className="flex justify-end gap-3">
+              <button type="button" onClick={() => setEditing(false)} className="h-13 px-5 border-0 rounded-pill bg-hover text-text-secondary text-caption font-semibold cursor-pointer hover:bg-surface-hover">Cancel</button>
+              <button type="submit" className="h-13 px-5 border-0 rounded-pill bg-text-primary text-surface-1 text-caption font-semibold cursor-pointer">Send</button>
             </span>
           </form>
         ) : (
           <>
             {(message.images?.length ?? 0) > 0 ? (
-              <div className="mlab-images">
+              <div className="flex flex-wrap gap-2 mb-1">
                 {message.images?.map((image) => (
-                  <img key={image.dataUrl} src={image.dataUrl} alt={image.name} />
+                  <img key={image.dataUrl} src={image.dataUrl} alt={image.name} className="w-20 h-20 object-cover rounded-control border border-inner-border" />
                 ))}
               </div>
             ) : null}
             {(message.tools?.length ?? 0) > 0 ? (
-              <div className="mlab-tools">
+              <div className="flex flex-wrap gap-3 mb-4">
                 {message.tools?.map((tool) => (
-                  <span key={tool} className="mlab-tool-pill">
+                  <span key={tool} className="inline-flex items-center gap-2.5 h-12 px-4.5 border border-border-strong rounded-pill bg-surface-1 text-text-secondary text-badge leading-none whitespace-nowrap [&_svg]:text-accent">
                     <Wrench size={11} aria-hidden="true" />
                     <span>{tool}</span>
                   </span>
@@ -167,7 +167,7 @@ export function ChatBubble({
             {mine ? (
               message.text.length > 0 ? message.text : null
             ) : message.text.length > 0 ? (
-              <div className="mlab-markdown">
+              <div className="min-w-0 font-sans text-body-lg leading-normal [&_p]:m-0 [&_p]:mb-4 [&_ul]:m-0 [&_ul]:mb-4 [&_ol]:m-0 [&_ol]:mb-4 [&_pre]:m-0 [&_pre]:mb-4 [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0 [&_pre:last-child]:mb-0 [&_pre]:overflow-x-auto [&_pre]:px-6 [&_pre]:py-5 [&_pre]:rounded-control [&_pre]:bg-surface-muted [&_pre]:font-mono [&_pre]:text-caption [&_code]:font-mono [&_svg]:flex-none [&_svg]:mt-1.5">
                 {message.error === true ? <AlertCircle size={14} aria-hidden="true" /> : null}
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
               </div>
@@ -176,19 +176,19 @@ export function ChatBubble({
         )}
       </div>
       {mine && !editing ? (
-        <div className="mlab-turn-actions">
-          <button type="button" aria-label="Copy message" title="Copy" onClick={() => void copy()}>
+        <div className="inline-flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 hover:opacity-100 [.mlab-turn:hover_&]:opacity-100 [.mlab-turn:focus-within_&]:opacity-100">
+          <button type="button" aria-label="Copy message" title="Copy" onClick={() => void copy()} className="inline-flex items-center justify-center w-11 h-11 p-0 border-0 rounded-chip bg-transparent text-text-tertiary cursor-pointer hover:bg-hover hover:text-text-primary">
             {copied ? <Check size={12} /> : <Copy size={12} />}
           </button>
           {onEdit !== undefined ? (
-            <button type="button" aria-label="Edit and resend" title="Edit and resend" onClick={() => { setDraft(message.text); setEditing(true); }}>
+            <button type="button" aria-label="Edit and resend" title="Edit and resend" onClick={() => { setDraft(message.text); setEditing(true); }} className="inline-flex items-center justify-center w-11 h-11 p-0 border-0 rounded-chip bg-transparent text-text-tertiary cursor-pointer hover:bg-hover hover:text-text-primary">
               <Pencil size={12} />
             </button>
           ) : null}
         </div>
       ) : null}
       {metrics.length > 0 || (!mine && message.text.length > 0) ? (
-        <div className="mlab-meter">
+        <div className="inline-flex items-center h-8 rounded-tiny bg-surface-muted text-text-tertiary overflow-hidden [&>span]:inline-flex [&>span]:items-center [&>span]:gap-1 [&>span]:h-8 [&>span]:px-2.5 [&>span]:border-0 [&>span]:border-r [&>span]:border-r-inner-border [&>span]:bg-transparent [&>span]:text-inherit [&>span]:font-sans [&>span]:text-micro [&>span]:leading-none [&>span]:tabular-nums [&>span:last-child]:border-r-0 [&_svg]:flex-none [&>button]:cursor-pointer">
           {metrics.map((item) => (
             <span key={item.label} title={item.label}>
               {item.icon}

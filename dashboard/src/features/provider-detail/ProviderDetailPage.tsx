@@ -893,7 +893,7 @@ export default function ProviderDetail(): ReactNode {
           }
         >
           <Stack gap="12px">
-            <p className="oauth-hint">
+            <p className="text-badge leading-snug text-text-tertiary">
               {flowPrompt === "browser"
                 ? `Choose how ${(provider.label || provider.displayName)} should identify you, then continue to its sign-in page.`
                 : "These decide which organization the device code is issued for."}

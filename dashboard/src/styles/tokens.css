@@ -62,48 +62,33 @@
    * tree. Collapsing them onto nine steps is the one place the rebuild
    * intentionally moves pixels: a label at 10.5px becomes 10px, a caption at
    * 12.5px becomes 12px. The steps are monotonic and every step is a real
-   * difference, so a writer picks by role — micro, badge, caption, body, lead,
-   * title, display, hero — instead of by remembering a number.
+   * difference, so a writer picks by role (2xs = micro-label, xs = badge,
+   * sm = caption, base = body) instead of by remembering a number.
    *
-   * The names are deliberately NOT Tailwind's own (`xs`, `sm`, `base`, `lg`,
-   * `xl`, `2xl`, `3xl`). Tailwind's utilities for those names bundle a
-   * line-height alongside the size (`--text-xs--line-height` and friends), so
-   * shadowing the size while leaving the ratio in place would silently tighten
-   * the leading of every element that had none of its own — an 11px line that
-   * measured 16.5px would start measuring 14.67px, because `text-xs` carries a
-   * 4/3 ratio. A role name generates `font-size` alone, so the element keeps
-   * inheriting its line-height exactly as it did when the size was an arbitrary
-   * `text-[11px]` literal.
+   * These names shadow Tailwind's own defaults with a tighter scale. That is
+   * deliberate and safe here: the tree contained exactly one use of a default
+   * `text-*` utility before this, so nothing else moves.
    */
-  --text-micro: 10px;
-  --text-badge: 11px;
-  --text-caption: 12px;
-  --text-body: 13px;
-  --text-body-lg: 14px;
-  --text-lead: 16px;
-  --text-title: 18px;
-  --text-display: 21px;
-  --text-hero: 28px;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 21px;
+  --text-3xl: 28px;
 
   /** The uppercase-eyebrow letter-spacing the section headers and stat labels use. */
   --tracking-label: 0.08em;
 
-  /*
-   * The radius scale. Every step the sheets and the inline styles actually used,
-   * named, because Tailwind's `rounded-<number>` keys off `--radius-*` and NOT
-   * the spacing scale — `rounded-1.5` emits nothing at all, so a pixel value
-   * converted arithmetically would silently lose its radius. `pill` is the
-   * fully-round escape for 999px/9999px.
-   */
-  --radius-micro: var(--radius-micro);
-  --radius-tiny: var(--radius-tiny);
-  --radius-chip: var(--radius-chip);
-  --radius-narrow: var(--radius-narrow);
-  --radius-inset: var(--radius-inset);
+  /* Sub-control radii. `rounded-control` (10px) is the field/chip radius; these
+     two name the smaller steps that `text-[…]`-style literals had been filling. */
+  --radius-chip: 6px;
+  --radius-inset: 8px;
+
   --radius-control: var(--radius-control);
-  --radius-panel: var(--radius-panel);
   --radius-card: var(--radius-card);
-  --radius-hero: var(--radius-hero);
   --radius-sidebar: var(--radius-sidebar);
   --radius-pill: var(--radius-pill);
 
@@ -172,15 +157,8 @@
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --font-head: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --radius-micro: 3px;
-  --radius-tiny: 4px;
-  --radius-chip: 6px;
-  --radius-narrow: 7px;
-  --radius-inset: 8px;
   --radius-control: 10px;
-  --radius-panel: 12px;
   --radius-card: 14px;
-  --radius-hero: 18px;
   --radius-sidebar: 20px;
   --radius-pill: 9999px;
   /* App topbar height (38px control + 8px padding ×2 + 1px border ×2). Pages

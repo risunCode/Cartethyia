@@ -114,7 +114,7 @@ export default function ConsoleLogPage(): ReactNode {
     </div>
   );
   return (
-    <div className="console-log-page">
+    <div className="flex flex-col flex-1 min-h-0">
       {activeTab === "logs" ? (
         <LiveLogsPanel tabAction={tabAction} />
       ) : (
@@ -192,16 +192,19 @@ const LogRow = memo(function LogRow({
   const isRequest = line.event !== undefined;
   const tone = line.level;
   return (
-    <div className={`console-log-row console-log-row--${tone}${isNew ? " is-new" : ""}`}>
-      <span className="console-log-time">{formatClock(line.ts)}</span>
+    <div
+      className={`flex flex-wrap items-baseline gap-4 px-8 py-1.5 min-h-10.5 font-mono text-caption leading-normal max-medium:gap-3 max-medium:px-5 max-medium:text-badge${tone === "warn" ? " bg-orange-soft" : tone === "error" ? " bg-red-soft" : ""}${isNew ? " bg-surface-muted" : ""} hover:bg-surface-hover`}
+      data-log-tone={tone}
+    >
+      <span className="max-medium:flex-none flex-none tabular-nums text-text-tertiary">{formatClock(line.ts)}</span>
       <span
-        className="console-log-level"
+        className="flex-none w-13 text-left text-micro font-bold tracking-label"
         style={{ color: LEVEL_COLOR[line.level] }}
         title={line.level.toUpperCase()}
       >
         {LEVEL_LABEL[line.level]}
       </span>
-      {isRequest ? <RequestFields line={line} /> : <span className="console-log-msg">{line.msg}</span>}
+      {isRequest ? <RequestFields line={line} /> : <span className="min-w-0 flex-1 whitespace-pre-wrap wrap-anywhere break-words text-text-secondary">{line.msg}</span>}
     </div>
   );
 });
@@ -216,38 +219,38 @@ function RequestFields({ line }: { readonly line: ConsoleLogEntry }): ReactNode 
   const route = eventRoute(line);
   const tokens = readTokenUsage(line);
   return (
-    <span className="console-log-fields">
-      <span className="console-log-method">{line.method ?? "POST"}</span>
-      <span className="console-log-path">{line.endpoint ?? ""}</span>
+    <span className="contents whitespace-pre-wrap wrap-anywhere">
+      <span className="max-medium:hidden flex-none min-w-19 text-text-tertiary text-badge font-semibold">{line.method ?? "POST"}</span>
+      <span className="flex-none text-text-primary">{line.endpoint ?? ""}</span>
       {line.status !== undefined ? (
-        <span className={`console-log-status console-log-status--${statusTone(line.status)}`}>
+        <span className={`flex-none min-w-15 tabular-nums${statusTone(line.status) === "ok" ? " text-text-tertiary" : statusTone(line.status) === "warn" ? " text-orange font-semibold" : " text-red font-semibold"}`}>
           {line.status}
         </span>
       ) : (
-        <span className="console-log-status console-log-status--pending">···</span>
+        <span className="flex-none min-w-15 tabular-nums tracking-label text-text-tertiary">···</span>
       )}
-      {route ? <span className="console-log-route">{route}</span> : null}
+      {route ? <span className="flex-auto min-w-0 overflow-hidden text-ellipsis text-status-info" data-log-field="route">{route}</span> : null}
       {line.accountLabel ? (
-        <span className="console-log-account" title={line.accountId ?? undefined}>
+        <span className="max-medium:hidden flex-none max-w-80 overflow-hidden text-ellipsis text-purple" data-log-field="account" title={line.accountId ?? undefined}>
           {line.accountLabel}
         </span>
       ) : null}
-      {line.clientIp ? <span className="console-log-ip">{line.clientIp}</span> : null}
+      {line.clientIp ? <span className="flex-none tabular-nums text-text-secondary" data-log-field="ip">{line.clientIp}</span> : null}
       {line.durationMs !== undefined ? (
-        <span className="console-log-duration">{formatDuration(line.durationMs)}</span>
+        <span className="max-medium:hidden flex-none tabular-nums text-text-secondary">{formatDuration(line.durationMs)}</span>
       ) : null}
-      {tokens ? <span className="console-log-tokens">{tokens}</span> : null}
+      {tokens ? <span className="max-medium:hidden flex-none tabular-nums text-orange" data-log-field="tokens">{tokens}</span> : null}
       {line.errorCode ? (
         <>
-          <span className="console-log-errmsg" title={line.msg}>
+          <span className="text-red" title={line.msg}>
             {line.msg}
           </span>
-          <span className="console-log-error" title={line.msg}>
+          <span title={line.msg}>
             {line.errorCode}
           </span>
         </>
       ) : null}
-      {isStart ? null : <span className="console-log-id">{line.requestId?.slice(0, 8) ?? ""}</span>}
+      {isStart ? null : <span className="flex-none ml-auto text-micro text-text-tertiary" data-log-field="id">{line.requestId?.slice(0, 8) ?? ""}</span>}
     </span>
   );
 }
@@ -305,41 +308,42 @@ function LiveLogsPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
         icon={<ScrollText size={16} />}
         action={tabAction}
       />
-      <CardBody className="console-log-toolbar">
-        <div className="console-log-filters" role="group" aria-label="Log level">
+      <CardBody className="flex flex-row items-center justify-between gap-8 flex-none min-h-0 px-7 py-4 border-b border-inner-border max-medium:flex-col max-medium:items-start max-medium:gap-4">
+        <div className="inline-flex items-center gap-1.5 flex-none max-medium:w-full max-medium:overflow-x-auto" role="group" aria-label="Log level">
           {LEVEL_FILTERS.map((option) => {
             const count = levelCounts.get(option.id) ?? 0;
             return (
               <button
-                className={`console-log-filter${level === option.id ? " is-active" : ""}`}
+                className={`inline-flex items-center appearance-none border-0 rounded-tiny px-5 py-3.5 bg-transparent font-sans text-badge font-semibold leading-none cursor-pointer ${level === option.id ? "bg-surface-muted text-text-primary" : "text-text-tertiary hover:bg-surface-muted hover:text-text-primary"}`}
                 key={option.id}
                 type="button"
                 onClick={() => setLevel(option.id)}
                 aria-pressed={level === option.id}
               >
                 <span>{option.label}</span>
-                <span className="console-log-filter-count">{count}</span>
+                <span className="ml-2.5 text-inherit opacity-65 tabular-nums">{count}</span>
               </button>
             );
           })}
         </div>
-        <div className="console-log-tools">
-          <div className="console-log-search">
-            <Search size={13} aria-hidden="true" />
+        <div className="flex items-center gap-4 ml-auto max-medium:w-full max-medium:ml-0 max-medium:min-w-0">
+          <div className="relative w-140 min-w-0 max-w-full max-medium:flex-auto max-medium:w-auto">
+            <Search size={13} aria-hidden="true" className="absolute left-5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none" />
             <Input
               aria-label="Search console logs"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search logs..."
+              className="pl-15 w-full min-w-0"
             />
           </div>
-          <button className="console-log-clear-icon" type="button" onClick={() => setClearOpen(true)} aria-label="Clear console logs" title="Clear logs">
+          <button className="inline-grid place-items-center w-16 h-16 border border-border-subtle rounded-control bg-transparent text-text-secondary cursor-pointer hover:border-red hover:text-red hover:bg-red-soft" type="button" onClick={() => setClearOpen(true)} aria-label="Clear console logs" title="Clear logs">
             <Trash2 size={15} aria-hidden="true" />
           </button>
         </div>
       </CardBody>
       <CardBody className="p-0 flex-1 min-h-0 flex flex-col">
-        <div ref={scrollRef} onScroll={onScroll} className="console-log-scroll">
+        <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 flex flex-col overflow-y-auto p-0 bg-code-surface text-text-primary">
           {visible.length === 0 ? (
             <EmptyState
               title={
@@ -362,8 +366,8 @@ function LiveLogsPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
             ))
           )}
         </div>
-        <div className="console-log-footer" aria-live="polite">
-          <span className="console-log-footer-text">
+        <div className="flex items-center justify-between gap-5 shrink-0 px-8 py-4 border-t border-inner-border bg-surface-2 text-micro text-text-tertiary" aria-live="polite">
+          <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
             {visible.length} of {lines.length} lines
             {level !== "all" ? ` · ${level}` : ""}
             {normalizedQuery ? ` · search: "${search.trim()}"` : ""}
@@ -429,7 +433,7 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
     setCursorStack([]);
   };
   return (
-    <Card className="console-log-page flex-1 min-h-0 flex flex-col">
+    <Card className="flex-1 min-h-0 flex flex-col">
       <CardHeader
         title="Admin Audit Trail"
         subtitle="Every privileged console mutation, retained on its own lifecycle"
@@ -449,7 +453,7 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
           </div>
         }
       />
-      <CardBody className="console-log-toolbar py-5 px-8 gap-6 items-end">
+      <CardBody className="flex flex-row items-center justify-between gap-6 flex-none min-h-0 px-8 py-5 border-b border-inner-border items-end">
         <Input
           label="Action"
           placeholder="e.g. provider updated"
@@ -478,7 +482,7 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
         </div>
       </CardBody>
       <CardBody className="p-0 flex-1 min-h-0 flex flex-col">
-        <div className="console-log-scroll bg-transparent text-inherit">
+        <div className="flex-1 min-h-0 flex flex-col overflow-y-auto p-0 bg-transparent text-inherit">
           {query.isPending && entries.length === 0 ? (
             <LoadingState label="Loading audit trail…" />
           ) : query.isError && entries.length === 0 ? (

@@ -47,7 +47,7 @@ export default function CliTools(): ReactNode {
   const configuredCount = fileTools.filter((tool) => statusMap.get(tool.id)?.configured).length;
   if (tools.length === 0) {
     return (
-      <div className="empty-panel">
+      <div className="flex-1 flex items-center justify-center p-12 border border-dashed border-transparent rounded-card bg-transparent text-center">
         <EmptyState
           title="No CLI tools registered"
           message="The registry is empty, so there is nothing to configure yet."
@@ -71,7 +71,7 @@ export default function CliTools(): ReactNode {
           description="Direct config file writing and preset model mappings"
         />
 
-        <div className="provider-grid">
+        <div className="provider-grid grid gap-6 w-full min-w-0">
           {fileTools.map((tool) => {
             const status = statusMap.get(tool.id);
             return (
@@ -129,7 +129,7 @@ export default function CliTools(): ReactNode {
           description="Manual setup steps and exportable config templates"
         />
 
-        <div className="provider-grid">
+        <div className="provider-grid grid gap-6 w-full min-w-0">
           {guideTools.map((tool) => (
             <Card
               key={tool.id}

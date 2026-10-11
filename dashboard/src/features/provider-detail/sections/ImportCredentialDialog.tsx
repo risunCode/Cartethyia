@@ -181,7 +181,7 @@ export function ImportCredentialDialog({
       }
     >
       <Stack gap="12px">
-        <p className="oauth-hint">
+        <p className="text-badge leading-snug text-text-tertiary">
           The credential is checked against {providerName} before it is saved, so one that no longer
           works is reported here instead of being stored.
         </p>

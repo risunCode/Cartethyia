@@ -6,9 +6,9 @@
  * itself is a blob and lives in IndexedDB (`media.ts`); only its presence is
  * recorded here, so a quota error can never take the settings down with it.
  *
- * Every write also mirrors the values onto `documentElement.dataset`, which is
- * what the CSS in `console.css` keys off. The page, the shell, and a second
- * tab stay in agreement through one `CustomEvent`.
+ * Every write also mirrors the values onto `documentElement.dataset`, which
+ * the shared base and app styles consume. The page, the shell, and a second tab
+ * stay in agreement through one `CustomEvent`.
  */
 
 import { useEffect, useState } from "react";

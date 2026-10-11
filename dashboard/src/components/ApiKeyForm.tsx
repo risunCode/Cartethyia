@@ -186,7 +186,7 @@ function RemoteRoutingRow({
         <div className="text-caption font-semibold text-text-primary">
           {tool.name}
         </div>
-        <p className="form-section-caption">
+        <p className="mt-1 text-badge text-text-tertiary">
           {enabled
             ? `Remote routing on — ${rowCount} route${rowCount === 1 ? "" : "s"} active, routing:cli_mapping granted.`
             : "Remote routing off — this key's requests go straight to the provider."}
@@ -245,7 +245,7 @@ function RemoteRoutingSection({
         <h4 id="remote-routing-heading" className="text-caption font-bold text-text-primary">
           Remote routing
         </h4>
-        <p className="form-section-caption">
+        <p className="mt-1 text-badge text-text-tertiary">
           Route this key's CLI model calls through persisted mappings and grant routing:cli_mapping. Applies immediately — no save needed.
         </p>
       </div>
@@ -438,9 +438,9 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
     );
   });
   return (
-    <div className="api-key-form-layout">
-      <section className="api-key-form-section api-key-form-section-wide">
-        <h3 className="form-section-title">Credential mode</h3>
+    <div className="flex flex-col gap-6 min-w-0 pb-2">
+      <section className="flex flex-col gap-4 min-w-0 p-6 border border-inner-border rounded-card bg-surface-2 col-span-full">
+        <h3 className="text-body font-bold text-text-primary">Credential mode</h3>
         <div role="group" aria-label="Credential mode" className="flex gap-4">
           {(["personal", "share"] as const).map((modeOption) => (
             <button key={modeOption} type="button" aria-pressed={keyMode === modeOption}
@@ -455,22 +455,22 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             </button>
           ))}
         </div>
-        <p className="form-section-caption">
+        <p className="mt-1 text-badge text-text-tertiary">
           {keyMode === "share"
             ? "A share template does not authenticate requests. Recipients generate their own child key from its public enrollment page."
             : "A personal key authenticates requests directly; its secret is shown once when created or rotated."}
         </p>
       </section>
-      <div className="api-key-form-columns">
+      <div className="columns-2 gap-6 min-w-0 max-medium:columns-1">
       {mode === "create" && (
-        <section className="api-key-form-section">
+        <section className="flex flex-col gap-4 min-w-0 p-6 border border-inner-border rounded-card bg-surface-2 break-inside-avoid mb-6">
           <div>
-            <h3 className="form-section-title">Identity</h3>
-            <p className="form-section-caption">
+            <h3 className="text-body font-bold text-text-primary">Identity</h3>
+            <p className="mt-1 text-badge text-text-tertiary">
               Give this credential a recognizable name.
             </p>
           </div>
-          <div className="api-key-form-grid">
+          <div className="grid grid-cols-2 gap-4 items-start min-w-0 max-medium:grid-cols-1">
             <Input label="Name" value={label} onChange={(e) => setLabel(e.target.value)}
               placeholder="ci-key…" disabled={busy} autoFocus />
             <Input label="Key prefix" value={prefix} onChange={(e) => setPrefix(e.target.value)}
@@ -483,18 +483,18 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
         </section>
       )}
       {mode === "edit" && (
-        <section className="api-key-form-section">
+        <section className="flex flex-col gap-4 min-w-0 p-6 border border-inner-border rounded-card bg-surface-2 break-inside-avoid mb-6">
           <div>
-            <h3 className="form-section-title">
+            <h3 className="text-body font-bold text-text-primary">
               Identity
             </h3>
-            <p className="form-section-caption">
+            <p className="mt-1 text-badge text-text-tertiary">
               {record?.isDefault
                 ? "The default key's name is fixed. Limits, access, and everything else can still change."
                 : "Update the label for this credential."}
             </p>
           </div>
-          <div className="api-key-form-grid">
+          <div className="grid grid-cols-2 gap-4 items-start min-w-0 max-medium:grid-cols-1">
             <Input
               label="Name"
               value={label}
@@ -507,16 +507,16 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
           </div>
         </section>
       )}
-      <section className="api-key-form-section">
+      <section className="flex flex-col gap-4 min-w-0 p-6 border border-inner-border rounded-card bg-surface-2 break-inside-avoid mb-6">
         <div>
-          <h3 className="form-section-title">
+          <h3 className="text-body font-bold text-text-primary">
             Share notes
           </h3>
-          <p className="form-section-caption">
+          <p className="mt-1 text-badge text-text-tertiary">
             Optional copy shown on the public share page.
           </p>
         </div>
-        <div className="api-key-form-grid">
+        <div className="grid grid-cols-2 gap-4 items-start min-w-0 max-medium:grid-cols-1">
         <Input
           label="Title"
           value={notesTitle}
@@ -540,16 +540,16 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
         />
         </div>
       </section>
-      <section className="api-key-form-section">
+      <section className="flex flex-col gap-4 min-w-0 p-6 border border-inner-border rounded-card bg-surface-2 break-inside-avoid mb-6">
         <div>
-          <h3 className="form-section-title">
+          <h3 className="text-body font-bold text-text-primary">
             Limits
           </h3>
-          <p className="form-section-caption">
+          <p className="mt-1 text-badge text-text-tertiary">
             Keep this credential predictable under load.
           </p>
         </div>
-        <div className="api-key-form-grid">
+        <div className="grid grid-cols-2 gap-4 items-start min-w-0 max-medium:grid-cols-1">
           <Input
             label="Requests per minute"
             type="number"
@@ -621,7 +621,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             disabled={busy}
           />
         ) : (
-          <div className="api-key-form-grid">
+          <div className="grid grid-cols-2 gap-4 items-start min-w-0 max-medium:grid-cols-1">
             <TokenBudgetField
               label="Daily token limit"
               value={daily}
@@ -638,13 +638,13 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
         )}
       </section>
       </div>
-      <section className="api-key-form-section api-key-form-section-wide" aria-labelledby="share-popup-heading">
-        <div className="api-key-popup-header">
+      <section className="flex flex-col gap-4 min-w-0 p-6 border border-inner-border rounded-card bg-surface-2 col-span-full" aria-labelledby="share-popup-heading">
+        <div className="flex items-start justify-between gap-6">
           <div>
-            <h3 id="share-popup-heading" className="form-section-title">
+            <h3 id="share-popup-heading" className="text-body font-bold text-text-primary">
               Share page popup
             </h3>
-            <p className="form-section-caption">
+            <p className="mt-1 text-badge text-text-tertiary">
               Optional card visitors open from the Base URL card on your share page.
             </p>
           </div>
@@ -656,12 +656,12 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
           />
         </div>
         {sharePopupEnabled ? (
-          <div className="api-key-popup-body">
-            <div className="api-key-popup-image">
+          <div className="flex gap-7 items-start mt-2 min-w-0 max-medium:flex-col max-medium:items-stretch">
+            <div className="flex flex-col gap-4 min-w-0 w-100 shrink-0 max-medium:w-auto">
               {popupImagePreview ? (
-                <img className="api-key-popup-preview" src={popupImagePreview} alt="Popup image preview" />
+                <img className="block w-full h-66 object-cover border border-inner-border rounded-control bg-surface-1 max-medium:h-80" src={popupImagePreview} alt="Popup image preview" />
               ) : (
-                <div className="api-key-popup-preview api-key-popup-preview-empty" aria-hidden="true">
+                <div className="flex items-center justify-center w-full h-66 object-cover border border-dashed border-inner-border rounded-control bg-surface-1 text-text-tertiary text-badge max-medium:h-80" aria-hidden="true">
                   <span>No image</span>
                 </div>
               )}
@@ -697,7 +697,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
                   size="sm"
                   type="button"
                   disabled={busy}
-                  className="api-key-popup-remove"
+                  className="h-14 px-5 text-badge self-start"
                   onClick={() => {
                     setSharePopupImageDataUrl(null);
                     setSharePopupImageRemoved(true);
@@ -708,9 +708,9 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
                 </Button>
               ) : null}
               {sharePopupImageError ? <p className="form-error">{sharePopupImageError}</p> : null}
-              <p className="api-key-popup-footnote">PNG, JPEG, WebP, or GIF up to 2 MB.</p>
+              <p className="m-0 text-text-tertiary text-badge leading-normal">PNG, JPEG, WebP, or GIF up to 2 MB.</p>
             </div>
-            <div className="api-key-popup-fields">
+            <div className="flex flex-col gap-4 min-w-0 flex-1 [&_.form-group]:gap-2">
               <Input label="Popup title" value={sharePopupTitle} onChange={(event) => setSharePopupTitle(event.target.value)} maxLength={120} placeholder="Support this gateway" disabled={busy} />
               <div className="form-group">
                 <label className="form-label" htmlFor="share-popup-copy">Message</label>
@@ -720,16 +720,16 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
           </div>
         ) : null}
       </section>
-      <section className="api-key-form-section api-key-form-section-wide">
+      <section className="flex flex-col gap-4 min-w-0 p-6 border border-inner-border rounded-card bg-surface-2 col-span-full">
         <div>
-          <h3 className="form-section-title">
+          <h3 className="text-body font-bold text-text-primary">
             Access
           </h3>
-          <p className="form-section-caption">
+          <p className="mt-1 text-badge text-text-tertiary">
             Choose which models this key can use and what it is allowed to access.
           </p>
         </div>
-        <div className="api-key-form-columns">
+        <div className="columns-2 gap-6 min-w-0 max-medium:columns-1">
         <div>
           <label
             className="text-badge font-semibold text-text-secondary block mb-3"
@@ -774,7 +774,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
           </label>
           <div className="flex gap-3 flex-wrap mb-4">
             {models.length === 0 ? (
-              <span className="form-section-caption">
+              <span className="mt-1 text-badge text-text-tertiary">
                 {modelAccessMode === "whitelist" ? "All models allowed" : "No models blocked"}
               </span>
             ) : (
@@ -820,7 +820,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             <h4 id="blocked-routers-heading" className="text-caption font-bold text-text-primary">
               Blocked client routers
             </h4>
-            <p className="form-section-caption">
+            <p className="mt-1 text-badge text-text-tertiary">
               Matching fingerprints are rejected with 403 before routing. Detection is best-effort; clients without a fingerprint are not matched. This may also block bazaar probe links that share the same fingerprint.
             </p>
           </div>
@@ -839,7 +839,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
                   <div className="text-caption text-text-primary">
                     Block {router.label} Client
                   </div>
-                  <p className="form-section-caption">
+                  <p className="mt-1 text-badge text-text-tertiary">
                     Reject requests fingerprinted as {router.label}.
                   </p>
                 </div>
@@ -880,7 +880,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
               >
                 <div>
                   <div className="text-caption font-semibold text-text-primary">{scope}</div>
-                  <p className="form-section-caption">{SCOPE_DESCRIPTIONS[scope]}</p>
+                  <p className="mt-1 text-badge text-text-tertiary">{SCOPE_DESCRIPTIONS[scope]}</p>
                 </div>
                 <Switch checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} disabled={busy} aria-label={`Grant ${scope}`} />
               </div>
@@ -930,7 +930,7 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
               >
                 <div>
                   <div className="text-caption font-semibold text-text-primary">{scope}</div>
-                  <p className="form-section-caption">{SCOPE_DESCRIPTIONS[scope]}</p>
+                  <p className="mt-1 text-badge text-text-tertiary">{SCOPE_DESCRIPTIONS[scope]}</p>
                 </div>
                 <Switch checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} disabled={busy} aria-label={`Grant ${scope}`} />
               </div>

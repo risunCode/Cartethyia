@@ -189,17 +189,17 @@ export function OAuthBrowserDialog({
       }
     >
       <Stack gap="14px">
-        <div className="oauth-status">
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-card border border-inner-border bg-surface-2">
           <Loader2 size={16}
            className="animate-spin text-accent shrink-0"/>
-          <span className="oauth-status-text">Waiting for popup authorization…</span>
+          <span className="text-body font-semibold">Waiting for popup authorization…</span>
         </div>
 
-        <div className="oauth-step">
-          <div className="oauth-step-title">Step 1: Open this URL in your browser</div>
+        <div className="flex flex-col gap-2">
+          <div className="text-body font-semibold text-text-primary">Step 1: Open this URL in your browser</div>
           <Inline gap="8px">
             <a
-              className="oauth-url"
+              className="min-w-0 flex-1 font-mono text-badge text-accent overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-2 rounded-control bg-input-bg border border-inner-border"
               href={authorizeUrl}
               target="_blank"
               rel="noreferrer"
@@ -221,16 +221,16 @@ export function OAuthBrowserDialog({
               {copied ? "Copied" : "Copy"}
             </Button>
           </Inline>
-          <p className="oauth-hint">
+          <p className="text-badge leading-snug text-text-tertiary">
             A popup should open automatically. If it was blocked, open the URL above manually.
           </p>
         </div>
 
-        <div className="oauth-divider">Or complete manually</div>
+        <div className="flex items-center gap-2.5 text-micro font-bold uppercase tracking-label text-text-tertiary"><span aria-hidden="true" className="flex-1 h-px bg-inner-border" /><span>Or complete manually</span><span aria-hidden="true" className="flex-1 h-px bg-inner-border" /></div>
 
-        <div className="oauth-step">
-          <div className="oauth-step-title">Step 2: Paste the redirect URL here</div>
-          <p className="oauth-hint">
+        <div className="flex flex-col gap-2">
+          <div className="text-body font-semibold text-text-primary">Step 2: Paste the redirect URL here</div>
+          <p className="text-badge leading-snug text-text-tertiary">
             If the redirect lands on an unreachable address, copy that page&apos;s full URL from
             your browser and paste it below — this works from any machine, not just localhost.
           </p>
@@ -241,7 +241,7 @@ export function OAuthBrowserDialog({
               placeholder="http://127.0.0.1:59653/callback?code=…&state=…  (or just the code)"
               rows={2}
               spellCheck={false}
-              className="oauth-textarea flex-1"
+              className="w-full min-h-16 resize-y rounded-control border border-inner-border bg-input-bg px-2.5 py-2 font-mono text-badge text-text-primary box-border focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-1 flex-1"
             />
             <Button
               variant="secondary"
@@ -459,25 +459,25 @@ export function DeviceCodeDialog({
     >
       <Stack gap="14px">
         {!session ? (
-          <div className="oauth-status">
+          <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-card border border-inner-border bg-surface-2">
             <Loader2 size={16}
              className="animate-spin text-accent shrink-0"/>
-            <span className="oauth-status-text">Starting device authorization…</span>
+            <span className="text-body font-semibold">Starting device authorization…</span>
           </div>
         ) : (
           <>
-            <div className="oauth-status">
+            <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-card border border-inner-border bg-surface-2">
               <Loader2 size={16}
                className="animate-spin text-accent shrink-0"/>
-              <span className="oauth-status-text">Waiting for authorization…</span>
+              <span className="text-body font-semibold">Waiting for authorization…</span>
             </div>
 
             {session.userCode ? (
-              <div className="oauth-step">
-                <div className="oauth-step-title">Step 1: Enter this code</div>
-                <div className="oauth-code-card">
-                  <div className="oauth-code-label">Device code</div>
-                  <div className="oauth-code-value">{session.userCode}</div>
+              <div className="flex flex-col gap-2">
+                <div className="text-body font-semibold text-text-primary">Step 1: Enter this code</div>
+                <div className="rounded-card border border-inner-border bg-surface-2 p-3.5 flex flex-col gap-1.5 items-center text-center">
+                  <div className="text-micro font-bold uppercase tracking-label text-text-tertiary">Device code</div>
+                  <div className="font-mono text-2xl font-bold tracking-[0.18em] text-text-primary">{session.userCode}</div>
                   <Button
                     variant="secondary"
                     size="sm"
@@ -494,15 +494,15 @@ export function DeviceCodeDialog({
               </div>
             ) : null}
 
-            <div className="oauth-step">
-              <div className="oauth-step-title">
+            <div className="flex flex-col gap-2">
+              <div className="text-body font-semibold text-text-primary">
                 {session.userCode
                   ? "Step 2: Open the verification page"
                   : "Open the verification page to authorize"}
               </div>
               <Inline gap="8px">
                 <a
-                  className="oauth-url"
+                  className="min-w-0 flex-1 font-mono text-badge text-accent overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-2 rounded-control bg-input-bg border border-inner-border"
                   href={session.verificationUri}
                   target="_blank"
                   rel="noreferrer"
@@ -533,7 +533,7 @@ export function DeviceCodeDialog({
                   {copied ? "Copied" : "Copy"}
                 </Button>
               </Inline>
-              <p className="oauth-hint">
+              <p className="text-badge leading-snug text-text-tertiary">
                 {verificationPopupBlocked
                   ? "The popup was blocked — open the page with Open above, finish signing in there, then press Check now."
                   : "The page opened in a popup. Finish signing in there — this dialog closes automatically once the account connects, or press Check now."}

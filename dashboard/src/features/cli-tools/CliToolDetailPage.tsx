@@ -388,13 +388,13 @@ function CliToolDetailBody({
                 />
                 <div className="flex items-center gap-3 flex-wrap">
                   {selectedKey === undefined ? (
-                    <span className="form-section-caption">
+                    <span className="mt-1 text-badge text-text-tertiary">
                       Choose the Apikey Name whose routes this CLI session should use.
                     </span>
                   ) : cliEligible ? (
                     <>
                       <Badge tone="ok">routing:cli_mapping</Badge>
-                      <span className="form-section-caption">
+                      <span className="mt-1 text-badge text-text-tertiary">
                         Remote routes work with this key.
                       </span>
                     </>
@@ -403,14 +403,14 @@ function CliToolDetailBody({
                       <Badge tone="warn" title="This key cannot resolve persisted CLI mappings on /v1/*. Turn on Remote Routing below to enable it.">
                         no CLI scope
                       </Badge>
-                      <span className="form-section-caption">
+                      <span className="mt-1 text-badge text-text-tertiary">
                         Remote routes stay inert on this key — turning on Remote Routing below will activate it.
                       </span>
                     </>
                   )}
                 </div>
                 {selectedKey?.keyMode === "share" ? (
-                  <span className="form-section-caption">
+                  <span className="mt-1 text-badge text-text-tertiary">
                     Share template: its child keys inherit these routes automatically.
                   </span>
                 ) : null}

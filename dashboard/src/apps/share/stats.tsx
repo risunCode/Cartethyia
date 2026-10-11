@@ -16,6 +16,11 @@ import {
   tokenScaleValue,
 } from "../../lib/format";
 
+const STATS_TABLE_SCROLL_CLASS =
+  "max-h-168 w-full min-w-0 overflow-x-auto overflow-y-auto touch-pan-x touch-pan-y [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-card [&_thead_th]:bg-surface-2";
+const STATS_TABLE_CLASS =
+  "w-full border-collapse text-caption [&_th]:border-b [&_th]:border-inner-border [&_th]:px-5 [&_th]:py-3 [&_th]:text-left [&_th]:font-mono [&_th]:text-micro [&_th]:font-bold [&_th]:uppercase [&_th]:tracking-label [&_th]:text-text-tertiary [&_td]:border-b [&_td]:border-surface-muted [&_td]:px-5 [&_td]:py-4 [&_td]:text-text-secondary [&_tr:last-child_td]:border-b-0 [&_code]:overflow-hidden [&_code]:text-ellipsis [&_code]:whitespace-nowrap";
+
 /**
  * Live stats subscription shared by every consumer on the page.
  *
@@ -127,7 +132,7 @@ function TokenUnitSwitch(): ReactElement {
   return (
     <button
       type="button"
-      className="share-unit-switch"
+      className="ml-auto inline-flex min-h-6 items-center gap-1 rounded-full border border-inner-border bg-surface-2 px-2 text-text-secondary font-mono text-micro font-bold uppercase tracking-[0.04em] cursor-pointer hover:border-accent hover:text-text-primary"
       aria-label={`Token unit: currently ${current}, switch to ${next}`}
       title={`Show ${next}`}
       onClick={cycleUnit}
@@ -226,7 +231,7 @@ export function ShareQuotaPanel({
   ];
   const recipients = stats?.recipients;
   return (
-    <div className="share-quota">
+    <div className="mt-5 flex flex-col gap-6 border-t border-inner-border pt-9">
       {rows.map((row) => {
         const limited = row.limit !== null && row.limit > 0;
         const ratio = limited ? Math.min(1, row.used / (row.limit as number)) : 1;
@@ -238,10 +243,10 @@ export function ShareQuotaPanel({
         // and the bar is wholly red. Plenty of green means headroom; a bar that
         // is mostly red means the allowance is nearly spent.
         return (
-          <div className="share-quota-row" key={row.label}>
-            <span className="share-quota-label">{row.label}</span>
+          <div className="flex items-center gap-6 max-sm:flex-col max-sm:items-stretch max-sm:gap-3" key={row.label}>
+            <span className="w-39 shrink-0 text-text-secondary font-mono text-micro uppercase tracking-label max-sm:w-auto">{row.label}</span>
             <div
-              className={`share-quota-track${limited ? " is-limited" : " is-unlimited"}`}
+              className="relative h-4 flex-1 overflow-hidden rounded-tiny bg-teal max-sm:flex-none"
               title={
                 limited
                   ? `${format(row.used)} of ${format(row.limit as number)} used`
@@ -250,23 +255,23 @@ export function ShareQuotaPanel({
             >
               {limited ? (
                 <div
-                  className="share-quota-used"
+                  className="h-full rounded-tiny bg-red transition-[width] duration-200"
                   style={{ width: `${Math.round(ratio * 100)}%` }}
                 />
               ) : null}
             </div>
-            <span className="share-quota-value">
+            <span className="whitespace-nowrap text-text-secondary font-mono text-micro [&>strong]:text-text-primary [&>strong]:font-semibold max-sm:self-start">
               <strong>{format(row.used)}</strong>
               {limited ? ` / ${format(row.limit as number)}` : " used"}
             </span>
           </div>
         );
       })}
-      <div className="share-quota-meta">
-        <span className="share-meta-pill">RPM {policy.requestsPerMinute ?? "unlimited"}</span>
-        <span className="share-meta-pill">Concurrent {policy.maxConcurrentRequests ?? "unlimited"}</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex min-h-14 items-center gap-3.5 rounded-pill border border-inner-border bg-surface-2 px-5 py-2.5 text-text-secondary font-mono text-badge leading-[1.3]">RPM {policy.requestsPerMinute ?? "unlimited"}</span>
+        <span className="inline-flex min-h-14 items-center gap-3.5 rounded-pill border border-inner-border bg-surface-2 px-5 py-2.5 text-text-secondary font-mono text-badge leading-[1.3]">Concurrent {policy.maxConcurrentRequests ?? "unlimited"}</span>
         {recipients ? (
-          <span className="share-meta-pill">
+          <span className="inline-flex min-h-14 items-center gap-3.5 rounded-pill border border-inner-border bg-surface-2 px-5 py-2.5 text-text-secondary font-mono text-badge leading-[1.3]">
             {recipients.active} / {recipients.total} recipients active
           </span>
         ) : null}
@@ -299,7 +304,7 @@ function HourlySparkline({
   const shown = active !== null ? hourly[active] : undefined;
   return (
     <div>
-      <div className="share-hourly-readout" aria-live="polite">
+      <div className="mb-2 flex min-h-9 items-baseline gap-4 text-text-tertiary font-mono text-badge [&>strong]:text-text-primary [&>strong]:font-head [&>strong]:text-body-lg [&>strong]:font-semibold" aria-live="polite">
         {shown ? (
           <>
             <strong>{format(shown.tokens)}</strong>
@@ -312,13 +317,13 @@ function HourlySparkline({
         )}
       </div>
       <div
-        className="share-sparkline-wrap"
+        className="cursor-crosshair touch-none"
         onPointerEnter={(event) => setActive(bucketAt(event.currentTarget, event.clientX))}
         onPointerMove={(event) => setActive(bucketAt(event.currentTarget, event.clientX))}
         onPointerLeave={() => setActive(null)}
       >
         <svg
-          className="share-sparkline"
+          className="h-22 w-full"
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
           role="img"
@@ -329,7 +334,7 @@ function HourlySparkline({
             return (
               <rect
                 key={bucket.hour}
-                className={`share-sparkline-bar${bucket.requests === 0 ? " is-empty" : ""}${index === active ? " is-active" : ""}`}
+                className={`${bucket.requests === 0 ? "fill-track" : "fill-teal"}${index === active ? " fill-text-primary" : ""}`}
                 x={index * slot + 1}
                 y={height - Math.max(2, barHeight)}
                 width={slot - 3}
@@ -342,7 +347,7 @@ function HourlySparkline({
           })}
         </svg>
       </div>
-      <div className="share-hourly-axis">
+      <div className="mt-1.5 flex justify-between text-text-tertiary font-mono text-micro">
         <span>{hourly.length ? hourLabel(hourly[0]!.hour) : ""}</span>
         <span>last 24h</span>
         <span>{hourly.length ? hourLabel(hourly[hourly.length - 1]!.hour) : ""}</span>
@@ -363,11 +368,11 @@ function BarCell({
 }): ReactElement {
   const ratio = max > 0 ? Math.min(1, value / max) : 0;
   return (
-    <div className="share-stats-bar">
-      <div className="share-stats-bar-track">
-        <div className="share-stats-bar-fill" style={{ width: `${Math.round(ratio * 100)}%` }} />
+    <div className="flex min-w-55 items-center gap-4 max-sm:min-w-32">
+      <div className="h-3 min-w-0 flex-1 overflow-hidden rounded-tiny bg-surface-muted">
+        <div className="h-full rounded-tiny bg-teal" style={{ width: `${Math.round(ratio * 100)}%` }} />
       </div>
-      <span>{label}</span>
+      <span className="min-w-8 text-right font-mono text-micro text-text-secondary">{label}</span>
     </div>
   );
 }
@@ -395,20 +400,20 @@ export function ShareStatsSection({
   const maxIpRequests = Math.max(1, ...ips.map((ip) => ip.requests));
 
   return (
-    <Card className="share-hud-card share-stats">
+    <Card surface="muted" className="min-w-0 border-glass-border-2 bg-glass-bg p-5 backdrop-blur-md backdrop-saturate-150">
       <button
         type="button"
-        className="share-stats-toggle"
+        className="group flex w-full cursor-pointer items-center gap-3 bg-transparent p-0 text-left"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
         <ChevronRight
           size={14}
-          className={`share-stats-chevron${open ? " is-open" : ""}`}
+          className={`shrink-0 text-text-secondary transition-transform duration-200${open ? " rotate-90" : ""}`}
           aria-hidden="true"
         />
-        <span className="share-stats-title">STATS &amp; ACTIVITY</span>
-        <span className="share-stats-summary">
+        <span className="text-text-secondary font-mono text-badge font-bold tracking-label transition-colors duration-150 group-hover:text-text-primary">STATS &amp; ACTIVITY</span>
+        <span className="ml-auto flex flex-wrap items-center gap-2 text-text-tertiary font-mono text-micro max-medium:hidden">
           <span>{ips.length} IPs</span>
           <span>·</span>
           <span>{models.length} models</span>
@@ -418,60 +423,60 @@ export function ShareStatsSection({
       </button>
 
       {open ? (
-        <div className="share-stats-body">
+        <div className="mt-5 flex flex-col gap-5">
           {loading && !stats ? (
-            <p className="share-stats-empty">Loading activity…</p>
+            <p className="py-9 text-center text-text-tertiary text-caption">Loading activity…</p>
           ) : !stats ? (
-            <p className="share-stats-empty">Activity is unavailable right now.</p>
+            <p className="py-9 text-center text-text-tertiary text-caption">Activity is unavailable right now.</p>
           ) : (
             <>
-              <div className="share-stats-kpis">
-                <div className="share-stat-tile">
-                  <span className="share-stat-tile-label">Requests</span>
-                  <span className="share-stat-tile-value">{formatCount(totals?.requests ?? 0)}</span>
-                  <span className="share-stat-tile-detail">
+              <div className="grid grid-cols-4 gap-5 max-wide:grid-cols-2 max-narrow:grid-cols-1">
+                <div className="flex flex-col gap-3 rounded-panel border border-inner-border bg-surface-2 px-7 py-6">
+                  <span className="text-text-tertiary font-mono text-micro uppercase tracking-label">Requests</span>
+                  <span className="font-head text-display font-semibold tracking-tight">{formatCount(totals?.requests ?? 0)}</span>
+                  <span className="text-text-secondary text-micro">
                     {formatCount(totals?.errors ?? 0)} errors
                   </span>
                 </div>
-                <div className="share-stat-tile">
-                  <span className="share-stat-tile-label">Tokens</span>
-                  <span className="share-stat-tile-value">{format(totals?.totalTokens ?? 0)}</span>
-                  <span className="share-stat-tile-detail">all time</span>
+                <div className="flex flex-col gap-3 rounded-panel border border-inner-border bg-surface-2 px-7 py-6">
+                  <span className="text-text-tertiary font-mono text-micro uppercase tracking-label">Tokens</span>
+                  <span className="font-head text-display font-semibold tracking-tight">{format(totals?.totalTokens ?? 0)}</span>
+                  <span className="text-text-secondary text-micro">all time</span>
                 </div>
-                <div className="share-stat-tile">
-                  <span className="share-stat-tile-label">Last hour</span>
-                  <span className="share-stat-tile-value">{formatCount(totals?.lastHourRequests ?? 0)}</span>
-                  <span className="share-stat-tile-detail">requests in 60 min</span>
+                <div className="flex flex-col gap-3 rounded-panel border border-inner-border bg-surface-2 px-7 py-6">
+                  <span className="text-text-tertiary font-mono text-micro uppercase tracking-label">Last hour</span>
+                  <span className="font-head text-display font-semibold tracking-tight">{formatCount(totals?.lastHourRequests ?? 0)}</span>
+                  <span className="text-text-secondary text-micro">requests in 60 min</span>
                 </div>
-                <div className="share-stat-tile">
-                  <span className="share-stat-tile-label">Models</span>
-                  <span className="share-stat-tile-value">{models.length}</span>
-                  <span className="share-stat-tile-detail">in use</span>
+                <div className="flex flex-col gap-3 rounded-panel border border-inner-border bg-surface-2 px-7 py-6">
+                  <span className="text-text-tertiary font-mono text-micro uppercase tracking-label">Models</span>
+                  <span className="font-head text-display font-semibold tracking-tight">{models.length}</span>
+                  <span className="text-text-secondary text-micro">in use</span>
                 </div>
               </div>
 
               <HourlySparkline hourly={stats.hourly} />
 
               <section aria-label="Top models">
-                <div className="share-section-heading">
-                  <h3 className="share-stats-title">TOP MODELS</h3>
+                <div className="flex items-center justify-between gap-6">
+                  <h3 className="text-text-secondary font-mono text-badge font-bold tracking-label transition-colors duration-150">TOP MODELS</h3>
                 </div>
                 {models.length === 0 ? (
-                  <p className="share-stats-empty">No model traffic yet.</p>
+                  <p className="py-9 text-center text-text-tertiary text-caption">No model traffic yet.</p>
                 ) : (
-                  <div className="share-stats-scroll is-windowed">
-                    <table className="share-stats-table">
+                  <div className={STATS_TABLE_SCROLL_CLASS}>
+                    <table className={STATS_TABLE_CLASS}>
                       <thead>
                         <tr>
                           <th scope="col" aria-label="Rank" />
                           <th scope="col">Model</th>
-                          <th scope="col" className="is-numeric">
+                          <th scope="col" className="text-right">
                             Req
                           </th>
-                          <th scope="col" className="is-numeric" title="Average output tokens per second">
+                          <th scope="col" className="text-right" title="Average output tokens per second">
                             Avg t/s
                           </th>
-                          <th scope="col" className="is-numeric" title="Average time to first token">
+                          <th scope="col" className="text-right" title="Average time to first token">
                             TTFT
                           </th>
                           <th scope="col">Tokens</th>
@@ -480,15 +485,15 @@ export function ShareStatsSection({
                       <tbody>
                         {models.map((model, index) => (
                           <tr key={model.modelId}>
-                            <td className="share-stats-rank">{index + 1}</td>
+                            <td className="w-13 font-mono text-micro text-text-tertiary">{index + 1}</td>
                             <td>
-                              <span className="share-stats-model">
+                              <span className="flex min-w-0 flex-col gap-1 [&_code]:overflow-hidden [&_code]:text-ellipsis [&_code]:whitespace-nowrap [&_code]:text-text-primary [&_code]:text-caption [&_span]:font-mono [&_span]:text-micro [&_span]:text-text-tertiary">
                                 <code title={model.modelId}>{model.modelId}</code>
                               </span>
                             </td>
-                            <td className="is-numeric">{formatCount(model.requests)}</td>
-                            <td className="is-numeric share-stats-metric">{formatRate(model.avgTokensPerSec)}</td>
-                            <td className="is-numeric share-stats-metric">{formatTtft(model.avgTtfbMs)}</td>
+                            <td className="text-right">{formatCount(model.requests)}</td>
+                            <td className="text-right">{formatRate(model.avgTokensPerSec)}</td>
+                            <td className="text-right">{formatTtft(model.avgTtfbMs)}</td>
                             <td>
                               <BarCell
                                 value={model.tokens}
@@ -505,19 +510,19 @@ export function ShareStatsSection({
               </section>
 
               <section aria-label="Client IPs">
-                <div className="share-section-heading">
-                  <h3 className="share-stats-title">CLIENT IPS</h3>
+                <div className="flex items-center justify-between gap-6">
+                  <h3 className="text-text-secondary font-mono text-badge font-bold tracking-label transition-colors duration-150">CLIENT IPS</h3>
                 </div>
                 {ips.length === 0 ? (
-                  <p className="share-stats-empty">No client addresses recorded yet.</p>
+                  <p className="py-9 text-center text-text-tertiary text-caption">No client addresses recorded yet.</p>
                 ) : (
-                  <div className="share-stats-scroll is-windowed">
-                    <table className="share-stats-table">
+                  <div className={STATS_TABLE_SCROLL_CLASS}>
+                    <table className={STATS_TABLE_CLASS}>
                       <thead>
                         <tr>
                           <th scope="col">Address</th>
                           <th scope="col">Client</th>
-                          <th scope="col" className="is-numeric">
+                          <th scope="col" className="text-right">
                             Req
                           </th>
                           <th scope="col">Tokens</th>
@@ -532,12 +537,12 @@ export function ShareStatsSection({
                             </td>
                             <td>
                               {ip.clientType ? (
-                                <span className="share-stats-client">{ip.clientType}</span>
+                                <span className="inline-block max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-pill border border-inner-border bg-surface-2 px-3 py-px font-mono text-micro text-text-secondary">{ip.clientType}</span>
                               ) : (
-                                <span className="share-stats-client is-unknown">unknown</span>
+                                <span className="inline-block max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-pill border border-inner-border bg-surface-2 px-3 py-px font-mono text-micro italic text-text-tertiary">unknown</span>
                               )}
                             </td>
-                            <td className="is-numeric">{formatCount(ip.requests)}</td>
+                            <td className="text-right">{formatCount(ip.requests)}</td>
                             <td>
                               <BarCell value={ip.requests} max={maxIpRequests} label={format(ip.tokens)} />
                             </td>

@@ -39,9 +39,9 @@ export function SettingsDrawer({
 
   return (
     <Drawer open={open} onClose={onClose} title="Request detail">
-      <div className="mlab-settings">
-        <section className="mlab-settings-section">
-          <h3>Request</h3>
+      <div className="flex flex-col gap-7">
+        <section className="flex flex-col gap-5">
+          <h3 className="m-0 text-caption font-bold tracking-label uppercase text-text-tertiary">Request</h3>
           <Select
             label="Mode"
             aria-label="Chat mode"
@@ -58,10 +58,10 @@ export function SettingsDrawer({
           />
         </section>
 
-        <section className="mlab-settings-section">
+        <section className="flex flex-col gap-5">
           <button
             type="button"
-            className="mlab-advanced-toggle"
+            className="m-0 text-caption font-bold tracking-label uppercase text-text-primary flex items-center justify-between w-full p-0 border-0 bg-transparent cursor-pointer [&_svg]:transition-transform [&_svg]:duration-150 [&_svg]:ease-out [&_svg[data-open=true]]:rotate-180"
             aria-expanded={advancedOpen}
             onClick={() => setAdvancedOpen((current) => !current)}
           >
@@ -69,9 +69,9 @@ export function SettingsDrawer({
             <ChevronDown size={14} data-open={advancedOpen ? "true" : "false"} />
           </button>
           {advancedOpen ? (
-            <div className="mlab-advanced">
-              <p className="mlab-settings-note">Empty fields leave the model default alone.</p>
-              <div className="mlab-settings-pair">
+            <div className="flex flex-col gap-6">
+              <p className="m-0 text-text-tertiary text-caption leading-normal">Empty fields leave the model default alone.</p>
+              <div className="grid grid-cols-2 gap-5 max-medium:grid-cols-1">
                 <Input
                   label="Temperature"
                   hint="override"

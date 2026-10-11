@@ -214,8 +214,8 @@ function QuotaPill({ windows }: { readonly windows: readonly QuotaWindow[] | und
   if (text === null) return null;
   const low = hasCredits ? remaining <= 0 : (lowestPercent ?? 100) <= 10;
   return (
-    <span className="account-chip" data-tone={low ? "warn" : undefined} title={hasCredits ? `${trimNumber(remaining)} credits available of ${trimNumber(total)}` : "Lowest remaining percent across this account's quota windows"}>
-      <span className="account-chip-label">Quota</span>
+    <span className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap" data-tone={low ? "warn" : undefined} title={hasCredits ? `${trimNumber(remaining)} credits available of ${trimNumber(total)}` : "Lowest remaining percent across this account's quota windows"}>
+      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Quota</span>
       {text}
     </span>
   );
@@ -326,12 +326,12 @@ function AccountRow({
   return (
     <>
       <div
-        className="account-row"
+        className={`account-row grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-5 px-5 py-4 border rounded-control bg-surface-2 ${selected ? "border-accent" : "border-inner-border"} hover:bg-hover`}
         role="listitem"
         data-selected={selected ? "true" : undefined}
         style={{ opacity: disabled ? 0.62 : 1 }}
       >
-        <div className="account-row-check">
+        <div className="flex items-center">
           <input
             type="checkbox"
             checked={selected}
@@ -341,8 +341,8 @@ function AccountRow({
           />
         </div>
 
-        <div className="account-row-main">
-          <div className="account-row-title">
+        <div className="min-w-0 flex flex-col gap-1.5">
+          <div className="flex items-center gap-3 min-w-0">
             {renaming ? (
               <Input
                 value={draftLabel}
@@ -358,12 +358,12 @@ function AccountRow({
               />
             ) : (
               <>
-                <span className="account-row-name" title={account.label || account.id}>
+                <span className="text-body font-semibold text-text-primary min-w-0 overflow-hidden text-ellipsis whitespace-nowrap" title={account.label || account.id}>
                   {label}
                 </span>
                 <button
                   type="button"
-                  className="account-row-rename"
+                  className="shrink-0 grid place-items-center w-10 h-10 p-0 border-0 bg-transparent text-text-tertiary cursor-pointer rounded-tiny hover:bg-inner-border hover:text-text-primary"
                   title="Rename account"
                   aria-label={`Rename ${label}`}
                   onClick={() => {
@@ -376,38 +376,38 @@ function AccountRow({
               </>
             )}
           </div>
-          <div className="account-row-status">
+          <div className="flex items-center flex-nowrap gap-2 min-w-0 overflow-hidden">
             <AccountStatusBadge account={account} />
           </div>
-          <div className="account-row-chips">
+          <div className="flex items-center flex-wrap gap-2 min-w-0">
             {credentialExpiryLabel(account.tokenExpiresAt) ? (
-              <span className="account-chip" title={credentialExpiryLabel(account.tokenExpiresAt)}>
+              <span className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap" title={credentialExpiryLabel(account.tokenExpiresAt)}>
                 {credentialExpiryLabel(account.tokenExpiresAt)}
               </span>
             ) : null}
-            <span className="account-chip" title={`Today: ${account.usageToday.totalTokens.toLocaleString()} tokens, ${account.usageToday.requests.toLocaleString()} requests`}>
-              <span className="account-chip-label">Today</span>
+            <span className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap" title={`Today: ${account.usageToday.totalTokens.toLocaleString()} tokens, ${account.usageToday.requests.toLocaleString()} requests`}>
+              <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Today</span>
               {account.usageToday.totalTokens.toLocaleString()} tok · {account.usageToday.requests.toLocaleString()} req
             </span>
             <span
-              className="account-chip"
+              className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap"
               title="Lifetime totals are backfilled from telemetry still retained when tracking starts; new totals survive telemetry cleanup."
             >
-              <span className="account-chip-label">All time</span>
+              <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">All time</span>
               {account.usageAllTime.totalTokens.toLocaleString()} tok · {account.usageAllTime.requests.toLocaleString()} req
             </span>
             <QuotaPill windows={quota} />
             <span
-              className="account-chip"
+              className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap"
               title="Concurrency comes from this provider’s Routing Strategy; accounts no longer carry manual ceilings."
             >
-              <span className="account-chip-label">In flight</span>
+              <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">In flight</span>
               {inflight?.toLocaleString() ?? "—"}
             </span>
           </div>
         </div>
 
-        <div className="account-row-actions">
+        <div className="account-row-actions flex items-center justify-end gap-3 flex-wrap">
           <Button
             size="icon"
             variant="secondary"
@@ -725,8 +725,8 @@ export function AccountsList({
 
   return (
     <Stack gap="8px">
-      <div className="account-toolbar">
-        <div className="account-search">
+      <div className="flex items-center flex-wrap gap-4 p-4 border border-inner-border rounded-control bg-surface-2">
+        <div className="relative flex-none basis-100 min-w-70">
             <Search
               size={13}
               aria-hidden="true"
@@ -741,7 +741,7 @@ export function AccountsList({
               className="pl-15"
             />
           </div>
-        <div className="account-bulk-actions">
+        <div className="flex items-center flex-wrap gap-3 min-w-0">
           <Button size="sm" variant="secondary" icon={<FlaskConical size={12} />} disabled={bulkBusy || nothingSelected} onClick={bulkTest}>
             Test
           </Button>
@@ -772,8 +772,8 @@ export function AccountsList({
             </Button>
           )}
         </div>
-        <div className="account-toolbar-actions">
-        <label className="account-sort">
+        <div className="flex items-center flex-wrap gap-4 ml-auto min-w-0">
+        <label className="inline-flex items-center gap-3 h-15 text-caption font-semibold text-text-secondary [&_.radix-select-trigger]:font-semibold [&_.radix-select-trigger]:bg-hover [&_.radix-select-trigger]:text-text-primary">
           <Select
             size="sm"
             value={sort}
@@ -794,7 +794,7 @@ export function AccountsList({
             {grokProbePending ? "Testing…" : "Test 407"}
           </Button>
         ) : null}
-        <label className="account-select-all">
+        <label className="inline-flex items-center gap-3 h-15 text-caption font-semibold text-text-secondary">
           <input
             type="checkbox"
             checked={allFilteredSelected}
@@ -806,7 +806,7 @@ export function AccountsList({
         </div>
       </div>
 
-      <div className="account-list" role="list" aria-label="Provider accounts">
+      <div className="account-list flex flex-col gap-3 max-h-230 overflow-y-auto pr-1 [container-type:inline-size] [container-name:account-list]" role="list" aria-label="Provider accounts">
         {sorted.map((account) => (
           <AccountRow
             key={account.id}

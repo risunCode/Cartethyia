@@ -132,7 +132,7 @@ export function DataTable({
       style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}
       onScroll={onScroll}
     >
-      <table className={cn("data-table", dense && "data-table-dense")}>
+      <table className={cn("data-table text-caption", dense && "text-badge [&_th]:px-4 [&_th]:py-2.5 [&_td]:px-4 [&_td]:py-2.5 [&_th]:text-text-secondary [&_th]:font-semibold [&_th]:normal-case [&_th]:tracking-normal [&_td]:tabular-nums")}>
         <thead>
           <tr>
             {headers.map((header) => {

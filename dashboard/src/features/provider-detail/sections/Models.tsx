@@ -295,7 +295,7 @@ export function AddModelModal({
           </Button>
         </Inline>
         {wasPrefixed && (
-          <div className="form-section-caption">
+          <div className="mt-1 text-badge text-text-tertiary">
             Using <span className="font-mono tabular-nums">{normalized}</span> (provider
             prefix removed).
           </div>
@@ -332,19 +332,19 @@ export function AddModelModal({
           </div>
         </div>
         {declaredWires !== undefined && !declaredWires.includes(wireFamily) && (
-          <div className="form-section-caption">
+          <div className="mt-1 text-badge text-text-tertiary">
             This provider does not declare the{" "}
             <span className="font-mono tabular-nums">{wireLabel(wireFamily)}</span> wire.
             The request is sent as chosen; the upstream decides whether it answers.
           </div>
         )}
         {testState === "passed" && (
-          <div className="status-callout" data-tone="ok">
+          <div className="rounded-control border border-[color-mix(in_srgb,var(--green)_40%,transparent)] bg-[color-mix(in_srgb,var(--green)_8%,transparent)] px-5 py-4 text-caption text-[var(--green)]">
             Model test passed — ready to add.
           </div>
         )}
         {testState === "failed" && (
-          <div className="status-callout" data-tone="err">
+          <div className="rounded-control border border-[color-mix(in_srgb,var(--red)_40%,transparent)] bg-[color-mix(in_srgb,var(--red)_8%,transparent)] px-5 py-4 text-caption text-[var(--red)]">
             {testError || "Model test failed."}
           </div>
         )}
@@ -740,7 +740,7 @@ export function ModelGrid({
                 <span className="text-caption font-bold text-text-secondary">
                   {group.label}
                 </span>
-                <span className="form-section-caption">
+                <span className="mt-1 text-badge text-text-tertiary">
                   {group.rows.length}
                 </span>
                 <span

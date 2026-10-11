@@ -833,7 +833,7 @@ export default function QuotaPage(): ReactNode {
           }
         />
       ) : filteredAccounts.length === 0 ? (
-        <div className="empty-panel">
+        <div className="flex-1 flex items-center justify-center p-12 border border-dashed border-transparent rounded-card bg-transparent text-center">
           <EmptyState
             title="No account quota data"
             message="Nothing is reporting a quota window yet. Add a provider account and its limits will appear here."

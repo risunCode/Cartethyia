@@ -233,25 +233,25 @@ export function StudioPage(): ReactNode {
 
   return (
     <Card className="mlab-page">
-      <CardBody className="mlab-body">
+      <CardBody className="flex-auto min-h-0 p-0 gap-0">
         <div
           ref={scrollerRef}
-          className="mlab-scroll"
+          className="flex-auto min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain flex flex-col"
           onScroll={(event) => {
             const node = event.currentTarget;
             stickRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
           }}
         >
           {draft.messages.length === 0 ? (
-            <div className="mlab-empty">
-              <p className="mlab-empty-title">Model Lab</p>
+            <div className="flex-auto flex flex-col items-center justify-center gap-4 px-8 py-12 text-center text-text-tertiary text-body leading-normal [&_p]:m-0">
+              <p className="text-text-primary text-title font-semibold">Model Lab</p>
               <p>Pick a model, then try a starter.</p>
-              <div className="mlab-presets">
+              <div className="flex flex-wrap justify-center gap-4 mt-4">
                 {MODEL_LAB_PRESETS.map((preset) => (
                   <button
                     key={preset.label}
                     type="button"
-                    className="mlab-preset"
+                    className="h-15 px-6 inline-flex items-center gap-3 border border-border-strong rounded-pill bg-surface-1 text-text-secondary text-caption cursor-pointer transition-[border-color,background-color,color] duration-150 ease-spring hover:border-accent hover:bg-active-pill hover:text-text-primary disabled:opacity-40 disabled:cursor-default"
                     disabled={draft.model.length === 0 || sending}
                     onClick={() => setInput(preset.prompt)}
                   >
@@ -261,7 +261,7 @@ export function StudioPage(): ReactNode {
               </div>
             </div>
           ) : (
-            <div className="mlab-thread">
+            <div className="w-full max-w-380 mx-auto px-8 py-9 pb-6 flex flex-col gap-5">
               {draft.messages.map((message, index) => (
                 <ChatBubble
                   key={message.id}
@@ -277,7 +277,7 @@ export function StudioPage(): ReactNode {
             </div>
           )}
         </div>
-        <div className="mlab-dock">
+        <div className="flex-none w-full max-w-380 mx-auto px-6 pb-2">
           <Composer
             model={draft.model}
             sessionTitle={session.title}
@@ -305,7 +305,7 @@ export function StudioPage(): ReactNode {
         onChange={patch}
       />
       <Dialog open={sessionsOpen} onClose={() => setSessionsOpen(false)} title="Chat sessions">
-        <div className="mlab-sessions">
+        <div className="flex flex-col gap-3 max-h-180 overflow-auto">
           <Button
             variant="secondary"
             size="sm"
@@ -321,9 +321,10 @@ export function StudioPage(): ReactNode {
             New chat
           </Button>
           {sessions.length === 0 ? <p>No chats yet.</p> : sessions.map((item) => (
-            <div key={item.id} className={item.id === session.id ? "mlab-session mlab-session-active" : "mlab-session"}>
+            <div key={item.id} className={item.id === session.id ? "flex items-center gap-4 rounded-control p-2 bg-accent-soft" : "flex items-center gap-4 rounded-control p-2"}>
               <button
                 type="button"
+                className="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left border-0 bg-transparent text-text-primary text-body px-4 py-3 cursor-pointer"
                 onClick={() => {
                   void readLabSession(item.id).then((loaded) => {
                     if (loaded === null) return;

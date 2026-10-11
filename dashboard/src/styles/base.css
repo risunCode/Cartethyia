@@ -23,11 +23,7 @@
  */
 @layer components {
 /* Scrollbars: the page column hides its bar, while contained regions (the
-   sidebar rail, dialogs, `.scroll-region`) keep a thin overlay style.
-   `.mlab-scroll` is absent on purpose — console.css owns that class and declares
-   the same two properties, so listing it here too would give the selector two
-   owners for no difference. Its `::-webkit-scrollbar` rules below stay, because
-   those selectors are distinct. */
+   sidebar rail, dialogs, `.scroll-region`) keep a thin overlay style. */
 .app-sidebar nav,
 .dialog-panel .modal-body,
 .drawer-body,
@@ -389,8 +385,8 @@ html[data-blur-cards-on="false"] .mlab-page .mlab-composer {
  * `ui/button.tsx`. The two rules below are the ones a utility cannot express:
  * `.btn-label` is a descendant of the button, so the component cannot class it
  * without leaking `twMerge` semantics into the caller's tree, and the collapse
- * is a container query on the *caller's* container (`rule-row`, declared in
- * console.css), which no utility can express.
+ * is a container query on the *caller's* container (`.proxy-table-scroll`, which
+ * declares `container-name: rule-row` below), which no utility can express.
  */
 
 .btn-labeled .btn-label {
@@ -812,5 +808,17 @@ input[type="checkbox"] {
   flex: 0 0 auto;
   accent-color: var(--accent);
   cursor: pointer;
+}
+
+/* Sonner's description color needs to beat the library's inline tone. */
+.toast-surface {
+  background: var(--glass-bg-2) !important;
+  border-color: var(--glass-border-2) !important;
+  color: var(--text-primary) !important;
+}
+
+.toast-surface [data-content],
+.toast-surface [data-description] {
+  color: var(--text-primary) !important;
 }
 }

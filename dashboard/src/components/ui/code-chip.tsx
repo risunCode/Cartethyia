@@ -16,8 +16,7 @@ export interface CodeChipProps extends HTMLAttributes<HTMLElement> {
 
 const toneClass: Record<CodeChipTone, string> = {
   plain: "code-chip-plain",
-  // `--surface-3` is not a defined token — only share.css referenced it, and
-  // nothing defined it — so the soft chip uses the real `surface-muted` token.
+  // Muted uses the named surface token rather than an undefined legacy surface.
   muted:
     "code-chip-muted text-text-secondary bg-surface-muted border border-inner-border px-4 py-1 rounded-chip",
   accent: "code-chip-accent text-accent bg-accent-soft px-4 py-1.5 rounded-chip font-bold",

@@ -1,10 +1,16 @@
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from "react";
 import { Activity, ArrowRight, ArrowUpRight, Home, Menu, MessageCircle, Network, ShieldCheck, Sparkles, Terminal, X } from "lucide-react";
 import { GITHUB_REPO_URL, GithubBadge } from "../../components/patterns/github-badge";
 import { useReducedMotion } from "../../hooks/use-reduced-motion";
 
 type SignalIconName = "activity" | "network" | "shield" | "sparkles" | "terminal";
 type StoryTheme = "night" | "core" | "blossom" | "voices" | "red" | "denial" | "shore";
+type StoryStyle = CSSProperties & {
+  readonly "--story-accent": string;
+  readonly "--story-grid": string;
+  readonly "--story-surface": string;
+  readonly "--story-deep": string;
+};
 
 interface Signal {
   readonly label: string;
@@ -23,11 +29,25 @@ interface StoryChapter {
   readonly imageAlt: string;
   readonly theme: StoryTheme;
   readonly signals: readonly Signal[];
-  readonly sectionClass?: string;
 }
 
 const ASSET_BASE = import.meta.env.BASE_URL;
 const CONSOLE_PATH = "/console";
+const STORY_THEME_STYLES: Record<StoryTheme, StoryStyle> = {
+  night: { "--story-accent": "#9deaff", "--story-grid": "rgba(157, 234, 255, .022)", "--story-surface": "#0b1220", "--story-deep": "#05070d" },
+  core: { "--story-accent": "#7db6ff", "--story-grid": "rgba(125, 182, 255, .022)", "--story-surface": "#0b1220", "--story-deep": "#05070d" },
+  blossom: { "--story-accent": "#ffafd0", "--story-grid": "rgba(255, 175, 208, .022)", "--story-surface": "#0b1220", "--story-deep": "#05070d" },
+  voices: { "--story-accent": "#d6c2ff", "--story-grid": "rgba(214, 194, 255, .022)", "--story-surface": "#0b1220", "--story-deep": "#05070d" },
+  red: { "--story-accent": "#ff9b9b", "--story-grid": "rgba(255, 155, 155, .022)", "--story-surface": "#0b1220", "--story-deep": "#05070d" },
+  denial: { "--story-accent": "#ffd18f", "--story-grid": "rgba(255, 209, 143, .022)", "--story-surface": "#0b1220", "--story-deep": "#05070d" },
+  shore: { "--story-accent": "#a8ffe0", "--story-grid": "rgba(168, 255, 224, .022)", "--story-surface": "#0b1220", "--story-deep": "#05070d" },
+};
+const STORY_BASE_STYLE: StoryStyle = {
+  "--story-accent": STORY_THEME_STYLES.night["--story-accent"],
+  "--story-grid": STORY_THEME_STYLES.night["--story-grid"],
+  "--story-surface": "#0b1220",
+  "--story-deep": "#05070d",
+};
 
 const storyImage = (name: string): string => `${ASSET_BASE}assets/story/${name}`;
 const titleCase = (value: string): string => value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -54,7 +74,6 @@ const CHAPTERS: readonly StoryChapter[] = [
       { label: "The chosen vessel", value: "YOURS", icon: "shield" },
       { label: "The gate", value: "ALIGNED", icon: "sparkles" },
     ],
-    sectionClass: "story-page-section--first",
   },
   {
     id: "resonant-core",
@@ -89,7 +108,6 @@ const CHAPTERS: readonly StoryChapter[] = [
       { label: "The studio", value: "READY", icon: "sparkles" },
       { label: "The balance", value: "HELD", icon: "shield" },
     ],
-    sectionClass: "story-page-section--blossom",
   },
   {
     id: "many-voices",
@@ -172,10 +190,10 @@ const signalIcons: Record<SignalIconName, typeof Activity> = {
 function SignalRow({ signal }: { readonly signal: Signal }): ReactElement {
   const Icon = signalIcons[signal.icon];
   return (
-    <div className="story-signal">
-      <Icon size={13} aria-hidden={true} />
-      <span>{signal.label}</span>
-      <strong>{signal.value}</strong>
+    <div className="flex min-w-0 items-center gap-2 font-mono text-micro font-medium leading-[1.3] tracking-[0.08em] text-white/60 uppercase max-compact:text-micro">
+      <Icon size={13} aria-hidden={true} className="shrink-0 text-story-accent" />
+      <span className="min-w-0 truncate">{signal.label}</span>
+      <strong className="ml-auto text-white font-medium">{signal.value}</strong>
     </div>
   );
 }
@@ -242,28 +260,35 @@ export function LandingPage(): ReactElement {
   };
 
   const activeTheme = CHAPTERS[activeIndex]?.theme ?? "night";
+  // Chapter copy fades up as it enters the viewport. Reduced-motion readers get
+  // the settled state immediately, and a chapter that has not been revealed yet
+  // stays transparent so the transition never flashes unanimated content.
+  const revealClass = (index: number, delayClass = ""): string => {
+    if (!revealed.has(index)) return "opacity-0";
+    return reducedMotion ? "" : `animate-story-reveal-up ${delayClass}`.trim();
+  };
 
   return (
-    <div className={`story story-simple story-theme-${activeTheme}`} id="top">
-      <header className="story-header">
-        <div className="story-shell story-header-inner">
+    <div className="relative min-h-screen overflow-x-clip bg-story-deep font-sans text-story-ink" id="top" style={{ ...STORY_BASE_STYLE, ...STORY_THEME_STYLES[activeTheme] }}>
+      <header className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[rgba(5,7,13,0.78)] transition-colors duration-200">
+        <div className="mx-auto flex h-[72px] w-[min(calc(100%-3rem),1280px)] items-center justify-between gap-4 max-compact:h-16 max-compact:w-[min(calc(100%-2rem),1280px)]">
           <a
-            className="story-brand"
+            className="inline-flex items-center gap-2.5 text-white no-underline"
             href="#top"
             onClick={(e) => {
               e.preventDefault();
               scrollToChapter(0);
             }}
           >
-            <span className="story-brand-mark">
-              <img src={`${ASSET_BASE}assets/brand/favicon.jpg`} alt="" />
+            <span className="flex size-9 items-center justify-center rounded-xl border border-white/25 bg-white p-0.5">
+              <img className="size-full rounded-lg object-cover" src={`${ASSET_BASE}assets/brand/favicon.jpg`} alt="" />
             </span>
             <span>
-              <strong>Cartethyia</strong>
-              <small>AI PROXY ROUTER</small>
+              <strong className="block font-heading text-lg leading-none">Cartethyia</strong>
+              <small className="mt-1 block font-mono text-micro font-medium leading-none tracking-[0.16em] text-white/50">AI PROXY ROUTER</small>
             </span>
           </a>
-          <nav className="story-desktop-nav" aria-label="Primary navigation">
+          <nav className="hidden items-center gap-1 min-desktop:flex [&_a]:inline-flex [&_a]:h-9 [&_a]:items-center [&_a]:gap-2 [&_a]:rounded-lg [&_a]:px-3.5 [&_a]:text-xs [&_a]:font-semibold [&_a]:text-white/60 [&_a]:no-underline [&_a]:transition-colors [&_a:hover]:bg-white/10 [&_a:hover]:text-white [&_button]:inline-flex [&_button]:h-9 [&_button]:items-center [&_button]:gap-2 [&_button]:rounded-lg [&_button]:border-0 [&_button]:bg-transparent [&_button]:px-3.5 [&_button]:text-xs [&_button]:font-semibold [&_button]:text-white/60 [&_button]:transition-colors [&_button:hover]:bg-white/10 [&_button:hover]:text-white" aria-label="Primary navigation">
             <button type="button" onClick={() => scrollToChapter(0)}>
               <Home size={14} aria-hidden={true} />
               Home
@@ -277,24 +302,24 @@ export function LandingPage(): ReactElement {
               Community
             </a>
           </nav>
-          <div className="story-header-actions">
-            <GithubBadge className="story-github-badge" />
+          <div className="flex items-center gap-2">
+            <GithubBadge className="h-[38px] border-white/25 bg-white/[0.09] text-white hover:border-white hover:bg-white hover:text-story-deep" />
             <button
               type="button"
               aria-label={showAll ? "Show story" : "Show all"}
               aria-pressed={showAll}
               onClick={() => setShowAll((v) => !v)}
-              className={`story-mode-button${showAll ? " is-selected" : ""}`}
+              className={`hidden h-[38px] items-center gap-1.75 whitespace-nowrap rounded-control border border-white/25 bg-white/[0.09] px-3 text-xs font-bold text-white transition-colors hover:border-white hover:bg-white hover:text-story-deep min-[640px]:inline-flex${showAll ? " border-white bg-white text-story-deep" : ""}`}
             >
-              <span className="story-mode-dot" aria-hidden={true} />
+              <span className="size-[7px] shrink-0 rounded-full bg-current" aria-hidden={true} />
               {showAll ? "Story" : "All view"}
             </button>
-            <a className="story-console-link" href={CONSOLE_PATH}>
+            <a className="inline-flex h-[38px] items-center gap-2 rounded-control border border-white/25 bg-white/[0.09] px-3.5 text-xs font-bold text-white no-underline transition-colors hover:border-white hover:bg-white hover:text-story-deep max-compact:hidden" href={CONSOLE_PATH}>
               Enter console
               <ArrowUpRight size={14} aria-hidden={true} />
             </a>
             <button
-              className="story-menu-button"
+              className="hidden size-[38px] items-center justify-center rounded-control border border-white/25 bg-white/[0.08] text-white min-desktop:hidden max-compact:inline-flex"
               type="button"
               aria-label={menuOpen ? "Close menu" : "Open menu"}
               aria-expanded={menuOpen}
@@ -304,22 +329,22 @@ export function LandingPage(): ReactElement {
             </button>
           </div>
         </div>
-        <div className={`story-mobile-overlay ${menuOpen ? "is-open" : ""}`} aria-hidden={true} onClick={() => setMenuOpen(false)} />
-        <nav className={`story-mobile-nav ${menuOpen ? "is-open" : ""}`} aria-label="Mobile navigation" aria-hidden={!menuOpen}>
-          <div className="story-mobile-nav-head">
+        <div className={`fixed inset-0 z-[45] bg-black/60 transition-opacity duration-150 min-desktop:hidden ${menuOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`} aria-hidden={true} onClick={() => setMenuOpen(false)} />
+        <nav className={`fixed inset-x-0 top-16 z-[46] hidden grid-cols-1 gap-1 border-t border-white/10 bg-story-deep/95 p-2.5 opacity-0 transition-[opacity,transform] duration-150 min-desktop:hidden max-compact:grid ${menuOpen ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none -translate-y-2"}`} aria-label="Mobile navigation" aria-hidden={!menuOpen}>
+          <div className="flex items-center justify-between px-2 py-1.5 font-mono text-micro font-bold uppercase tracking-[0.12em] text-white/50">
             <span>Navigation</span>
-            <button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}>
+            <button className="grid place-items-center border-0 bg-transparent text-white" type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)}>
               <X size={17} aria-hidden={true} />
             </button>
           </div>
           {CHAPTERS.map((entry, idx) => (
-            <button key={entry.id} type="button" onClick={() => scrollToChapter(idx)}>
-              <span>{entry.number}</span>
+            <button className="flex items-center gap-2.5 border-0 bg-transparent px-2 py-3 text-left text-body font-semibold text-white/75" key={entry.id} type="button" onClick={() => scrollToChapter(idx)}>
+              <span className="font-mono text-micro font-medium text-story-accent">{entry.number}</span>
               {entry.label}
-              <ArrowUpRight size={13} aria-hidden={true} />
+              <ArrowUpRight size={13} aria-hidden={true} className="ml-auto" />
             </button>
           ))}
-          <a href={CONSOLE_PATH}>
+          <a className="mt-1 inline-flex h-11 items-center justify-center gap-2 rounded-control border border-white/25 bg-white/[0.09] px-3.5 text-xs font-bold text-white no-underline" href={CONSOLE_PATH}>
             Enter console
             <ArrowUpRight size={14} aria-hidden={true} />
           </a>
@@ -327,7 +352,7 @@ export function LandingPage(): ReactElement {
       </header>
 
       {showAll ? (
-        <main className="story-shell pb-17.5 pt-44">
+        <main className="mx-auto w-[min(calc(100%-3rem),1280px)] pb-17.5 pt-44 max-compact:w-[min(calc(100%-2rem),1280px)]">
           <div className="mb-10.5 flex flex-wrap items-end justify-between gap-5.25">
             <div>
               <p className="text-badge font-bold uppercase tracking-[0.18em] text-white/50">All chapters · 7 stories</p>
@@ -346,7 +371,8 @@ export function LandingPage(): ReactElement {
                   setShowAll(false);
                   requestAnimationFrame(() => scrollToChapter(idx));
                 }}
-                className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-hero border bg-story-surface text-left transition hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 story-theme-${entry.theme}`}
+                className="group relative flex cursor-pointer flex-col overflow-hidden rounded-hero border bg-story-surface text-left transition hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                style={{ ...STORY_BASE_STYLE, ...STORY_THEME_STYLES[entry.theme] }}
                 tabIndex={0}
                 role="button"
                 aria-label={`Open ${entry.label}`}
@@ -391,7 +417,7 @@ export function LandingPage(): ReactElement {
           </div>
         </main>
       ) : (
-        <main className="story-simple-main">
+        <main className="relative z-[1]">
           {CHAPTERS.map((entry, idx) => (
             <article
               key={entry.id}
@@ -400,31 +426,32 @@ export function LandingPage(): ReactElement {
               ref={(node) => {
                 sectionRefs.current[idx] = node;
               }}
-              className={`story-page-section story-theme-${entry.theme} ${entry.sectionClass ?? ""} ${revealed.has(idx) ? "is-revealed" : ""}`}
+              className="relative flex min-h-screen items-center overflow-hidden bg-story-deep bg-[linear-gradient(to_right,var(--story-grid)_1px,transparent_1px),linear-gradient(to_bottom,var(--story-grid)_1px,transparent_1px)] bg-[length:44px_100%,100%_40px] py-28 max-compact:min-h-0 max-compact:py-[6.5rem] max-compact:pb-16"
+              style={{ ...STORY_BASE_STYLE, ...STORY_THEME_STYLES[entry.theme] }}
               aria-labelledby={`chapter-title-${idx}`}
             >
-              <div className="story-page-ambient" style={{ backgroundImage: `url(${entry.image})` }} aria-hidden={true} />
-              <div className="story-page-shell story-shell">
-                <div className="story-page-copy">
-                  <p className="story-location">{entry.location}</p>
-                  <h1 id={`chapter-title-${idx}`}>{entry.title}</h1>
-                  <p className="story-description">{entry.description}</p>
-                  <div className="story-signals">
+              <div className="absolute inset-0 z-0 scale-[1.08] bg-cover bg-center opacity-25 mix-blend-screen blur-[27px] saturate-[1.14]" style={{ backgroundImage: `url(${entry.image})` }} aria-hidden={true} />
+              <div className="relative z-[1] mx-auto grid w-[min(calc(100%-3rem),1280px)] grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] items-center gap-[clamp(2rem,5vw,5rem)] max-compact:flex max-compact:w-[min(calc(100%-2rem),1280px)] max-compact:flex-col max-compact:items-stretch max-compact:gap-9">
+                <div className={`min-w-0 py-8 max-compact:py-0 ${idx % 2 === 0 ? "col-start-2 row-start-1" : "col-start-1 row-start-1"}`}>
+                  <p className={`mt-[1.45rem] font-mono text-micro font-medium leading-none tracking-[0.19em] text-white/55 ${revealClass(idx)}`}>{entry.location}</p>
+                  <h1 className={`mt-3 max-w-[12ch] font-heading text-[clamp(38px,4.4vw,68px)] font-normal leading-[0.98] tracking-[-0.045em] [text-wrap:balance] max-compact:max-w-[13ch] max-compact:text-[clamp(34px,10.5vw,56px)] ${revealClass(idx, "delay-100")}`} id={`chapter-title-${idx}`}>{entry.title}</h1>
+                  <p className={`mt-5 min-h-0 max-w-[54ch] text-[clamp(14px,1.35vw,16px)] leading-[1.75] text-white/70 max-compact:max-w-full max-compact:text-body max-compact:leading-[1.65] ${revealClass(idx, "delay-150")}`}>{entry.description}</p>
+                  <div className={`mt-8 grid max-w-[650px] grid-cols-3 gap-3 border-t border-white/20 pt-3 max-compact:mt-5 max-compact:max-w-[290px] max-compact:grid-cols-1 max-compact:gap-2 max-compact:pt-2 ${revealClass(idx, "delay-200")}`}>
                     {entry.signals.map((s) => (
                       <SignalRow key={`${entry.id}-${s.label}`} signal={s} />
                     ))}
                   </div>
-                  <div className="story-page-actions">
-                    <button className="story-button story-button-secondary" type="button" onClick={() => scrollToChapter(idx === CHAPTERS.length - 1 ? 0 : idx + 1)}>
+                  <div className={`mt-7 flex flex-wrap gap-3.5 max-compact:mt-5 ${revealClass(idx, "delay-300")}`}>
+                    <button className="inline-flex h-11 items-center gap-2 rounded-control border border-white/25 bg-white/[0.08] px-[1.1rem] text-body font-bold text-white transition-transform active:scale-[0.97] hover:bg-white/[0.18] max-compact:h-[42px] max-compact:px-3.5 max-compact:text-xs" type="button" onClick={() => scrollToChapter(idx === CHAPTERS.length - 1 ? 0 : idx + 1)}>
                       {nextChapterLabel(idx)}
                       <ArrowRight size={15} aria-hidden={true} />
                     </button>
                   </div>
                 </div>
-                <figure className="story-page-visual">
-                  <img src={entry.image} alt={entry.imageAlt} loading={idx === 0 ? "eager" : "lazy"} fetchPriority={idx === 0 ? "high" : "low"} decoding="async" />
-                  <figcaption>
-                    {entry.location} <span>{entry.number}</span>
+                <figure className={`relative row-start-1 h-[min(62svh,540px)] min-w-0 w-full self-center overflow-hidden border border-white/20 bg-story-panel shadow-[0_24px_80px_rgba(0,0,0,0.3)] after:absolute after:inset-0 after:bg-[linear-gradient(180deg,rgba(5,7,13,0.04),transparent_50%,rgba(5,7,13,0.62))] after:content-[''] max-compact:order-[-1] max-compact:h-auto max-compact:aspect-[16/11] max-compact:col-auto max-compact:row-auto ${idx % 2 === 0 ? "col-start-1" : "col-start-2"}`}>
+                  <img className="block size-full object-cover object-center" src={entry.image} alt={entry.imageAlt} loading={idx === 0 ? "eager" : "lazy"} fetchPriority={idx === 0 ? "high" : "low"} decoding="async" />
+                  <figcaption className="absolute inset-x-4 bottom-4 z-[1] flex justify-between font-mono text-micro font-medium leading-none tracking-[0.14em] text-white/70 uppercase">
+                    {entry.location} <span className="text-story-accent">{entry.number}</span>
                   </figcaption>
                 </figure>
               </div>

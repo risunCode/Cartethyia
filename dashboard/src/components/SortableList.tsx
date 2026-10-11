@@ -1,5 +1,7 @@
 import { GripVertical } from "lucide-react";
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import { cn } from "../lib/cn";
+import { gapUtility } from "../lib/spacing";
 
 /**
  * A vertical list whose rows the operator can drag into a new order.
@@ -54,7 +56,7 @@ export function SortableList<T extends { id: string }>({
     <div
       role="list"
       aria-label={label}
-      style={{ display: "flex", flexDirection: "column", gap }}
+      className={cn("flex flex-col min-w-0", gapUtility(gap) ?? "gap-5")}
     >
       {items.map((item, index) => {
         const dragging = dragId === item.id;
@@ -63,7 +65,11 @@ export function SortableList<T extends { id: string }>({
           <div
             key={item.id}
             role="listitem"
-            className="sortable-row"
+            className={cn(
+              "relative flex items-stretch gap-5 min-w-0 rounded-card transition-opacity duration-150 ease-spring",
+              dragging && "opacity-50",
+              isOver && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent before:content-['']",
+            )}
             data-dragging={dragging ? "true" : undefined}
             data-drop-target={isOver ? "true" : undefined}
             onDragOver={(event: DragEvent<HTMLDivElement>) => {
@@ -81,7 +87,7 @@ export function SortableList<T extends { id: string }>({
             }}
           >
             <div
-              className="sortable-rail"
+              className="group/rail flex flex-col items-center gap-2 flex-none pt-6 cursor-grab text-text-tertiary select-none active:cursor-grabbing"
               draggable={!disabled}
               aria-label={`Drag to reorder, position ${index + 1}`}
               onDragStart={(event: DragEvent<HTMLDivElement>) => {
@@ -94,10 +100,10 @@ export function SortableList<T extends { id: string }>({
               }}
               onDragEnd={endDrag}
             >
-              <GripVertical size={14} className="sortable-grip" />
-              <span className="sortable-index">{index + 1}</span>
+              <GripVertical size={14} className="opacity-55 group-hover/rail:opacity-100" />
+              <span className="font-mono text-badge tabular-nums leading-none">{index + 1}</span>
             </div>
-            <div className="sortable-body">{renderItem(item, index)}</div>
+            <div className="flex-auto min-w-0">{renderItem(item, index)}</div>
           </div>
         );
       })}

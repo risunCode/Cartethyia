@@ -131,7 +131,7 @@ export function ApiKeysPanel(): ReactNode {
               })
             }
             renderItem={(key) => (
-              <div className="api-key-card">
+              <div className="api-key-card flex items-start justify-between gap-6 px-6 py-4 rounded-chip border border-inner-border bg-surface-2 max-medium:flex-col max-medium:items-stretch max-medium:gap-4 max-medium:p-5 [&>div:last-child]:flex-wrap">
                 <div className="min-w-0 flex-1">
                   <div
                     className="flex items-center gap-4 flex-wrap"
@@ -151,39 +151,39 @@ export function ApiKeysPanel(): ReactNode {
                       </Badge>
                     ) : null}
                   </div>
-                  <div className="api-key-facts">
-                    <span className="api-key-pill">
-                      <span className="api-key-pill-label">Created</span>
+                  <div className="api-key-facts flex items-center flex-wrap gap-2 mt-3 min-w-0 max-medium:grid max-medium:grid-cols-3 max-medium:gap-2 max-medium:mt-0">
+                    <span className="inline-flex items-center gap-2.5 px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap max-medium:justify-between">
+                      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Created</span>
                       {new Date(key.createdAt).toLocaleDateString()}
                     </span>
-                    <span className="api-key-pill">
-                      <span className="api-key-pill-label">{key.keyMode === "share" ? "Total usage" : "Usage"}</span>
+                    <span className="inline-flex items-center gap-2.5 px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap max-medium:justify-between">
+                      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">{key.keyMode === "share" ? "Total usage" : "Usage"}</span>
                       {compactTokens(key.tokensConsumed)}
                     </span>
-                    <span className="api-key-pill">
-                      <span className="api-key-pill-label">RPM</span>
+                    <span className="inline-flex items-center gap-2.5 px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap max-medium:justify-between">
+                      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">RPM</span>
                       {limitLabel(key.requestsPerMinute)}
                     </span>
                   </div>
-                  <div className="api-key-facts">
-                    <span className="api-key-pill">
-                      <span className="api-key-pill-label">Daily</span>
+                  <div className="api-key-facts flex items-center flex-wrap gap-2 mt-3 min-w-0 max-medium:grid max-medium:grid-cols-3 max-medium:gap-2 max-medium:mt-0">
+                    <span className="inline-flex items-center gap-2.5 px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap max-medium:justify-between">
+                      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Daily</span>
                       {limitLabel(key.dailyTokenLimit)}
                     </span>
-                    <span className="api-key-pill">
-                      <span className="api-key-pill-label">Monthly</span>
+                    <span className="inline-flex items-center gap-2.5 px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap max-medium:justify-between">
+                      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Monthly</span>
                       {limitLabel(key.monthlyTokenLimit)}
                     </span>
-                    <span className="api-key-pill">
-                      <span className="api-key-pill-label">One-time</span>
+                    <span className="inline-flex items-center gap-2.5 px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap max-medium:justify-between">
+                      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">One-time</span>
                       {limitLabel(key.lifetimeTokenBudget)}
                     </span>
-                    <span className="api-key-pill">
-                      <span className="api-key-pill-label">Concurrent</span>
+                    <span className="inline-flex items-center gap-2.5 px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap max-medium:justify-between">
+                      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Concurrent</span>
                       {limitLabel(key.maxConcurrentRequests)}
                     </span>
-                    <span className="api-key-pill">
-                      <span className="api-key-pill-label">{key.modelAccessMode === "blacklist" ? "Blocked" : "Models"}</span>
+                    <span className="inline-flex items-center gap-2.5 px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap max-medium:justify-between">
+                      <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">{key.modelAccessMode === "blacklist" ? "Blocked" : "Models"}</span>
                       {key.modelAccessMode === "blacklist"
                         ? (key.modelList?.length ?? 0)
                         : key.modelList?.length ? key.modelList.length : "All"}

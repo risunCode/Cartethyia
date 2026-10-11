@@ -180,7 +180,7 @@ export function RelayDeployModal({
             {deploy.isPending ? "Deploying…" : "Deploy relay"}
           </Button>
           {lastUrl ? (
-            <span className="form-section-caption">
+            <span className="mt-1 text-badge text-text-tertiary">
               Registered pool at <code>{lastUrl}</code>
             </span>
           ) : null}

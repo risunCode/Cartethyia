@@ -62,7 +62,7 @@ export function Card({
         surfaceClass({ glass, surface }),
         "shadow-card",
         density === "compact" && "card-compact leading-[1.35]",
-        interactive && "card-interactive",
+        interactive && "transition-[transform,border-color,box-shadow] duration-150 ease-spring hover:-translate-y-0.5 hover:shadow-card",
         elevation !== undefined && ELEVATION[elevation],
         className,
       )}

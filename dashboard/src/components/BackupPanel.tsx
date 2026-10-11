@@ -184,7 +184,7 @@ export function BackupPanel(): ReactNode {
 
   return (
     <>
-    <div className="two-column-grid">
+    <div className="grid grid-cols-2 gap-8 w-full min-w-0 max-medium:grid-cols-1">
       <Card className="h-full">
         <CardHeader
           title="Backup"
@@ -193,20 +193,20 @@ export function BackupPanel(): ReactNode {
         />
         <CardBody className="flex flex-1 flex-col">
           <Stack gap="14px" className="flex-1">
-            <fieldset className="backup-section-options">
-              <legend>Include in the download</legend>
-              <label className="backup-section-option">
+            <fieldset className="grid grid-cols-2 gap-5 min-w-0 border-0 m-0 p-0 max-medium:grid-cols-1">
+              <legend className="mb-4 text-text-secondary text-badge font-semibold">Include in the download</legend>
+              <label className="flex items-start gap-5 min-h-21 px-6 py-5 border border-inner-border rounded-control bg-surface-2 text-text-primary text-caption leading-snug cursor-pointer hover:border-border-strong hover:bg-hover has-checked:border-accent has-checked:bg-accent-soft">
                 <input type="checkbox" checked={includeConfig} onChange={(event) => setIncludeConfig(event.target.checked)} />
-                <span>
+                <span className="flex flex-col gap-1 min-w-0">
                   <strong>Account, proxy &amp; settings</strong>
-                  <small>Credentials, API-key hashes, routing, and settings</small>
+                  <small className="text-text-tertiary text-badge">Credentials, API-key hashes, routing, and settings</small>
                 </span>
               </label>
-              <label className="backup-section-option">
+              <label className="flex items-start gap-5 min-h-21 px-6 py-5 border border-inner-border rounded-control bg-surface-2 text-text-primary text-caption leading-snug cursor-pointer hover:border-border-strong hover:bg-hover has-checked:border-accent has-checked:bg-accent-soft">
                 <input type="checkbox" checked={includeTelemetry} onChange={(event) => setIncludeTelemetry(event.target.checked)} />
-                <span>
+                <span className="flex flex-col gap-1 min-w-0">
                   <strong>Telemetry history</strong>
-                  <small>Status, tokens, cost, latency — never prompt bodies</small>
+                  <small className="text-text-tertiary text-badge">Status, tokens, cost, latency — never prompt bodies</small>
                 </span>
               </label>
             </fieldset>
@@ -217,7 +217,7 @@ export function BackupPanel(): ReactNode {
               </span>
               <Switch checked={highlyCompress} onChange={setHighlyCompress} aria-label="Highly Compress Backup" />
             </div>
-            <p className="form-section-caption">
+            <p className="mt-1 text-badge text-text-tertiary">
               The file contains provider credentials. Treat it like the database. Prompt and response bodies, health-event history, and console sessions are left out.
             </p>
             <div className="mt-auto flex justify-end gap-4">
@@ -240,10 +240,10 @@ export function BackupPanel(): ReactNode {
               />
             </div>
             {format !== null ? (
-              <p className="form-section-caption">Detected format: {format === "nine_router" ? "router export" : "Cartethyia backup"}</p>
+              <p className="mt-1 text-badge text-text-tertiary">Detected format: {format === "nine_router" ? "router export" : "Cartethyia backup"}</p>
             ) : null}
             {restoreRows.length > 0 ? (
-              <div className="status-callout" data-tone="ok">
+              <div className="rounded-control border border-[color-mix(in_srgb,var(--green)_40%,transparent)] bg-[color-mix(in_srgb,var(--green)_8%,transparent)] px-5 py-4 text-caption text-[var(--green)]">
                 <strong>Restored rows</strong>
                 <ul>{restoreRows.map(([table, count]) => <li key={table}>{table}: {count}</li>)}</ul>
               </div>
@@ -261,18 +261,18 @@ export function BackupPanel(): ReactNode {
         />
         <CardBody className="flex flex-1 flex-col">
           <Stack gap="12px" className="flex-1">
-            <fieldset className="backup-section-options">
-              <legend>Delete</legend>
+            <fieldset className="grid grid-cols-1 gap-5 min-w-0 border-0 m-0 p-0">
+              <legend className="mb-4 text-text-secondary text-badge font-semibold">Delete</legend>
               {([
                 ["providers", "Providers", "Accounts, credentials, tenant models, routing, and account health"],
                 ["proxies", "Proxies", "Network pools, pool settings, and pool health"],
                 ["configuration", "All configuration", "Providers, proxies, aliases, combos, API keys, CLI tools, and settings"],
               ] as const).map(([scope, label, description]) => (
-                <label key={scope} className="backup-section-option">
+                <label key={scope} className="flex items-start gap-5 min-h-21 px-6 py-5 border border-inner-border rounded-control bg-surface-2 text-text-primary text-caption leading-snug cursor-pointer hover:border-border-strong hover:bg-hover has-checked:border-accent has-checked:bg-accent-soft">
                   <input type="checkbox" checked={deleteScopes.has(scope)} onChange={() => toggleDeleteScope(scope)} />
-                  <span>
+                  <span className="flex flex-col gap-1 min-w-0">
                     <strong>{label}</strong>
-                    <small>{description}</small>
+                    <small className="text-text-tertiary text-badge">{description}</small>
                   </span>
                 </label>
               ))}
@@ -323,7 +323,7 @@ export function BackupPanel(): ReactNode {
       }
     >
       <Stack gap="10px">
-        <p className="form-section-caption">
+        <p className="mt-1 text-badge text-text-tertiary">
           {passwordFor === "delete"
             ? "This cannot be undone. The password is verified again before anything is removed."
             : passwordFor === "restore"

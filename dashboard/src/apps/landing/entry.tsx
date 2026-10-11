@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 
 import { LandingPage } from "./page";
 import "../../styles/base.css";
-import "../../styles/landing.css";
+import "../../styles/app.css";
 
 /** Mounts the public landing story into the shared dashboard document. */
 export function mountLanding(root: HTMLElement): void {

@@ -108,7 +108,7 @@ export function RoutingStrategyCard({
                   Round robin
                 </Inline>
               </label>
-              <div className="form-section-caption">
+              <div className="mt-1 text-badge text-text-tertiary">
                 Off = failover: use accounts in priority order, fall through on failure. On = rotate
                 requests across this provider's accounts.
               </div>
@@ -144,7 +144,7 @@ export function RoutingStrategyCard({
                     Accounts per rotation
                   </Inline>
                 </label>
-                <div className="form-section-caption">
+                <div className="mt-1 text-badge text-text-tertiary">
                   Requests served before the rotation advances
                 </div>
               </div>
@@ -174,7 +174,7 @@ export function RoutingStrategyCard({
                   Always direct
                 </Inline>
               </label>
-              <div className="form-section-caption">
+              <div className="mt-1 text-badge text-text-tertiary">
                 Bypass automatic proxy-pool routing for this provider and always dial direct
               </div>
             </div>
@@ -244,7 +244,7 @@ export function RoutingStrategyCard({
                 <input
                   id="routing-max-inflight"
                   type="range"
-                  className="routing-slider"
+                  className="routing-slider flex-1 min-w-0"
                   data-unlimited={unlimited ? "true" : undefined}
                   min={1}
                   max={SLIDER_MAX + 1}
@@ -256,7 +256,7 @@ export function RoutingStrategyCard({
                     if (!Number.isFinite(value)) return;
                     routing.setMaxInflight(value > SLIDER_MAX ? null : Math.round(value));
                   }}
-                  style={{ flex: 1, minWidth: 0, ["--slider-pct" as string]: `${(sliderValue / (SLIDER_MAX + 1)) * 100}%` }}
+                  style={{ ["--slider-pct" as string]: `${(sliderValue / (SLIDER_MAX + 1)) * 100}%` }}
                 />
                 <input
                   type="text"
@@ -289,7 +289,7 @@ export function RoutingStrategyCard({
             <Inline
               gap="6px"
               align="flex-start"
-              className="form-section-caption"
+              className="mt-1 text-badge text-text-tertiary"
             >
               <Info size={12} className="shrink-0 mt-0.5" />
               <span>

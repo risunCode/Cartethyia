@@ -57,7 +57,7 @@ function PrivacyPanel(): ReactNode {
                 { value: "full", label: "Full — redacted bodies, 15 minutes" },
               ]}
             />
-            <p className="form-section-caption">
+            <p className="mt-1 text-badge text-text-tertiary">
               Request metadata is always kept. Bodies stay off until you turn them on, and anything captured is redacted and deleted after 15 minutes.
             </p>
           </div>
@@ -83,7 +83,7 @@ function PrivacyPanel(): ReactNode {
                 ]}
               />
               {settings.telemetryPayloadDepth !== "minimum" ? (
-                <div role="note" className="status-callout" data-tone="warn">
+                <div role="note" className="rounded-control border border-[color-mix(in_srgb,var(--amber)_35%,var(--inner-border))] bg-[color-mix(in_srgb,var(--amber)_8%,var(--surface-2))] px-5 py-4 text-caption text-text-secondary">
                   <strong>High CPU and memory while this is on.</strong> Use it to debug, then switch back to Metadata or Minimum.
                 </div>
               ) : null}
@@ -108,7 +108,7 @@ function PrivacyPanel(): ReactNode {
                 { value: "full", label: "Show full IP" },
               ]}
             />
-            <p className="form-section-caption">Raw addresses stay stored. This only changes how they are shown.</p>
+            <p className="mt-1 text-badge text-text-tertiary">Raw addresses stay stored. This only changes how they are shown.</p>
           </div>
         </Stack>
       </CardBody>
@@ -183,7 +183,7 @@ export default function Settings(): ReactNode {
       <CardBody className="flex flex-col gap-10">
         <section className="flex flex-col gap-5">
           <h2 className="text-badge font-bold uppercase tracking-label text-text-tertiary">Account</h2>
-          <div className="two-column-grid">
+          <div className="grid grid-cols-2 gap-8 w-full min-w-0 max-medium:grid-cols-1">
             <Card className="h-full">
               <CardHeader title="Security" subtitle="Change the password used to sign in to this console" icon={<Shield size={16} />} />
               <CardBody className="flex flex-1 flex-col">

@@ -108,14 +108,15 @@ export function Composer({
       }}
     >
       {images.length > 0 ? (
-        <div className="mlab-attachments">
+        <div className="flex gap-4 px-2">
           {images.map((image) => (
-            <span key={image.dataUrl} className="mlab-attachment">
-              <img src={image.dataUrl} alt="" />
+            <span key={image.dataUrl} className="relative">
+              <img src={image.dataUrl} alt="" className="block w-36 h-36 object-cover rounded-control" />
               <button
                 type="button"
                 aria-label={`Remove ${image.name}`}
                 onClick={() => onImages(images.filter((item) => item.dataUrl !== image.dataUrl))}
+                className="absolute -top-3 -right-3 w-9 h-9 grid place-items-center border-0 rounded-pill bg-text-primary text-surface-1 cursor-pointer"
               >
                 <X size={12} />
               </button>
@@ -125,7 +126,7 @@ export function Composer({
       ) : null}
       <textarea
         ref={fieldRef}
-        className="mlab-composer-input"
+        className="w-full min-h-14 max-h-80 resize-none border-0 outline-none bg-transparent text-text-primary font-inherit text-lead leading-normal px-2 py-1 placeholder:text-text-tertiary"
         rows={1}
         value={value}
         placeholder={model.length > 0 ? `Message ${model}...` : "Message..."}
@@ -156,11 +157,11 @@ export function Composer({
           event.target.value = "";
         }}
       />
-      <div className="mlab-composer-bar">
-        <div className="mlab-composer-tools">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            className="mlab-tool"
+            className="w-16 h-16 grid place-items-center border-0 rounded-pill bg-transparent text-text-secondary cursor-pointer hover:bg-hover hover:text-text-primary disabled:opacity-40"
             aria-label="Attach an image"
             title="Attach an image"
             disabled={images.length >= MAX_IMAGES}
@@ -173,14 +174,14 @@ export function Composer({
             size="sm"
             type="button"
             title={model.length > 0 ? model : "Pick model"}
-            className="mlab-model-chip font-mono tabular-nums"
+            className="max-w-110 h-15 px-5 border border-inner-border rounded-control bg-hover text-caption font-semibold hover:border-border-strong hover:bg-active-pill font-mono tabular-nums [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
             onClick={() => setPickerOpen(true)}
           >
             {model.length > 0 ? modelName(model) : "Pick model"}
           </Button>
 
 
-          <span className="mlab-effort">
+          <span className="inline-flex items-center gap-2 h-15 pl-4 pr-1 border border-inner-border rounded-control bg-hover text-text-secondary">
             <Brain size={13} />
             <Select
               size="sm"
@@ -188,31 +189,32 @@ export function Composer({
               value={effort}
               options={EFFORTS}
               onValueChange={(next) => onEffort(next as LabEffort)}
+              className="h-13 min-w-29 w-auto px-4 border-0 bg-transparent text-caption hover:bg-active-pill [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap"
             />
           </span>
         </div>
-        <div className="mlab-composer-actions">
+        <div className="flex items-center gap-3 min-w-0">
           <Button
             variant="secondary"
             size="sm"
             type="button"
             title={sessionTitle}
-            className="mlab-model-chip"
+            className="max-w-110 h-15 px-5 border border-inner-border rounded-control bg-hover text-caption font-semibold hover:border-border-strong hover:bg-active-pill [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
             onClick={onOpenSessions}
           >
             {sessionTitle}
           </Button>
-          <button type="button" className="mlab-tool mlab-settings-btn" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
+          <button type="button" className="w-auto inline-flex items-center h-15 px-5 gap-3 border border-inner-border rounded-control bg-hover text-text-primary text-caption font-semibold hover:border-border-strong hover:bg-active-pill" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
             <SlidersHorizontal size={15} />
             <span>Settings</span>
           </button>
           {sending ? (
-            <button type="button" className="mlab-send" aria-label="Stop" onClick={onStop}>
+            <button type="button" className="w-auto min-w-36 h-15 inline-flex items-center justify-center gap-3 px-6 border-0 rounded-control bg-text-primary text-surface-1 text-caption font-semibold cursor-pointer disabled:opacity-35 disabled:cursor-default active:scale-95" aria-label="Stop" onClick={onStop}>
               <Square size={13} fill="currentColor" />
               <span>Stop</span>
             </button>
           ) : (
-            <button type="submit" className="mlab-send" aria-label="Send" disabled={!canSend}>
+            <button type="submit" className="w-auto min-w-36 h-15 inline-flex items-center justify-center gap-3 px-6 border-0 rounded-control bg-text-primary text-surface-1 text-caption font-semibold cursor-pointer disabled:opacity-35 disabled:cursor-default active:scale-95" aria-label="Send" disabled={!canSend}>
               <Send size={15} />
               <span>Send</span>
             </button>

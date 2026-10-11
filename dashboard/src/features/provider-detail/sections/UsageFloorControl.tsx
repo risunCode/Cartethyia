@@ -49,34 +49,35 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
     routing.setUsageFloor(next, nextUnit);
   };
 
+  const floorTone = allowance === null ? null : allowanceTone(allowance);
   return (
-    <div className="account-controls">
-    <div className="usage-floor">
-      <div className="usage-floor-copy">
-        <div className="usage-floor-title">
+    <div className="flex flex-col gap-4">
+    <div className="flex items-center justify-between flex-wrap gap-6 px-6 py-5 border border-inner-border rounded-control bg-surface-2">
+      <div className="min-w-0 flex-auto basis-110">
+        <div className="flex items-center gap-3 text-body font-semibold text-text-primary">
           <Gauge size={14} />
           <span>Usage floor</span>
-          <span className="badge">BETA</span>
+          <span className="badge text-micro tracking-label">BETA</span>
         </div>
-        <p>
+        <p className="mt-0.5 text-badge leading-normal text-text-tertiary">
           Per account. Skip an account once its remaining allowance reaches this, and send the request to the next one.
         </p>
         {allowance !== null && (
-          <p className="usage-floor-total" data-tone={allowanceTone(allowance)} title={`${formatCount(allowance.remaining)} credits available of ${formatCount(allowance.total)} across all accounts`}>
-            <span className="usage-floor-scope">All accounts</span>
-            <strong>{formatCount(allowance.remaining)}</strong>
+          <p className={`mt-2 text-caption font-semibold tabular-nums ${floorTone === "ok" ? "text-status-success" : floorTone === "warn" ? "text-status-warning" : "text-status-danger"}`} data-tone={floorTone} title={`${formatCount(allowance.remaining)} credits available of ${formatCount(allowance.total)} across all accounts`}>
+            <span className="mr-3 text-micro font-semibold tracking-label uppercase text-text-tertiary">All accounts</span>
+            <strong className="font-bold">{formatCount(allowance.remaining)}</strong>
             {` credits available of ${formatCount(allowance.total)}`}
-            <span className="usage-floor-percent">{` (${allowance.percent}%)`}</span>
+            <span className="font-medium opacity-75">{` (${allowance.percent}%)`}</span>
           </p>
         )}
       </div>
-      <div className="usage-floor-control">
+      <div className="flex items-center gap-4 shrink-0">
         <Switch
           checked={enabled}
           aria-label="Usage floor"
           onChange={(next) => commit(next ? (valid ? parsed : 40) : null, unit)}
         />
-        <label className="usage-floor-value">
+        <label className="flex items-center h-16 border border-inner-border rounded-control bg-surface-1 overflow-hidden">
           <input
             type="number"
             min={0}
@@ -85,6 +86,7 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
             placeholder="40"
             disabled={!enabled}
             aria-label="Usage floor amount"
+            className="w-32 h-full px-4 border-0 bg-transparent text-text-primary font-mono text-body tabular-nums text-right disabled:text-text-tertiary"
             onChange={(event) => setValue(event.target.value)}
             onBlur={() => {
               if (enabled) commit(parsed, unit);
@@ -94,6 +96,7 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
             value={unit}
             disabled={!enabled}
             aria-label="Usage floor unit"
+            className="h-full px-3 border-0 border-l border-inner-border bg-hover text-text-secondary text-badge font-semibold cursor-pointer disabled:cursor-default disabled:opacity-60"
             onChange={(event) => {
               const next = event.target.value === "credit" ? "credit" : "percent";
               setUnit(next);
@@ -115,15 +118,15 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
 function PrivacyModeControl({ providerId }: { readonly providerId: string }): ReactNode {
   const { enabled, setEnabled } = useMysteriousAccounts(providerId);
   return (
-    <div className="usage-floor">
-      <div className="usage-floor-copy">
-        <div className="usage-floor-title">
+    <div className="flex items-center justify-between flex-wrap gap-6 px-6 py-5 border border-inner-border rounded-control bg-surface-2">
+      <div className="min-w-0 flex-auto basis-110">
+        <div className="flex items-center gap-3 text-body font-semibold text-text-primary">
           <EyeOff size={14} />
           <span>Mysterious accounts</span>
         </div>
-        <p>Hide this provider's emails and usernames. Stored in this browser only.</p>
+        <p className="mt-0.5 text-badge leading-normal text-text-tertiary">Hide this provider's emails and usernames. Stored in this browser only.</p>
       </div>
-      <div className="usage-floor-control">
+      <div className="flex items-center gap-4 shrink-0">
         <Switch checked={enabled} aria-label="Mysterious accounts" onChange={setEnabled} />
       </div>
     </div>
