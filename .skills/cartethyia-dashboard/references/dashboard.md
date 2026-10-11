@@ -53,6 +53,18 @@ and `CARTETHYIA_VISUAL_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts
 compare` (which must stay green while a step only re-expresses styling, and is
 re-captured in the scale-normalization step that intentionally changes pixels).
 
+That script reads `CARTETHYIA_VISUAL_ADMIN_PASSWORD` (required), plus
+`CARTETHYIA_VISUAL_ADMIN_USER`, `CARTETHYIA_VISUAL_PORT`, and
+`CARTETHYIA_BROWSER_AGENT` when set. They are dev-tooling only — no runtime
+path reads them, so they are absent from `CONFIG_SPEC` and
+`documentation/reference/configuration.md` — and are listed in `.env.example`
+under "Visual baseline". The password is an operator credential: take it from
+the environment, never from a message.
+
+`agent-browser` is what every UI claim is measured through, including this
+script's own measurements; a page can also be measured by driving the CLI
+directly, which is the normal path when no gateway credential is available.
+
 ## Share page
 
 Keep share data and token units sourced from one provider. Public recipients may

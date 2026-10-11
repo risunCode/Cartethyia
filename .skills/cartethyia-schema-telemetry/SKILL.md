@@ -70,11 +70,10 @@ converting existing rows and rebuilding the type in the forward migration.
 
 ## Verify
 
-```bash
-bun run typecheck
-bun run dashboard:typecheck  # when dashboard/ changes
-```
+The gate list is `cartethyia-engineering/references/verification.md`; run those,
+plus `bun run test:backend`.
 
-Exercise a new migration against an isolated database when available. Never
-reset production data — verify the target environment first, and use the
-isolated `.env.test` database (`bun run test-db:up/check/down`).
+The boundary specific to this skill is the database: exercise a new migration
+against an isolated database when available. Never reset production data —
+verify the target environment first, and use the isolated `.env.test` database
+(`bun run test-db:up/check/down`).

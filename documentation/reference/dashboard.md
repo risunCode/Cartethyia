@@ -51,6 +51,7 @@ loop.
 | `/model-lab` | `StudioPage` | Studio sessions against the gateway |
 | `/cli-tools` | `CliToolsPage` | CLI tool list |
 | `/cli-tools/:toolId` | `CliToolDetailPage` | Per-key slot mappings |
+| `/customization` | `CustomizationPage` | Browser-only `localStorage` settings and the IndexedDB background blob; no backend |
 | `/settings` | `SettingsPage` | Runtime preferences, backup |
 | `/login`, `/setup`, `/banned` | session pages | No shell |
 
@@ -111,6 +112,7 @@ with it. The dashboard does not keep a second, drifted type.
 | `features/studio` | Model lab |
 | `features/cli-tools` | CLI tool mappings |
 | `features/settings` | Preferences and backup |
+| `features/customization` | Appearance, blur, and background; browser state only |
 | `apps/landing` | Public landing |
 | `apps/share` | Public share page |
 | `apps/console` | Console mount |
@@ -143,8 +145,11 @@ sidebar collapses to a drawer on the shell's own width, not the viewport's.
 
 Card blur only reaches the uploaded background when that image is painted behind the card in the same group. `BackgroundLayer` mounts inside `.app-main-column`. `.route-enter` animates position only — an `opacity`, `transform`, or `filter` animation groups the page, and the card then blurs the black body instead of the image. `.custom-background` keeps `contain: none` for the same reason; anything else also pins a `fixed` layer to the scroller. Clarity and blur are separate sliders.
 
-Dialog sizes are `sm` 420, `md` 640, `lg` 880, `xl` 1160. An expanded dialog
-caps at 1160. Below 640px the panel becomes a bottom sheet. New dialogs use
+Dialog sizes come from `DialogSize` (`sm` 420, `md` 640, `lg` 880, `xl` 960) in
+`components/ui/dialog.tsx`; `size` wins over `width`, and a raw `width={…}` px is
+legacy. `expanded` is the explicit full-width escape hatch and caps at 1160. At
+`max-small` (640px) a dialog stays centered with reduced viewport margins;
+`Drawer` is the surface that becomes a full-viewport panel. New dialogs use
 `DialogSize`, not a raw width.
 
 `localStorage` keys are `cartethyia:<area>:<name>`. Reads check `typeof window`,

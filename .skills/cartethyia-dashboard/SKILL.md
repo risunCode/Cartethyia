@@ -1,6 +1,6 @@
 ---
 name: cartethyia-dashboard
-description: "Build and verify dashboard/ React code: shell layout and scroll rules, social metadata injection, share pages, toasts and dialog sizing, localStorage namespacing, and headless browser verification via the browser agent (Puppeteer)."
+description: "Build and verify dashboard/ React code: shell layout and scroll rules, the token → utility → primitive styling dialect, social metadata injection, share pages, toasts and dialog sizing, localStorage namespacing, and mandatory real-browser verification through the agent-browser CLI."
 ---
 
 # Dashboard

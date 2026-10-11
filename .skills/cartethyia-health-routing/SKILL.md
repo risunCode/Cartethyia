@@ -67,10 +67,9 @@ source status and avoid double-counting one account in multiple aggregate labels
 
 ## Verify
 
-```bash
-bun run typecheck
-bun run dashboard:typecheck  # when dashboard/ changes
-```
+The gate list is `cartethyia-engineering/references/verification.md`; run those,
+plus `bun run test:backend`.
 
-Exercise a real provider/account or a production-path temporary probe. Report
-when upstream credentials or a live gateway were unavailable.
+The boundary specific to this skill is health: exercise a real provider/account
+or a production-path temporary probe, and report when upstream credentials or a
+live gateway were unavailable.

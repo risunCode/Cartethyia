@@ -77,7 +77,7 @@ Codes in use: `unauthorized` 401, `insufficient_scope` 403, `tenant_required` 40
 `ssrf_rejected` 400. Reuse these before inventing one.
 
 `detailsPolicy` controls whether `details` reaches the client. `settings` passes
-`"omit"` (`settings/contracts.ts:137`) because a preferences patch echoes the whole
+`"omit"` (`settings/contracts.ts:140`) because a preferences patch echoes the whole
 bag; do not widen it without a reason.
 
 ## Guards you must not remove
@@ -98,37 +98,33 @@ bag; do not widen it without a reason.
 
 ## Verify
 
-```bash
-bun run typecheck                # always
-bun run dashboard:typecheck      # when the contract mirror changed
-bun run test:backend             # test/console/** lives here
-```
+The gate list is `cartethyia-engineering/references/verification.md`; run those,
+plus `bun run dashboard:typecheck` when the mirror changed and
+`bun run test:backend` (`test/console/**` lives here).
 
-Typecheck is not behavioural proof. Console suites in `test/console/` mount the
-real router through `createTestGateway` (`test/helpers/gateway.ts:331`, console
-mounted unless `options.console === false`), so a test there exercises the guards
-too — see `test/console/remote-debug-access.test.ts` for that shape. New pure
-helpers get their own suite; `test/console/query-limit.test.ts` is the model.
-
-Prove a new test locks the fix: revert the change, see it fail, restore it, see it
-pass.
+The boundary specific to this skill is the router: console suites in
+`test/console/` mount the real router through `createTestGateway`
+(`test/helpers/gateway.ts:336`, console mounted unless `options.console ===
+false`), so a test there exercises the guards too — see
+`test/console/remote-debug-access.test.ts` for that shape. New pure helpers get
+their own suite; `test/console/query-limit.test.ts` is the model.
 
 ## Pitfalls
 
 - **Path shadowing.** `/:providerId` swallows a later literal. `connection-test`
-  is declared before it in `providers/catalog/routes.ts:147` for exactly this
+  is declared before it in `providers/catalog/routes.ts:159-162` for exactly this
   reason; the comment says so.
 - **Optional `ctx` fields.** `modelStrikes` is optional, so the model-ban routes
-  are not mounted at all when it is absent (`domain-registration.ts:231`). A route
+  are not mounted at all when it is absent (`domain-registration.ts:224`). A route
   that silently disappears is worse than one that 500s; keep that explicit.
 - **`as unknown as Elysia` on every route factory.** The beta's route-tree types
   do not line up. It is load-bearing, not sloppiness — do not "fix" it.
 - **Do not import `transport/` into the console.** Declare the structural
-  interface you need instead (`observability/live.ts:15`).
+  interface you need instead (`src/console/observability/live.ts:19`).
 - **`t.UnionEnum` stamps a default of its first member**, so an absent body field
   validates as that member. Use `literalUnion()`.
 - **Body-size checks must run before JSON parse** or the point of the limit is
-  lost — `backup/routes.ts:137` measures the re-serialized body because a spoofed
+  lost — `backup/routes.ts:143` measures the re-serialized body because a spoofed
   `content-length` would otherwise bypass the 413.
 - **A console read of a shared row uses `globalOrOwnedBy`, not `eq(tenantId)`.**
   Replacing it hides shared catalog rows. Quota and OAuth owner checks use `eq` on

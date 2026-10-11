@@ -15,7 +15,8 @@ Entry point for repo work. Most tasks belong to a focused skill — pick it firs
 | Image generation wires, catalog rows, and account entitlement | `cartethyia-provider-catalog` |
 | Remove a bundled provider and its leftover global row | `cartethyia-provider-removal` |
 | Account health, cooldown class, pool selection, retries, leases | `cartethyia-health-routing` |
-| `dashboard/` React, layout, social meta, toasts, browser-agent verification | `cartethyia-dashboard` |
+| Add/change a `src/console/` domain; contract→store→dashboard mirror | `cartethyia-console-api` |
+| `dashboard/` React, layout, social meta, toasts, `agent-browser` verification | `cartethyia-dashboard` |
 | Repo invariants, deadness, legacy-era checks | `references/guards.md` |
 | How to write the change: shape, names, types, errors | `references/taste.md` |
 | Bug-fix loop, proof, gates | `references/verification.md` |
@@ -75,13 +76,7 @@ proof, not grep — see `references/verification.md`.
 
 ## Completing a change
 
-```bash
-bun run typecheck                # always
-bun run dashboard:typecheck      # when dashboard/ touched
-bun run build                    # when a build entry or contract changes
-bun run test                     # or scoped: test:backend, dashboard:test
-```
-
+The gate list is `references/verification.md`; that file is the single owner.
 Backend suites live in `test/`, dashboard suites in `dashboard/test/`, run via
 `scripts/ci-run-tests.ts` against the isolated `.env.test` database — never the
 dev database. Typecheck never proves a behavior change: exercise the affected

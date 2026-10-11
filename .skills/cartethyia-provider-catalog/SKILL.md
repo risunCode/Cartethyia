@@ -120,12 +120,9 @@ dashboard lists as custom and the tenant delete cannot reach.
 
 ## Verify
 
-```bash
-bun run typecheck
-bun run dashboard:typecheck  # when dashboard/ changes
-bun run build                # when an entry point or contract changes
-```
+The gate list is `cartethyia-engineering/references/verification.md`; run those,
+plus `bun run test:backend`.
 
-Exercise the real auth, catalog, and request boundaries when safe. If
-credentials or upstream access are unavailable, say so instead of claiming
-availability.
+The boundary specific to this skill is upstream: exercise the real auth,
+catalog, and request boundaries when safe. If credentials or upstream access are
+unavailable, say so instead of claiming availability.
