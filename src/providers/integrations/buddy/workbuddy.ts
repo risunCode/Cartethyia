@@ -8,7 +8,7 @@
 // Payload: leading WorkBuddy system prompt + typed user content, reasoning_summary
 //          auto only when reasoning_effort requested
 
-import { OpenAICompatibleAdapter } from "../../compatible-adapter";
+import { BuddyMediaAdapter } from "./buddy-media";
 import { providerBaseUrl } from "../../metadata";
 import { GatewayError } from "../../../protocol/gateway-error";
 import type { CanonicalRequest } from "../../../protocol/canonical-model";
@@ -22,8 +22,10 @@ import {
 import {
   BUDDY_SHARED_RAW,
   BUDDY_IMAGE_MODEL_ID_SET,
+  BUDDY_VIDEO_MODEL_ID_SET,
   makeBuddyModel,
   makeBuddyImageModels,
+  makeBuddyVideoModels,
   type BuddyRawEntry,
 } from "./buddy-catalog-shared";
 import { BUDDY_INTL_MODELS_PATH, fetchBuddyDirectoryModels } from "./buddy-discovery-shared";
@@ -140,13 +142,16 @@ export function workbuddyPrePayload(
 // declared reasoning-effort scale.
 const WORKBUDDY_RAW: readonly BuddyRawEntry[] = BUDDY_SHARED_RAW;
 export const WORKBUDDY_MODELS: readonly ModelDefinition[] = [
-  ...WORKBUDDY_RAW.filter((entry) => !BUDDY_IMAGE_MODEL_ID_SET.has(entry[0])).map((entry) =>
+  ...WORKBUDDY_RAW.filter(
+    (entry) => !BUDDY_IMAGE_MODEL_ID_SET.has(entry[0]) && !BUDDY_VIDEO_MODEL_ID_SET.has(entry[0]),
+  ).map((entry) =>
     makeBuddyModel(entry, "workbuddy", WORKBUDDY_CHAT_PATH),
   ),
   // WorkBuddy's base URL carries no version segment, so the image rows need the
   // same explicit path the chat rows use — the generic default would produce a
   // URL this upstream answers with a 405.
   ...makeBuddyImageModels("workbuddy", WORKBUDDY_CHAT_PATH),
+  ...makeBuddyVideoModels("workbuddy", "/v2/videos/generations"),
 ];
 
 /**
@@ -173,12 +178,13 @@ export async function discoverWorkBuddyModels(
 // Public factory — uses the OpenAI-compatible factory but forces provider semantics.
 // Supports both api_key and oauth via Authorization Bearer (factory handles both).
 export function createWorkBuddyAdapter(fetchImpl?: typeof fetch): ProviderAdapter {
-  return new OpenAICompatibleAdapter(
+  return new BuddyMediaAdapter(
     workbuddyAdapterConfig({
       providerId: WORKBUDDY_PROVIDER_ID,
       baseUrl: WORKBUDDY_BASE_URL,
       prePayload: workbuddyPrePayload,
       ...(fetchImpl ? { fetchImpl } : {}),
     }),
+    { variant: "IDE", systemPrompt: WORKBUDDY_SYSTEM_PROMPT, baseUrl: WORKBUDDY_BASE_URL },
   );
 }

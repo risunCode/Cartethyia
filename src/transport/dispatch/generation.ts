@@ -267,26 +267,36 @@ export function createGenerationHandler(kind: GenerationKind, deps: GenerationHa
           return jsonResponse(payload, 200, state.requestId);
         };
 
-        // Prefer the provider's own method; otherwise post the body to the
-        // candidate's endpoint through the adapter, which owns the upstream base
-        // URL. Either way the gateway does not interpret the media — it returns
-        // what the upstream produced.
+        // Dispatch context shared by every media path below.
+        const mediaContext = {
+          credential,
+          deadline: state.deadlineMs,
+          abort_signal: state.abortController.signal,
+          ...(candidate.user_agent === undefined ? {} : { user_agent: candidate.user_agent }),
+          ...(deps.networkBindingFactory
+            ? {
+                outbound_fetch: deps.networkBindingFactory.fetch(
+                  leases.proxySlot?.poolId,
+                  authorization.tenantId,
+                ),
+              }
+            : {}),
+        };
+        // Prefer the provider's own method for this kind; otherwise post the
+        // body to the candidate's endpoint through the adapter, which owns the
+        // upstream base URL. Either way the gateway does not interpret the
+        // media — it returns what the upstream produced.
+        const media =
+          kind === "videoGeneration"
+            ? typeof adapter.generateVideo === "function"
+              ? adapter.generateVideo(upstreamBody, target, mediaContext).then((outcome) => finish(outcome))
+              : undefined
+            : typeof adapter.generateImage === "function"
+              ? adapter.generateImage(upstreamBody, target, mediaContext).then((outcome) => finish(outcome))
+              : undefined;
         const upstream =
-          typeof adapter.generateImage === "function"
-            ? await adapter.generateImage(upstreamBody, target, {
-                credential,
-                deadline: state.deadlineMs,
-                abort_signal: state.abortController.signal,
-                ...(candidate.user_agent === undefined ? {} : { user_agent: candidate.user_agent }),
-                ...(deps.networkBindingFactory
-                  ? {
-                      outbound_fetch: deps.networkBindingFactory.fetch(
-                        leases.proxySlot?.poolId,
-                        authorization.tenantId,
-                      ),
-                    }
-                  : {}),
-              }).then((outcome) => finish(outcome))
+          media !== undefined
+            ? await media
             : typeof adapter.dispatchNativeService !== "function"
               ? Promise.reject(
                   new GatewayError(
@@ -296,20 +306,7 @@ export function createGenerationHandler(kind: GenerationKind, deps: GenerationHa
                   ),
                 )
               : adapter
-                  .dispatchNativeService(upstreamBody, target, {
-                    credential,
-                    deadline: state.deadlineMs,
-                    abort_signal: state.abortController.signal,
-                    ...(candidate.user_agent === undefined ? {} : { user_agent: candidate.user_agent }),
-                    ...(deps.networkBindingFactory
-                      ? {
-                          outbound_fetch: deps.networkBindingFactory.fetch(
-                            leases.proxySlot?.poolId,
-                            authorization.tenantId,
-                          ),
-                        }
-                      : {}),
-                  })
+                  .dispatchNativeService(upstreamBody, target, mediaContext)
                   .then(async (res) => {
                     const contentType = res.headers.get("content-type") ?? "";
                     if (contentType.includes("text/event-stream")) {

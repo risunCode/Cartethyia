@@ -6,7 +6,7 @@
 // Headers: per-provider CodeBuddy headers with fresh correlation IDs per dispatch
 // Payload: leading CodeBuddy system prompt + typed user content, reasoning_summary auto only when reasoning_effort
 
-import { OpenAICompatibleAdapter } from "../../compatible-adapter";
+import { BuddyMediaAdapter } from "./buddy-media";
 import type { ProviderDispatchContext, ProviderDispatchTarget, ProviderAdapter } from "../../contracts";
 import type { ModelDefinition } from "../../model-definition";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
@@ -19,8 +19,10 @@ import {
 import {
   BUDDY_SHARED_RAW,
   BUDDY_IMAGE_MODEL_ID_SET,
+  BUDDY_VIDEO_MODEL_ID_SET,
   makeBuddyModel,
   makeBuddyImageModels,
+  makeBuddyVideoModels,
   type BuddyRawEntry,
 } from "./buddy-catalog-shared";
 import { BUDDY_INTL_MODELS_PATH, fetchBuddyDirectoryModels } from "./buddy-discovery-shared";
@@ -104,17 +106,29 @@ export const CODEBUDDY_IMAGE_MODELS: readonly ModelDefinition[] = makeBuddyImage
 );
 
 /**
- * The full cb catalog the registry loads: chat roster plus image rows.
+ * CodeBuddy's video-generation rows (`seedance-2.5`).
  *
- * The image ids are filtered out of the chat pass so one id never appears under
- * two service kinds. Exported as a single list so `default-registry.ts` keeps
- * one import for this provider.
+ * Reached through `/v1/videos/generations`, so the endpoint is the upstream
+ * video path rather than a chat-completions path.
+ */
+export const CODEBUDDY_VIDEO_MODELS: readonly ModelDefinition[] = makeBuddyVideoModels(
+  "cb",
+  "/videos/generations",
+);
+
+/**
+ * The full cb catalog the registry loads: chat roster plus image and video rows.
+ *
+ * The image and video ids are filtered out of the chat pass so one id never
+ * appears under two service kinds. Exported as a single list so
+ * `default-registry.ts` keeps one import for this provider.
  */
 export const CODEBUDDY_MODELS: readonly ModelDefinition[] = [
-  ...CODEBUDDY_INTL_RAW.filter((entry) => !BUDDY_IMAGE_MODEL_ID_SET.has(entry[0])).map((entry) =>
-    makeBuddyModel(entry, "cb"),
-  ),
+  ...CODEBUDDY_INTL_RAW.filter(
+    (entry) => !BUDDY_IMAGE_MODEL_ID_SET.has(entry[0]) && !BUDDY_VIDEO_MODEL_ID_SET.has(entry[0]),
+  ).map((entry) => makeBuddyModel(entry, "cb")),
   ...CODEBUDDY_IMAGE_MODELS,
+  ...CODEBUDDY_VIDEO_MODELS,
 ];
 
 /**
@@ -142,7 +156,7 @@ export async function discoverCodeBuddyModels(
 // Supports both api_key and oauth via Authorization Bearer (factory handles both)
 
 export function createCodeBuddyAdapter(fetchImpl?: typeof fetch): ProviderAdapter {
-  return new OpenAICompatibleAdapter(
+  return new BuddyMediaAdapter(
     codebuddyAdapterConfig({
       providerId: CODEBUDDY_PROVIDER_ID,
       baseUrl: CODEBUDDY_BASE_URL,
@@ -150,6 +164,7 @@ export function createCodeBuddyAdapter(fetchImpl?: typeof fetch): ProviderAdapte
       prePayload: codeBuddyIntlPrePayload,
       ...(fetchImpl ? { fetchImpl } : {}),
     }),
+    { variant: "IDE", systemPrompt: CODEBUDDY_SYSTEM_PROMPT, baseUrl: CODEBUDDY_BASE_URL },
   );
 }
 

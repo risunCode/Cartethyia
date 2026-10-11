@@ -39,6 +39,19 @@ const BUDDY_IMAGE_MODEL_IDS: readonly { id: string; endpoint: string; ctx: numbe
 ];
 
 /**
+ * The video-generation ids the international buddy providers serve.
+ *
+ * `seedance-2.5` is the text-to-video model the buddy facade exposes. It is a
+ * distinct service kind (`videoGeneration`), not a chat or image row, so it is
+ * built by {@link makeBuddyVideoModels} and reached through
+ * `/v1/videos/generations` rather than a chat wire. CodeBuddy CN is
+ * deliberately absent — it publishes a different roster.
+ */
+const BUDDY_VIDEO_MODEL_IDS: readonly { id: string; endpoint: string; ctx: number; out: number }[] = [
+  { id: "seedance-2.5", endpoint: "/videos/generations", ctx: 1_000_000, out: 128_000 },
+];
+
+/**
  * Ids that belong to the image-generation rows rather than the chat roster.
  *
  * A caller mapping `BUDDY_SHARED_RAW` through {@link makeBuddyModel} must skip
@@ -81,6 +94,46 @@ export function makeBuddyImageModels(
     }),
   );
 }
+
+/**
+ * Builds the video-generation rows for one buddy provider.
+ *
+ * Shared for the same reason as {@link makeBuddyImageModels}: the roster is one
+ * decision, not one per provider that drifts. A video row produces `["video"]`
+ * on the `videoGeneration` surface and is reached through the native video
+ * route, not a chat wire, so `endpoint` names the upstream generation path
+ * rather than a chat-completions path.
+ */
+export function makeBuddyVideoModels(
+  providerId: string,
+  endpoint: string,
+): readonly ModelDefinition[] {
+  return BUDDY_VIDEO_MODEL_IDS.map((entry) =>
+    defineModel({
+      id: entry.id,
+      providerId,
+      serviceKind: "videoGeneration",
+      wireFamily: "chat",
+      endpoint,
+      ctx: entry.ctx,
+      out: entry.out,
+      vision: true,
+      output: ["video"],
+      toolCall: false,
+    }),
+  );
+}
+
+/**
+ * Ids that belong to the video-generation rows rather than the chat roster.
+ *
+ * The video analogue of {@link BUDDY_IMAGE_MODEL_ID_SET}: a caller mapping the
+ * shared chat tuple must skip these so `seedance-2.5` never lands in the
+ * catalog twice under two service kinds.
+ */
+export const BUDDY_VIDEO_MODEL_ID_SET: ReadonlySet<string> = new Set(
+  BUDDY_VIDEO_MODEL_IDS.map((entry) => entry.id),
+);
 
 /**
  * Builds one buddy catalog row.

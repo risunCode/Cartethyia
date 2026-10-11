@@ -177,6 +177,22 @@ export interface ProviderAdapter {
     context: ProviderDispatchContext,
   ): Promise<ImageGenerationOutcome>;
   /**
+   * Optional native video-generation capability for `POST
+   * `/v1/videos/generations``, the video analogue of {@link generateImage}.
+   *
+   * A video result is provider-defined — a finished clip URL, an async task the
+   * adapter resolves to completion, or a task handle the caller polls — so the
+   * return is an opaque record rather than the fixed {@link ImageGenerationOutcome}
+   * shape. Optional for the same reason as {@link generateImage}: an adapter that
+   * does not implement it falls back to posting the body to the candidate's
+   * `endpoint_path` through {@link dispatchNativeService}.
+   */
+  generateVideo?(
+    body: Record<string, unknown>,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<Record<string, unknown>>;
+  /**
    * Posts an opaque body to a candidate's own endpoint and returns the raw
    * upstream response.
    *
