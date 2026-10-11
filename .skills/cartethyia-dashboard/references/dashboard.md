@@ -18,17 +18,26 @@ primitive. The end state and the current inventory:
 Order of work, so a step never lands blind:
 
 1. `test/style-guard.test.ts` + `style-guard.json` hold the ratchet.
-2. `scripts/dev/visual-baseline.ts` must cover the console pages (it measures
-   the built dashboard in a real browser). Extend it before migrating pages.
+2. `scripts/dev/visual-baseline.ts` covers the console pages: it builds the
+   dashboard, boots the real gateway (serving the built dist and `/console/api`
+   on one origin), signs in through the real form (`admin`; password from
+   `CARTETHYIA_VISUAL_ADMIN_PASSWORD`), and measures through the browser agent
+   (`agent-browser`, not a hand-rolled CDP client). Live-by-nature answers are
+   stubbed at the browser so they cannot drift a comparison: `/system/health`,
+   `/updates/release`, the `/system/usage/*` and `/quota/overview` telemetry, and
+   the `/logs` snapshot+stream. Client-side non-determinism is pinned by an init
+   script too — `Math.random` (Model Lab session title) and `Date.now` (React
+   Query's `dataUpdatedAt`, which the Quota page renders as a `HH:MM` stamp).
+   Everything else stays live.
 3. Build or revise the `ui/` atom, then the `patterns/` block, before the pages
    that use it.
 4. Migrate one page per commit, worst-first; lower its `style-guard.json` entry
    in the same commit.
 
 Verification per step: `bun run dashboard:typecheck`, `bun run dashboard:test`,
-and `bun scripts/dev/visual-baseline.ts compare` (which must stay green while a
-step only re-expresses styling, and is re-captured in the scale-normalization
-step that intentionally changes pixels).
+and `CARTETHYIA_VISUAL_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts
+compare` (which must stay green while a step only re-expresses styling, and is
+re-captured in the scale-normalization step that intentionally changes pixels).
 
 ## Share page
 

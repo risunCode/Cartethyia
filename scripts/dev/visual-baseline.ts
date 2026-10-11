@@ -6,54 +6,92 @@
  * the rendered result is unchanged. Typecheck cannot see a shifted flex gap or
  * a border colour that lost its token, so this measures what matters instead.
  *
- * It builds the dashboard, serves the built output on a spare port, opens a
- * headless Edge over the DevTools protocol, and walks every element of the
- * public surfaces: each node gets a stable DOM path, its `getBoundingClientRect()`
- * and ~50 resolved computed values. `capture` writes that as the standing
- * baseline; `compare` diffs a fresh capture against it.
+ * It builds the dashboard, boots the **real gateway** (the production path that
+ * serves both the built dashboard and `/console/api` on one origin), and drives
+ * a headless browser through the **browser agent** (`agent-browser`, Puppeteer
+ * under the hood) rather than a hand-rolled DevTools-protocol client. Each
+ * surface is authenticated the way an operator is — the real sign-in form, not
+ * a fabricated session row — and every visible node gets a stable DOM path,
+ * its `getBoundingClientRect()` and ~50 resolved computed values. `capture`
+ * writes that as the standing baseline; `compare` diffs a fresh capture
+ * against it.
  *
- * The DevTools protocol is driven directly rather than through a browser
- * automation package: the measurement needs exactly three commands
- * (`Page.navigate`, `Emulation.setDeviceMetricsOverride`, `Runtime.evaluate`),
- * and no installable dependency can be trusted to still answer tomorrow.
+ * A handful of endpoints are stubbed at the browser's network layer because
+ * their answers are live by nature and would otherwise make `compare` drift:
  *
- * Measured surfaces are the four routes that render with no console session and
- * no share token. Everything behind auth or a share link is **not** measured
- * here; it stays locked by `dashboard/test/components/primitives.test.tsx` and
- * `list-primitives.test.tsx`, which pin the class contract the CSS keys on.
+ * - `GET /console/api/system/health` — live process memory/CPU, polled on the
+ *   dashboard cadence and rendered as the Overview memory bars.
+ * - `GET /console/api/updates/release` — the GitHub release check, which depends
+ *   on an external service and answers `null` when unreachable.
+ * - `GET /console/api/system/usage/{summary,chart,by-*,requests}` — the gateway
+ *   records its own traffic as it serves the dashboard, so the Usage page's
+ *   real answers are monotonic across two runs. The empty window is stubbed.
+ * - `GET /console/api/quota/overview` — self-polled while the gateway fills cold
+ *   accounts in the background, so its real answer differs between runs.
+ * - `GET /console/api/logs` and `/logs/stream` — the Console Log page tails a
+ *   live ring the gateway feeds as it serves the dashboard. An empty snapshot
+ *   renders the settled "0 of 0 lines" state.
+ *
+ * The globs carry a trailing `*` because agent-browser matches them against the
+ * full URL including the query string (`…/summary` alone would let `?period=24h`
+ * through to the real gateway). Page-side non-determinism is pinned too, through
+ * an init script: the Model Lab names its session from `Math.random()` (pinned to
+ * a deterministic LCG), and React Query stamps every query with `Date.now()`,
+ * which the Quota page renders as a `HH:MM` "last updated" — a client clock that
+ * no response stub can fix, so `Date.now()` is pinned to a fixed instant.
+ *
+ * Everything else is left live: the pages are the real console against a real
+ * gateway, which is exactly what a styling regression would break. The dev
+ * database is **read-only** for this script (the only write is the session row
+ * the sign-in form itself creates); it is not the test suite, which stays on
+ * the isolated `.env.test` database.
  *
  * ```bash
- * bun scripts/dev/visual-baseline.ts capture      # write dashboard/visual/baseline.json
- * bun scripts/dev/visual-baseline.ts compare      # diff a fresh capture against it
+ * CARTETHYIA_VISUAL_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts capture
+ * CARTETHYIA_VISUAL_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts compare
  * ```
  */
-import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 const projectRoot = resolve(import.meta.dir, "..", "..");
 const dashboardDir = resolve(projectRoot, "dashboard");
 const baselinePath = resolve(dashboardDir, "visual", "baseline.json");
 
 const HOST = "127.0.0.1";
-const PREVIEW_PORT = 5199;
-const CDP_PORT = 9222;
-const ORIGIN = `http://${HOST}:${PREVIEW_PORT}`;
+/** Spare port, so a gateway the operator left running on 12800 never collides. */
+const GATEWAY_PORT = Number(process.env.CARTETHYIA_VISUAL_PORT?.trim() ?? 12900);
+const ORIGIN = `http://${HOST}:${GATEWAY_PORT}`;
 
 /**
- * The routes that render with no backend and no session. `/console/setup` is
- * excluded on purpose: it branches on a setup-state fetch, so with no gateway
- * behind the preview server it renders either the "already registered" notice
- * or the full form depending on which request loses the race.
- *
- * `/console/login` is captured but is known to be measured in its
- * "Checking console setup…" branch — the fetch rejects after the page settles,
- * and the real form (with its `.btn`, `.form-input`, …) only renders after it.
- * The landing route is the surface that carries real weight here: 300+ nodes,
- * both viewports, both themes.
+ * The surfaces measured without a session: the landing app, and the two console
+ * routes that render with no sign-in. `/console/setup` is excluded on purpose —
+ * it branches on a setup-state fetch that the real gateway answers from the dev
+ * database, and the wizard itself is a stateful flow, not a layout surface.
  */
-const ROUTES = ["/", "/console/login", "/console/banned"] as const;
+const PUBLIC_ROUTES = ["/", "/console/login", "/console/banned"] as const;
+
+/**
+ * The authenticated console surfaces. The two `:id` routes are resolved at
+ * capture time against the live gateway (first bundled provider and first
+ * bundled CLI tool), so a provider the operator removed cannot break the run
+ * while the choice stays deterministic within one baseline.
+ */
+const CONSOLE_ROUTE_TEMPLATES = [
+  "/console",
+  "/console/usage",
+  "/console/providers",
+  "/console/providers/:providerId",
+  "/console/combos",
+  "/console/quota",
+  "/console/proxy",
+  "/console/cli-tools",
+  "/console/cli-tools/:toolId",
+  "/console/settings",
+  "/console/console-log",
+  "/console/model-lab",
+] as const;
 
 /**
  * Two viewports: a desktop shell, and the narrow width where the `@container`
@@ -135,7 +173,115 @@ const PROBED_PROPS = [
 /** Node ceiling, so a pathological DOM cannot make a capture unbounded. */
 const MAX_NODES = 8000;
 
-/** The expression evaluated inside the page. Kept a single IIFE returning JSON. */
+/**
+ * Deterministic stand-in for the live system-health endpoint. Carries the full
+ * `SystemHealthResponse` contract so the console's own validator accepts it and
+ * the Overview memory bars render fixed widths.
+ */
+const HEALTH_STUB = {
+  version: "2.1.0",
+  status: "healthy",
+  uptime_seconds: 1000,
+  database_healthy: true,
+  redis_healthy: false,
+  redis_configured: false,
+  memory_heap_bytes: 536_870_912,
+  memory_external_bytes: 268_435_456,
+  memory_bytes: 1_073_741_824,
+  memory_percent: 50,
+  database_in_process: true,
+  cpu_percent: 12.5,
+  cpu_cores: 8,
+  pid: 1,
+  platform: "visual-baseline",
+  request_count: 42,
+  error_count: 0,
+  latency_avg_ms: 88,
+  latency_p95_ms: 150,
+  latency_p99_ms: 210,
+  cache_hit_rate_percent: 50,
+  avg_tokens_per_sec: 120,
+} as const;
+
+/**
+ * Deterministic stand-ins for the remaining live telemetry surfaces. The
+ * gateway records its own traffic as it serves the dashboard, so the Usage
+ * page's real answers are monotonic across two runs and would make `compare`
+ * drift even with byte-identical styling. An empty window is the honest
+ * "nothing to render yet" state and satisfies each endpoint's dashboard
+ * validator (`assertUsage*`), so the page renders its settled empty layout
+ * instead of a live chart.
+ */
+const USAGE_SUMMARY_STUB = {
+  period: "24h",
+  totals: {
+    requests: 0,
+    inputTokens: 0,
+    cachedTokens: 0,
+    outputTokens: 0,
+    errors: 0,
+    cancelled: 0,
+    truncated: 0,
+    statusCounts: [],
+    avgDurationMs: 0,
+    estimatedCostUsd: 0,
+    partial: false,
+    cacheHitRate: 0,
+    avgTokensPerSec: 0,
+  },
+} as const;
+
+const USAGE_CHART_STUB = { buckets: [] } as const;
+
+/** Empty rows for any `/system/usage/by-<dimension>` breakdown. */
+const USAGE_BY_STUB = { dimension: "model", rows: [] } as const;
+
+const USAGE_REQUESTS_STUB = { items: [] } as const;
+
+/**
+ * The quota page self-polls `/quota/overview` while the gateway fills cold
+ * accounts in the background, so its real answer differs between runs. The
+ * empty projection is the settled "no accounts to show" state.
+ */
+const QUOTA_OVERVIEW_STUB = { providers: [], accounts: [] } as const;
+
+/**
+ * The Console Log page tails a live SSE stream (`/logs/stream`) that the
+ * gateway feeds from its in-memory ring as it serves the dashboard, and seeds
+ * it from a `/logs` snapshot — both differ between runs. One glob covers the
+ * snapshot and the stream; an empty `lines` array renders the settled
+ * "0 of 0 lines" state. The stream endpoint answers JSON rather than
+ * `text/event-stream`, so the page's EventSource reconnects on its 5s timer,
+ * but the stream status is not rendered, so the DOM stays stable.
+ */
+const LOGS_STUB = { lines: [] } as const;
+
+/**
+ * The expression evaluated inside the page to settle it: mounted, fonts
+ * resolved, no running animation, no in-flight fetches, and a DOM whose node
+ * count and text length have stopped changing (the proxy for "live data has
+ * finished arriving").
+ */
+const SETTLE_PROBE = String.raw`(() => {
+  const root = document.getElementById("root");
+  return {
+    mounted: (root?.childElementCount ?? 0) > 0,
+    fonts: document.fonts.status,
+    running: document.getAnimations().filter((a) => a.playState === "running").length,
+    // Fetches the init script counted; a fan-out of per-entity queries keeps
+    // this positive until every response has landed and been rendered.
+    inflight: window.__inflight ?? 0,
+    count: document.querySelectorAll("*").length,
+    scrollH: document.documentElement.scrollHeight,
+    // Content fingerprint: a pending query that swaps badge text for its
+    // loading placeholder (e.g. "0 Connected" -> "1 Healthy") changes neither
+    // the node count nor the scroll height, so those two signals alone would
+    // declare the page settled mid-flip. textContent length catches it.
+    textLen: document.body ? document.body.textContent.length : -1,
+  };
+})()`;
+
+/** The full per-node capture, returned as an object so the agent JSON-serialises it once. */
 const CAPTURE_PROBE = String.raw`(() => {
   const props = ${JSON.stringify(PROBED_PROPS)};
   const maxNodes = ${MAX_NODES};
@@ -174,7 +320,7 @@ const CAPTURE_PROBE = String.raw`(() => {
     for (const p of props) values[p] = cs[p];
     nodes.push({ p: pathOf(el), r: [round(rect.x), round(rect.y), round(rect.width), round(rect.height)], s: values });
   }
-  return JSON.stringify({
+  return {
     v: 1,
     url: location.pathname,
     viewport: [window.innerWidth, window.innerHeight],
@@ -184,7 +330,7 @@ const CAPTURE_PROBE = String.raw`(() => {
     fontsReady: document.fonts.status,
     runningAnimations: document.getAnimations().filter((a) => a.playState === "running").length,
     nodes,
-  });
+  };
 })()`;
 
 type Capture = {
@@ -211,244 +357,460 @@ interface Baseline {
 }
 
 // ---------------------------------------------------------------------------
-// DevTools protocol client
+// Browser agent
 // ---------------------------------------------------------------------------
 
-/** Minimal CDP client: send a method, await its result, ignore events. */
-class Cdp {
-  private nextId = 1;
-  private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
-  private readonly socket: WebSocket;
+/**
+ * Resolves the `agent-browser` executable. `CARTETHYIA_BROWSER_AGENT` wins;
+ * otherwise the npm-global binary is located (a `.cmd` shim on Windows cannot
+ * be exec'd directly, so the underlying `.exe` is found), and on POSIX the
+ * executable shell shim in `PATH` is used.
+ */
+function resolveBrowserAgentBinary(): string {
+  const override = process.env.CARTETHYIA_BROWSER_AGENT?.trim();
+  if (override) return override;
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA?.trim();
+    const candidate = appData
+      ? resolve(appData, "npm", "node_modules", "agent-browser", "bin", "agent-browser-win32-x64.exe")
+      : undefined;
+    if (candidate && existsSync(candidate)) return candidate;
+  }
+  return "agent-browser";
+}
 
-  private constructor(readonly targetId: string, endpoint: string) {
-    this.socket = new WebSocket(endpoint);
-    this.socket.addEventListener("message", (event) => {
-      const message = JSON.parse(String(event.data)) as { id?: number; result?: unknown; error?: { message: string } };
-      if (message.id === undefined) return;
-      const entry = this.pending.get(message.id);
-      if (!entry) return;
-      this.pending.delete(message.id);
-      if (message.error) entry.reject(new Error(message.error.message));
-      else entry.resolve(message.result);
-    });
-    this.socket.addEventListener("error", () => {
-      for (const [, entry] of this.pending) entry.reject(new Error("CDP socket error"));
-      this.pending.clear();
-    });
+interface AgentResult {
+  readonly code: number;
+  readonly out: string;
+  readonly err: string;
+}
+
+/**
+ * One browser-agent session driven through its CLI. Every command is a fresh
+ * subprocess against the same named session, so the browser stays up across
+ * calls and each command's stdout is a self-contained answer.
+ *
+ * `agent-browser` is a client/daemon split: the first command spawns a
+ * long-lived session daemon that owns Chrome, and that daemon **inherits the
+ * client's stdout pipe write-end**. Reading stdout as a pipe therefore never
+ * reaches EOF after the client exits. Each command redirects stdout/stderr to
+ * a scratch file instead (a file EOFs by size, not by fd count) and is read
+ * back after the process exits. The daemon is given a short `--idle-timeout` so
+ * it self-cleans if this script is ever killed mid-run.
+ */
+class BrowserAgent {
+  private readonly session = `cartethyia-visual-${process.pid}`;
+  private readonly scratchDir = mkdtempSync(join(tmpdir(), "cartethyia-visual-"));
+  private seq = 0;
+  private initScriptPath: string | null = null;
+
+  constructor(private readonly bin: string) {}
+
+  /**
+   * Installs the deterministic init script, registered once before the first
+   * navigation and re-applied by `open` on every load. It does three things:
+   *
+   * - Pins `Math.random` to a deterministic LCG. The Model Lab welcome screen
+   *   names its session from `Math.random()` (`sessionName()`), so without this
+   *   the session-title chip's width would differ between the `capture` and
+   *   `compare` runs.
+   * - Pins the wall clock (`Date.now`). React Query stamps every query's
+   *   `dataUpdatedAt` from `Date.now()`, and the Quota page renders it as
+   *   `Auto-refresh 60s · HH:MM`; the minute differs between the two runs, and
+   *   the glyphs it lands on shift the span's width. It is a client clock, not a
+   *   network field, so no response stub can pin it — the clock itself must be.
+   * - Tracks in-flight `fetch` calls on `window.__inflight`. Several pages fire
+   *   a fan-out of per-entity requests after their list query resolves (the
+   *   Providers page reads accounts per provider), and a badge that swaps its
+   *   text when they land changes neither the node count nor the text length
+   *   while the requests are still open — so `settle` waits on this counter too.
+   */
+  installInitScript(): void {
+    const path = join(this.scratchDir, "init.js");
+    writeFileSync(
+      path,
+      `(() => {
+  let s = 42;
+  Math.random = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296);
+  // A fixed instant, so every clock-derived render (React Query's dataUpdatedAt,
+  // relative "… ago"/countdown strings) is identical across capture and compare.
+  // Timers (setTimeout/setInterval) use the event loop's own clock, so polling
+  // and the settle loop are unaffected.
+  const FIXED_NOW = 1735689600000;
+  Date.now = () => FIXED_NOW;
+  window.__inflight = 0;
+  const realFetch = window.fetch.bind(window);
+  window.fetch = (...args) => {
+    window.__inflight += 1;
+    return realFetch(...args).finally(() => { window.__inflight -= 1; });
+  };
+})();`,
+      "utf8",
+    );
+    this.initScriptPath = path;
   }
 
-  static async connect(targetId: string, endpoint: string): Promise<Cdp> {
-    const client = new Cdp(targetId, endpoint);
-    const deadline = Date.now() + 20_000;
-    while (client.socket.readyState !== 1) {
-      if (Date.now() > deadline) throw new Error("CDP socket never opened");
-      await Bun.sleep(50);
+  async run(args: readonly string[], stdin?: string, timeoutMs = 90_000): Promise<AgentResult> {
+    const outPath = join(this.scratchDir, `out-${this.seq++}`);
+    const errPath = join(this.scratchDir, `err-${this.seq++}`);
+    const base = [this.bin, "--idle-timeout", "10s", "--session", this.session];
+    const proc = Bun.spawn([...base, ...args], {
+      stdin: stdin !== undefined ? "pipe" : "ignore",
+      stdout: Bun.file(outPath),
+      stderr: Bun.file(errPath),
+    });
+    if (stdin !== undefined && proc.stdin) {
+      proc.stdin.write(stdin);
+      proc.stdin.end();
     }
-    return client;
+    const outcome = await Promise.race([
+      proc.exited.then((code) => ({ kind: "exit" as const, code })),
+      Bun.sleep(timeoutMs).then(() => ({ kind: "timeout" as const })),
+    ]);
+    if (outcome.kind === "timeout") {
+      proc.kill();
+      throw new Error(`agent-browser ${args[0]} timed out after ${timeoutMs}ms`);
+    }
+    const out = readFileSync(outPath, "utf8").trim();
+    const err = readFileSync(errPath, "utf8").trim();
+    rmSync(outPath, { force: true });
+    rmSync(errPath, { force: true });
+    return { code: outcome.code, out, err };
   }
 
-  close(): void {
-    this.socket.close();
+  private async must(args: readonly string[], stdin?: string, timeoutMs?: number): Promise<string> {
+    const result = await this.run(args, stdin, timeoutMs);
+    if (result.code !== 0) {
+      throw new Error(`agent-browser ${args[0]} failed (${result.code}): ${(result.err || result.out).slice(0, 600)}`);
+    }
+    return result.out;
   }
 
-  async send<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    const id = this.nextId++;
-    const promise = new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-    });
-    this.socket.send(JSON.stringify({ id, method, params }));
-    return promise;
+  /** Evaluates a script whose last expression is a JSON-serialisable object. */
+  async evalObject<T>(script: string): Promise<T> {
+    const out = await this.must(["eval", "--stdin"], script, 120_000);
+    const parsed: unknown = JSON.parse(out);
+    return (typeof parsed === "string" ? JSON.parse(parsed) : parsed) as T;
   }
 
-  async evaluate(expression: string): Promise<unknown> {
-    const result = await this.send<{ result?: { value?: unknown }; exceptionDetails?: { text: string } }>("Runtime.evaluate", {
-      expression,
-      returnByValue: true,
-      awaitPromise: true,
-    });
-    if (result.exceptionDetails) throw new Error(`probe threw: ${result.exceptionDetails.text}`);
-    return result.result?.value;
+  async open(url: string): Promise<void> {
+    const initArgs = this.initScriptPath ? ["--init-script", this.initScriptPath] : [];
+    await this.must([...initArgs, "open", url], undefined, 120_000);
   }
 
-  async evaluateJson(expression: string): Promise<Capture> {
-    const value = await this.evaluate(expression);
-    return JSON.parse(String(value)) as Capture;
+  async setViewport(width: number, height: number): Promise<void> {
+    await this.must(["set", "viewport", String(width), String(height)]);
+  }
+
+  /**
+   * Sets the `console-theme` preference. Must run on the dashboard origin
+   * (after an `open`); the HTML bootstrap reads it synchronously on every later
+   * navigation, so subsequent single `open`s pick it up — the app's own
+   * mechanism, which the landing app deliberately ignores (dark-only).
+   */
+  async setThemePreference(theme: (typeof THEMES)[number]): Promise<void> {
+    await this.must(["storage", "local", "set", "console-theme", theme]);
+  }
+
+  async fill(selector: string, value: string): Promise<void> {
+    await this.must(["fill", selector, value]);
+  }
+
+  async click(selector: string): Promise<void> {
+    await this.must(["click", selector]);
+  }
+
+  async waitForText(text: string): Promise<void> {
+    await this.must(["wait", "--text", text], undefined, 60_000);
+  }
+
+  /** Polls until `selector` exists, so a shell state with no visible marker text is still detectable. */
+  async waitForSelector(selector: string, timeoutMs = 30_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const present = await this.evalObject<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`);
+      if (present) return;
+      if (Date.now() > deadline) throw new Error(`selector never appeared: ${selector}`);
+      await Bun.sleep(300);
+    }
+  }
+
+  async stub(url: string, body: string): Promise<void> {
+    await this.must(["network", "route", url, "--body", body]);
+  }
+
+  async close(): Promise<void> {
+    await this.run(["close"]).catch(() => undefined);
+    rmSync(this.scratchDir, { recursive: true, force: true });
   }
 }
 
 // ---------------------------------------------------------------------------
-// Build + serve
+// Gateway
 // ---------------------------------------------------------------------------
 
-async function startPreview(): Promise<{ kill: () => void }> {
+async function startGateway(): Promise<{ kill: () => void }> {
   const build = Bun.spawnSync(["bun", "run", "--cwd", "dashboard", "build"], { cwd: projectRoot });
   if (build.exitCode !== 0) {
     throw new Error(`dashboard build failed:\n${(build.stdout?.toString() ?? "") + (build.stderr?.toString() ?? "")}`.slice(-4_000));
   }
 
-  const server = spawn("bun", ["run", "preview", "--", "--port", String(PREVIEW_PORT), "--strictPort", "--host", HOST], {
-    cwd: dashboardDir,
-    stdio: "ignore",
-    detached: false,
+  const proc = Bun.spawn(["bun", "run", "src/main.ts"], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      PORT: String(GATEWAY_PORT),
+      CARTETHYIA_PUBLIC_ORIGIN: ORIGIN,
+      // The dev `.env` already carries lite mode and the encryption key; keep
+      // them so the gateway boots the same operator database the sign-in below
+      // is authenticating against.
+      LOG_LEVEL: "warn",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
   });
 
   const deadline = Date.now() + 30_000;
   for (;;) {
     try {
-      const response = await fetch(`${ORIGIN}/`, { signal: AbortSignal.timeout(2_000) });
+      const response = await fetch(`${ORIGIN}/health`, { signal: AbortSignal.timeout(2_000) });
       if (response.ok) break;
     } catch {
       // not up yet
     }
-    if (Date.now() > deadline) throw new Error(`preview server never answered on ${ORIGIN}`);
+    if (Date.now() > deadline) {
+      proc.kill();
+      throw new Error(`gateway never answered on ${ORIGIN}`);
+    }
     await Bun.sleep(250);
   }
-  return { kill: () => server.kill() };
+  return { kill: () => proc.kill() };
 }
 
-/**
- * Browser candidates, in preference order: Edge is present on every supported
- * Windows host, Chrome is the usual alternative, and the Playwright-bundled
- * Chromium is a last resort. `CARTETHYIA_VISUAL_BROWSER` overrides the search.
- */
-function resolveBrowser(): string {
-  const override = process.env.CARTETHYIA_VISUAL_BROWSER;
-  if (override) return override;
-  const candidates = [
-    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-  ];
-  for (const candidate of candidates) if (existsSync(candidate)) return candidate;
-  throw new Error(`no Chromium-family browser found; set CARTETHYIA_VISUAL_BROWSER to its executable`);
+// ---------------------------------------------------------------------------
+// Sign-in and route resolution (real production paths, no seeded rows)
+// ---------------------------------------------------------------------------
+
+interface AdminCredentials {
+  readonly user: string;
+  readonly password: string;
 }
 
-async function startBrowser(): Promise<{ kill: () => void }> {
-  const profile = mkdtempSync(resolve(tmpdir(), "carte-visual-"));
-  const edge = resolveBrowser();
-  spawn(
-    edge,
-    [
-      "--headless=new",
-      `--remote-debugging-port=${CDP_PORT}`,
-      `--user-data-dir=${profile}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-gpu",
-      "--disable-extensions",
-      "--disable-background-networking",
-      "--window-size=1280,800",
-      "about:blank",
-    ],
-    { stdio: "ignore", detached: true },
-  );
+function resolveAdminCredentials(): AdminCredentials {
+  const user = process.env.CARTETHYIA_VISUAL_ADMIN_USER?.trim() || "admin";
+  const password = process.env.CARTETHYIA_VISUAL_ADMIN_PASSWORD?.trim();
+  if (!password) {
+    throw new Error(
+      "CARTETHYIA_VISUAL_ADMIN_PASSWORD is required — the baseline signs in to the console with the real sign-in form",
+    );
+  }
+  return { user, password };
+}
 
-  const deadline = Date.now() + 40_000;
+/** Signs the browser in through the real form, handling a fresh first-boot wizard if one appears. */
+async function signIn(agent: BrowserAgent, creds: AdminCredentials): Promise<void> {
+  await agent.open(`${ORIGIN}/console`);
+
+  // The session check is async, so wait for the page to resolve into one of
+  // the three terminal states rather than racing a not-yet-rendered form.
+  const deadline = Date.now() + 20_000;
+  let state = { login: false, setup: false, shell: false };
   for (;;) {
-    try {
-      const response = await fetch(`http://${HOST}:${CDP_PORT}/json/version`, { signal: AbortSignal.timeout(2_000) });
-      if (response.ok) break;
-    } catch {
-      // not up yet
-    }
-    if (Date.now() > deadline) throw new Error("headless browser never exposed a CDP endpoint");
+    state = await agent.evalObject<{ login: boolean; setup: boolean; shell: boolean }>(
+      `({
+        login: !!document.querySelector("#login-username"),
+        setup: !!document.querySelector("#setup-username"),
+        shell: !!document.querySelector('button[aria-label="Sign out"]'),
+      })`,
+    );
+    if (state.shell || state.login || state.setup) break;
+    if (Date.now() > deadline) throw new Error("sign-in page never resolved into a known state");
     await Bun.sleep(300);
   }
-  return { kill: () => {
-    // Best-effort: the browser may still hold a lock in the profile for a few
-    // hundred milliseconds after the page closes, and a temp dir that outlives
-    // the run is not worth failing a green comparison over.
-    try {
-      rmSync(profile, { recursive: true, force: true });
-    } catch {
-      /* left for the OS temp sweep */
-    }
-  } };
+
+  if (state.shell) return;
+
+  if (state.setup) {
+    // First boot: the wizard is the only real way an account comes to exist.
+    await agent.fill("#setup-username", creds.user);
+    await agent.fill("#setup-password", creds.password);
+    await agent.fill("#setup-confirm", creds.password);
+    await agent.click('button[type="submit"]');
+    await agent.waitForText("Sign in");
+  }
+
+  await agent.fill("#login-username", creds.user);
+  await agent.fill("#login-password", creds.password);
+  await agent.click('button[type="submit"]');
+  // The signed-in shell has no visible "Sign out" text (the icon-only button
+  // carries it as an aria-label), so wait on the selector, not visible text.
+  await agent.waitForSelector('button[aria-label="Sign out"]');
 }
 
-/** Opens a fresh page target and points it at a route. */
-async function openPage(url: string, width: number, height: number): Promise<Cdp> {
-  const created = await fetch(`http://${HOST}:${CDP_PORT}/json/new?${encodeURIComponent(url)}`, { method: "PUT" });
-  if (!created.ok) throw new Error(`could not open a CDP target: ${created.status}`);
-  const target = (await created.json()) as { id: string; webSocketDebuggerUrl: string };
-  const page = await Cdp.connect(target.id, target.webSocketDebuggerUrl);
-  await page.send("Page.enable");
-  await page.send("Emulation.setDeviceMetricsOverride", {
-    width,
-    height,
-    deviceScaleFactor: 1,
-    mobile: width < 500,
+/** Signs in over the API (same production route) to resolve live route ids without parsing browser cookies. */
+async function signInViaApi(creds: AdminCredentials): Promise<string> {
+  const response = await fetch(`${ORIGIN}/console/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: creds.user, password: creds.password }),
   });
-  await page.send("Runtime.enable");
-  return page;
+  if (!response.ok) throw new Error(`console sign-in returned ${response.status}`);
+  const setCookie = response.headers.get("set-cookie") ?? "";
+  const match = /session_token=([^;]+)/.exec(setCookie);
+  const token = match?.[1];
+  if (!token) throw new Error("console sign-in response carried no session_token cookie");
+  return token;
 }
 
+async function resolveBundledProviderId(token: string): Promise<string> {
+  const response = await fetch(`${ORIGIN}/console/api/providers`, {
+    headers: { cookie: `session_token=${token}` },
+  });
+  if (!response.ok) throw new Error(`providers list returned ${response.status}`);
+  const list = (await response.json()) as ReadonlyArray<{ providerId?: unknown; isBuiltIn?: unknown }>;
+  const first = list.find((entry) => entry.isBuiltIn === true) ?? list[0];
+  if (!first || typeof first.providerId !== "string") throw new Error("no bundled provider id resolvable");
+  return first.providerId;
+}
+
+async function resolveBundledCliToolId(token: string): Promise<string> {
+  const response = await fetch(`${ORIGIN}/console/api/cli-tools/registry`, {
+    headers: { cookie: `session_token=${token}` },
+  });
+  if (!response.ok) throw new Error(`cli-tools registry returned ${response.status}`);
+  const list = (await response.json()) as ReadonlyArray<{ id?: unknown }>;
+  const first = list[0];
+  if (!first || typeof first.id !== "string") throw new Error("no bundled cli-tool id resolvable");
+  return first.id;
+}
+
+// ---------------------------------------------------------------------------
+// Capture
+// ---------------------------------------------------------------------------
+
 /**
- * Waits until the route has settled: the app has mounted, fonts have resolved
- * and every entrance animation has finished. A capture taken before any of
- * those is a capture against a moving target, so this throws rather than
- * storing noise the next run would compare badly against.
+ * Waits until the route has settled: mounted, fonts loaded, no running
+ * animation, no in-flight fetches, and a DOM whose node count, scroll height
+ * and text length have all been stable for three consecutive probes. The
+ * network-quiet condition is what stops a fan-out of per-entity queries (whose
+ * landing swaps badge text) from being frozen mid-flight.
  */
-async function settle(page: Cdp): Promise<void> {
-  const deadline = Date.now() + 20_000;
+async function settle(agent: BrowserAgent): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  let lastCount = -1;
+  let lastScroll = -1;
+  let lastTextLen = -1;
+  let stable = 0;
   for (;;) {
-    const state = (await page.evaluate(
-      `JSON.stringify({
-         mounted: (document.getElementById("root")?.childElementCount ?? 0) > 0,
-         fonts: document.fonts.status,
-         running: document.getAnimations().filter((a) => a.playState === "running").length,
-       })`,
-    )) as string;
-    const parsed = JSON.parse(state) as { mounted: boolean; fonts: string; running: number };
-    if (parsed.mounted && parsed.fonts === "loaded" && parsed.running === 0) return;
-    if (Date.now() > deadline) throw new Error(`page never settled: ${state}`);
-    await Bun.sleep(120);
+    const state = await agent.evalObject<{
+      mounted: boolean;
+      fonts: string;
+      running: number;
+      inflight: number;
+      count: number;
+      scrollH: number;
+      textLen: number;
+    }>(SETTLE_PROBE);
+    const settledNow = state.mounted && state.fonts === "loaded" && state.running === 0 && state.inflight === 0;
+    stable =
+      settledNow && state.count === lastCount && state.scrollH === lastScroll && state.textLen === lastTextLen
+        ? stable + 1
+        : 0;
+    lastCount = state.count;
+    lastScroll = state.scrollH;
+    lastTextLen = state.textLen;
+    if (stable >= 3) return;
+    if (Date.now() > deadline) {
+      throw new Error(`page never settled: ${JSON.stringify(state)}`);
+    }
+    await Bun.sleep(300);
   }
 }
 
-/**
- * Applies a theme the way a user's stored choice would, by clearing the
- * persisted preference and re-reading it through the app's own bootstrap — an
- * attribute written straight onto the root would be overwritten on the next
- * render, capturing a theme the app never chose.
- */
-async function applyTheme(page: Cdp, url: string, theme: "light" | "dark"): Promise<void> {
-  await page.evaluate(`localStorage.clear(); localStorage.setItem("console-theme", ${JSON.stringify(theme)});`);
-  await page.send("Page.navigate", { url });
-  await settle(page);
+async function captureSurface(
+  agent: BrowserAgent,
+  route: string,
+  viewport: (typeof VIEWPORTS)[number],
+): Promise<Capture> {
+  await agent.setViewport(viewport.width, viewport.height);
+  // One open per surface: the theme preference was persisted on this origin by
+  // the caller, and the HTML bootstrap reads it synchronously on load. A second
+  // open just doubles the round-trips for no additional fidelity.
+  await agent.open(`${ORIGIN}${route}`);
+  await settle(agent);
+
+  const capture = await agent.evalObject<Capture>(CAPTURE_PROBE);
+  if (capture.nodes.length === 0) throw new Error(`${route} produced no nodes — the app did not render`);
+  if (capture.runningAnimations > 0) throw new Error(`${route} still had ${capture.runningAnimations} running animations after settling`);
+  if (capture.fontsReady !== "loaded") throw new Error(`${route} fonts were ${capture.fontsReady} — metrics are not comparable`);
+  return capture;
 }
 
-async function captureOne(route: string, viewport: (typeof VIEWPORTS)[number], theme: (typeof THEMES)[number]): Promise<Capture> {
-  const page = await openPage(`${ORIGIN}${route}`, viewport.width, viewport.height);
-  try {
-    await settle(page);
-    await applyTheme(page, `${ORIGIN}${route}`, theme);
-
-    const capture = await page.evaluateJson(CAPTURE_PROBE);
-    if (capture.nodes.length === 0) throw new Error(`${route} produced no nodes — the app did not render`);
-    if (capture.runningAnimations > 0) throw new Error(`${route} still had ${capture.runningAnimations} running animations after settling`);
-    if (capture.fontsReady !== "loaded") throw new Error(`${route} fonts were ${capture.fontsReady} — metrics are not comparable`);
-    return capture;
-  } finally {
-    await fetch(`http://${HOST}:${CDP_PORT}/json/close/${page.targetId}`, { method: "GET" }).catch(() => undefined);
-    page.close();
-  }
-}
-
-async function captureAll(): Promise<Baseline> {
+async function captureAll(agent: BrowserAgent): Promise<Baseline> {
   const surfaces: Surface[] = [];
-  for (const viewport of VIEWPORTS) {
-    for (const route of ROUTES) {
-      for (const theme of THEMES) {
-        surfaces.push({
-          key: `${route}@${viewport.name}@${theme}`,
-          capture: await captureOne(route, viewport, theme),
-        });
+
+  // Theme is a per-origin localStorage preference that survives same-origin
+  // navigation, so it is written once per theme block and every subsequent
+  // single `open` picks it up through the app's own bootstrap. Loop order is
+  // theme -> route -> viewport, which is the only way to make that true without
+  // a re-open per surface. Order does not affect the fingerprint (each `open`
+  // is a fresh navigation and the only cross-surface state is the theme we set
+  // explicitly), and `compare` re-runs this exact sequence.
+  const captureSet = async (routes: readonly string[], label: string) => {
+    for (const theme of THEMES) {
+      await agent.setThemePreference(theme);
+      for (const route of routes) {
+        for (const viewport of VIEWPORTS) {
+          const key = `${route}@${viewport.name}@${theme}`;
+          console.log(`  ${label} ${key}`);
+          const capture = await captureSurface(agent, route, viewport);
+          surfaces.push({ key, capture });
+        }
       }
     }
-  }
-  return { version: 1, capturedAt: new Date().toISOString(), nodeCount: surfaces.reduce((a, s) => a + s.capture.nodes.length, 0), surfaces };
+  };
+
+  // Install the deterministic init script before the first navigation: it pins
+  // Math.random (Model Lab session title) and counts in-flight fetches (settle).
+  agent.installInitScript();
+
+  // Establish the origin before the first preference write (a storage write on
+  // `about:blank` has no origin and would throw).
+  await agent.open(`${ORIGIN}/`);
+
+  // Public surfaces first, before a session exists.
+  await captureSet(PUBLIC_ROUTES, "public");
+
+  // Sign in, then pin every live/external endpoint the authenticated shell reads.
+  // Trailing `*` is required: agent-browser matches the glob against the full
+  // URL including the query string, so `**/system/usage/summary` alone would
+  // let `?period=24h` through to the real gateway.
+  const creds = resolveAdminCredentials();
+  await signIn(agent, creds);
+  await agent.stub("**/system/health", JSON.stringify(HEALTH_STUB));
+  await agent.stub("**/updates/release", "null");
+  await agent.stub("**/system/usage/summary*", JSON.stringify(USAGE_SUMMARY_STUB));
+  await agent.stub("**/system/usage/chart*", JSON.stringify(USAGE_CHART_STUB));
+  await agent.stub("**/system/usage/by-*", JSON.stringify(USAGE_BY_STUB));
+  await agent.stub("**/system/usage/requests*", JSON.stringify(USAGE_REQUESTS_STUB));
+  await agent.stub("**/quota/overview*", JSON.stringify(QUOTA_OVERVIEW_STUB));
+  await agent.stub("**/logs*", JSON.stringify(LOGS_STUB));
+
+  const token = await signInViaApi(creds);
+  const providerId = await resolveBundledProviderId(token);
+  const toolId = await resolveBundledCliToolId(token);
+  const consoleRoutes = CONSOLE_ROUTE_TEMPLATES.map((route) =>
+    route.replace(":providerId", providerId).replace(":toolId", toolId),
+  );
+
+  await captureSet(consoleRoutes, "console");
+
+  return {
+    version: 1,
+    capturedAt: new Date().toISOString(),
+    nodeCount: surfaces.reduce((total, surface) => total + surface.capture.nodes.length, 0),
+    surfaces,
+  };
 }
 
 function writeBaseline(baseline: Baseline): void {
@@ -465,7 +827,21 @@ function readBaseline(path = baselinePath): Baseline {
 // Diff
 // ---------------------------------------------------------------------------
 
-const RECT_TOLERANCE = 0.05;
+/**
+ * Rect movement below one layout pixel is browser sub-pixel rounding, not a
+ * styling change: the same flex/grid arithmetic lands a few tenths of a px
+ * differently between two headless renders. One full px is the floor at which a
+ * real visual change (a shifted gap, a moved column) becomes unambiguous.
+ */
+const RECT_TOLERANCE = 1.0;
+
+/**
+ * The rect already captures `top`/`left`/`width`/`height` (and `right`/`bottom`
+ * are derived from them), so comparing the standalone layout props separately
+ * only double-counts the same sub-pixel noise. They are excluded from the
+ * style comparison; the rect is still the authority on geometry.
+ */
+const RECT_REDUNDANT_PROPS = new Set(["top", "left", "right", "bottom", "width", "height"]);
 
 interface Difference {
   readonly surface: string;
@@ -492,6 +868,7 @@ function diffSurface(before: Capture, after: Capture, key: string): Difference {
       rectMoved.push({ p, from: [...b.r], to: [...a.r] });
     }
     for (const prop of Object.keys(b.s)) {
+      if (RECT_REDUNDANT_PROPS.has(prop)) continue;
       const from = b.s[prop];
       const to = a.s[prop];
       if (from !== to) styleChanged.push({ p, prop, from: from ?? "", to: to ?? "" });
@@ -506,11 +883,11 @@ function report(differences: readonly Difference[]): number {
     const count =
       d.missing.length + d.added.length + d.rectMoved.length + d.styleChanged.length + (d.scrollHeight[0] !== d.scrollHeight[1] ? 1 : 0);
     if (count === 0) {
-      console.log(`  ${d.surface.padEnd(32)} identical`);
+      console.log(`  ${d.surface.padEnd(40)} identical`);
       continue;
     }
     total += count;
-    console.log(`  ${d.surface.padEnd(32)} ${count} difference(s)`);
+    console.log(`  ${d.surface.padEnd(40)} ${count} difference(s)`);
     if (d.scrollHeight[0] !== d.scrollHeight[1]) console.log(`      scrollHeight ${d.scrollHeight[0]} -> ${d.scrollHeight[1]}`);
     for (const p of [...d.missing, ...d.added]) console.log(`      ${p === "" ? "(empty path)" : p}`);
     for (const m of d.rectMoved.slice(0, 12)) console.log(`      rect  ${m.p}\n            [${m.from.join(", ")}] -> [${m.to.join(", ")}]`);
@@ -525,22 +902,23 @@ function report(differences: readonly Difference[]): number {
 // ---------------------------------------------------------------------------
 
 const mode = process.argv[2] ?? "compare";
+const browserBinary = resolveBrowserAgentBinary();
 
-const preview = await startPreview();
-const browser = await startBrowser();
+const gateway = await startGateway();
+const agent = new BrowserAgent(browserBinary);
 try {
   if (mode === "capture") {
-    const baseline = await captureAll();
+    const baseline = await captureAll(agent);
     writeBaseline(baseline);
     console.log(`Captured ${baseline.surfaces.length} surfaces, ${baseline.nodeCount} nodes -> ${baselinePath}`);
   } else if (mode === "compare") {
     const baseline = readBaseline();
-    const after = await captureAll();
+    const after = await captureAll(agent);
     const byKey = new Map(baseline.surfaces.map((s) => [s.key, s.capture]));
     const differences = after.surfaces
       .map((s) => {
         const before = byKey.get(s.key);
-        if (!before) throw new Error(`baseline has no surface ${s.key}`);
+        if (!before) throw new Error(`baseline has no surface ${s.key} — re-run \`capture\``);
         return diffSurface(before, s.capture, s.key);
       })
       .sort((a, b) => a.surface.localeCompare(b.surface));
@@ -555,7 +933,6 @@ try {
     throw new Error(`unknown mode "${mode}" — use capture or compare`);
   }
 } finally {
-  preview.kill();
-  browser.kill();
-  Bun.spawnSync(["taskkill", "/IM", "msedge.exe", "/T", "/F"], { stdout: "ignore", stderr: "ignore" });
+  await agent.close();
+  gateway.kill();
 }
