@@ -124,7 +124,6 @@ export function validateTransportConfig(
         throw new ConsoleDomainError("invalid_config", 400, "HTTP timeout must be a number");
       return;
     case "socks5":
-    case "bridge":
       return;
     default:
       // Compile-time exhaustiveness: new TransportKind variants must add a case.
@@ -369,27 +368,6 @@ export function validateEndpoint(
       throw new ConsoleDomainError("ssrf_rejected", 400, "Private endpoint rejected");
     if (isIP(u.hostname) !== 0 && !isAddressAllowed(u.hostname, policy))
       throw new ConsoleDomainError("ssrf_rejected", 400, "Private endpoint rejected");
-    return;
-  }
-  if (kind === "bridge") {
-    // A bridge endpoint is an http(s) front door; a bare host is read as https
-    // because every hosted bridge (Railway/Vercel/Netlify/Deno) terminates TLS.
-    // The port is not required — the front door's own default applies.
-    let u: URL;
-    try {
-      u = new URL(endpoint.includes("://") ? endpoint : `https://${endpoint}`);
-    } catch {
-      throw new ConsoleDomainError("invalid_endpoint", 400, "Endpoint must be a bridge URL");
-    }
-    if (!["http:", "https:"].includes(u.protocol)) {
-      throw new ConsoleDomainError("invalid_endpoint", 400, "Endpoint must be a bridge URL");
-    }
-    if (u.hostname === "localhost" || u.hostname.endsWith(".internal")) {
-      throw new ConsoleDomainError("ssrf_rejected", 400, "Private endpoint rejected");
-    }
-    if (isIP(u.hostname) !== 0 && !isAddressAllowed(u.hostname, policy)) {
-      throw new ConsoleDomainError("ssrf_rejected", 400, "Private endpoint rejected");
-    }
     return;
   }
   let u: URL;

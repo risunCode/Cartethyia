@@ -22,6 +22,16 @@
 import type { BackupPayload, BackupRow } from "./contracts";
 import { BACKUP_APP, BACKUP_VERSION } from "./contracts";
 import { hashSecret } from "../../security/crypto";
+import {
+  AUTH_STATE_KEYS,
+  COMBO_STRATEGIES,
+  isNodeProviderId,
+  NODE_WIRE_FAMILIES,
+  PROXY_KINDS,
+  REFUSED_PROXY_KINDS,
+  UNSUPPORTED_PROVIDERS,
+  UPSTREAM_PROVIDERS,
+} from "./9router-map";
 
 /** What happened to the file, in terms an operator can act on. */
 export interface ImportReport {
@@ -32,6 +42,7 @@ export interface ImportReport {
     readonly apiKeys: number;
     readonly aliases: number;
     readonly combos: number;
+    readonly pools: number;
   };
   readonly skipped: readonly string[];
   readonly warnings: readonly string[];
@@ -44,49 +55,6 @@ export interface ConversionResult {
 }
 
 type Row = Record<string, unknown>;
-
-/**
- * Router provider id → our provider id.
- *
- * Only entries where the upstream is the same service under a different
- * spelling. Verified against the router's own OAuth provider registry and the
- * model ids its rows carry: `xai` and `grok-cli` both serve xAI's Grok models,
- * which we file under `grok`; `gemini-cli` serves Google's models, which we file
- * under `gemini`; `opencode`/`opencode-free` serve opencode.ai, which we call
- * `opencodeft`; `opencode-go` is the paid tier we call `opencodego`;
- * `clinepass` is Cline's pass product, and we carry Cline as `cline`.
- */
-const PROVIDER_MAP: Readonly<Record<string, string>> = {
-  claude: "claude",
-  codex: "codex",
-  anthropic: "anthropic",
-  openai: "openai",
-  antigravity: "antigravity",
-  kimi: "kimi",
-  cline: "cline",
-  clinepass: "cline",
-  opencode: "opencodeft",
-  "opencode-free": "opencodeft",
-  "opencode-go": "opencodego",
-  xai: "grok",
-  "grok-cli": "grok",
-  "gemini-cli": "gemini",
-};
-
-/** Provider ids the router has that we have no counterpart for, with the reason. */
-const UNSUPPORTED_PROVIDERS: Readonly<Record<string, string>> = {
-  iflow: "no matching provider",
-  kiro: "no matching provider",
-  github: "no matching provider",
-  gitlab: "no matching provider",
-  kilocode: "no matching provider",
-  kimchi: "no matching provider",
-  trae: "no matching provider",
-  windsurf: "no matching provider",
-  zed: "no matching provider",
-  "codebuddy-cn": "no matching provider",
-  "codebuddy-intl": "no matching provider",
-};
 
 function rows(value: unknown): Row[] {
   return Array.isArray(value)
@@ -117,17 +85,96 @@ function credentialOf(entry: Row): string | null {
 }
 
 /** OAuth-backed providers store a refresh token rather than a static key. */
-const OAUTH_PROVIDERS = new Set(["claude", "codex", "antigravity", "qoder", "kimi", "cline", "clinepass"]);
+/**
+ * Providers whose credential is an OAuth token rather than a pasted key.
+ *
+ * Read from the router's own `authType` where it says so, and from this set only
+ * as the fallback for a row that predates the column. `qoder` is absent because
+ * we have no such provider — a set entry with no provider behind it would
+ * classify a row that can never import.
+ */
+const OAUTH_PROVIDERS = new Set(["claude", "codex", "antigravity", "kimi", "cline"]);
+
+/** The non-secret per-account config, as our `auth_state` bag. */
+function authStateOf(entry: Row): Record<string, unknown> {
+  const specific = isRecord(entry.providerSpecificData) ? entry.providerSpecificData : {};
+  const state: Record<string, unknown> = {};
+  for (const key of AUTH_STATE_KEYS) {
+    const value = specific[key];
+    if (value !== null && value !== undefined) state[key] = value;
+  }
+  return Object.keys(state).length === 0 ? {} : { auth_state: state };
+}
+
+function emailOf(entry: Row): Record<string, unknown> {
+  const email = text(entry.email);
+  return email === null ? {} : { account_email: email };
+}
+
+function isRecord(value: unknown): value is Row {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Splits `user:pass@host` userinfo out of a proxy URL.
+ *
+ * The router stores the whole thing in one string. Our endpoint config is
+ * logged and shown in the console, so the credential is moved to the column that
+ * is sealed; the URL keeps only what the pool dials.
+ */
+function splitUrlCredential(raw: string): { endpoint: string; credential: string | null } {
+  let url: URL;
+  try {
+    url = new URL(raw.includes("://") ? raw : `http://${raw}`);
+  } catch {
+    return { endpoint: raw, credential: null };
+  }
+  const username = decodeURIComponent(url.username);
+  const password = decodeURIComponent(url.password);
+  if (username.length === 0 && password.length === 0) return { endpoint: raw, credential: null };
+  const credential = password.length === 0 ? username : `${username}:${password}`;
+  url.username = "";
+  url.password = "";
+  return { endpoint: url.toString(), credential };
+}
+
+/**
+ * Resolves a router provider id to ours.
+ *
+ * A BYOK node id resolves to itself: the node becomes our provider, so the id a
+ * caller addresses (`<prefix>/<model>`) survives the import unchanged. An
+ * upstream id goes through {@link UPSTREAM_PROVIDERS}. `null` means the id names
+ * neither, and the caller reports it rather than inventing a provider.
+ */
+function resolveProviderId(
+  raw: string,
+  nodePrefixes: ReadonlySet<string>,
+  remapped: Set<string>,
+): string | null {
+  // A model reference addresses a BYOK node by its short prefix (`oc/model`),
+  // while a connection row names it by its full generated id. Both resolve to
+  // the same provider, because the node's prefix *is* our provider id.
+  if (nodePrefixes.has(raw)) return raw;
+  if (isNodeProviderId(raw)) return raw;
+  const mapped = UPSTREAM_PROVIDERS[raw];
+  if (mapped === undefined) return null;
+  if (mapped !== raw) remapped.add(`${raw} → ${mapped}`);
+  return mapped;
+}
 
 /** Converts one model reference, honouring the provider map. `null` = unsupported. */
-function modelReference(value: unknown, remapped: Set<string>): string | null {
+function modelReference(
+  value: unknown,
+  nodePrefixes: ReadonlySet<string>,
+  remapped: Set<string>,
+): string | null {
   const source = text(value);
   if (source === null) return null;
   const slash = source.indexOf("/");
   if (slash < 1) return source; // a bare model id is already what we store
   const providerPart = source.slice(0, slash);
-  const mapped = PROVIDER_MAP[providerPart];
-  if (mapped === undefined) return null;
+  const mapped = resolveProviderId(providerPart, nodePrefixes, remapped);
+  if (mapped === null) return null;
   if (mapped !== providerPart) remapped.add(`${providerPart} → ${mapped}`);
   return `${mapped}/${source.slice(slash + 1)}`;
 }
@@ -156,8 +203,19 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
   const warnings: string[] = [];
   const remapped = new Set<string>();
 
+  /**
+   * The short prefixes of the file's BYOK nodes.
+   *
+   * A model reference addresses a node by this (`oc/model`), not by the node's
+   * generated id, so the alias and combo conversions need it resolved before
+   * they run. It is filled by the node conversion below and read by the ones
+   * after it; the connection conversion runs first and only ever sees full ids.
+   */
+  const nodePrefixes = new Set<string>();
+
   // ── Provider connections → provider accounts ─────────────────────────────
   const accounts: BackupRow[] = [];
+  const oauthStates: BackupRow[] = [];
   const connectedProviders = new Set<string>();
   rows(source.providerConnections).forEach((entry, index) => {
     const rawProvider = text(entry.provider);
@@ -166,39 +224,69 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
       skipped.push(`${label}: no provider id`);
       return;
     }
-    if (rawProvider in UNSUPPORTED_PROVIDERS) {
+    if (!isNodeProviderId(rawProvider) && rawProvider !== null && rawProvider in UNSUPPORTED_PROVIDERS) {
       skipped.push(`${label}: provider "${rawProvider}" (${UNSUPPORTED_PROVIDERS[rawProvider]})`);
       return;
     }
-    const provider = PROVIDER_MAP[rawProvider];
-    if (provider === undefined) {
-      skipped.push(`${label}: unknown provider "${rawProvider}"`);
+    const provider = rawProvider === null ? null : resolveProviderId(rawProvider, nodePrefixes, remapped);
+    if (provider === null) {
+      skipped.push(
+        rawProvider === null ? `${label}: no provider id` : `${label}: unknown provider "${rawProvider}"`,
+      );
       return;
     }
-    if (provider !== rawProvider) remapped.add(`${rawProvider} → ${provider}`);
     const credential = credentialOf(entry);
     if (credential === null) {
       skipped.push(`${label}: no credential on the row`);
       return;
     }
-    connectedProviders.add(provider);
+    const accountId = crypto.randomUUID();
+    const authType = text(entry.authType);
+    const kind = authType === "oauth" || OAUTH_PROVIDERS.has(provider) ? "oauth" : "api_key";
     accounts.push({
-      id: crypto.randomUUID(),
+      id: accountId,
       provider_id: provider,
       tenant_id: tenantId,
       label,
-      // The plaintext, like every other sealed column in a payload: this
-      // conversion produces the same native payload a Cartethyia export
-      // produces, and the store re-seals it under this instance's key on the way
-      // in. Sealing it here instead would put a `{ __bytes }` cell in a column
-      // whose only portable form is a string, and the restore would drop it.
-      credential_ciphertext: credential,
-      credential_kind: OAUTH_PROVIDERS.has(provider) ? "oauth" : "api_key",
+      // Under the secret's own name, like every export writes it — see
+      // `SEALED_COLUMNS`. The store re-seals it under this instance's key on the
+      // way in; sealing it here would put ciphertext in a payload whose only
+      // portable form is the plaintext, and the restore would drop it.
+      access_token: credential,
+      credential_kind: kind,
       status: bool(entry.isActive, true) ? "active" : "disabled",
       consecutive_failures: 0,
       model_cooldowns: {},
+      // The router's `priority` is a global ordering across every connection;
+      // ours is a list position within one provider's accounts, so it is kept
+      // rather than invented — a lower number means the operator wants it used
+      // first, and the column means the same thing.
+      sort_index: typeof entry.priority === "number" && Number.isFinite(entry.priority) ? entry.priority : 0,
+      ...(authStateOf(entry)),
+      ...(emailOf(entry)),
       created_at: { __date: isoDate(entry.createdAt, now) },
     });
+    connectedProviders.add(provider);
+    // The refresh token is a second secret on the same account, so it gets its
+    // own sealed row rather than being folded into the credential.
+    const specific = isRecord(entry.providerSpecificData) ? entry.providerSpecificData : {};
+    const refresh = text(entry.refreshToken);
+    const clientSecret = text(specific.clientSecret);
+    if (refresh !== null || clientSecret !== null) {
+      // A companion secret authorizes a refresh, so on its own it has nothing to
+      // authorize. It is still carried rather than dropped, and the report says
+      // why it is inert — a secret lost without a word is how an operator
+      // discovers the loss from a failed refresh days later.
+      if (clientSecret !== null && refresh === null) {
+        warnings.push(`account "${label}": carried a client secret with no refresh token; it cannot authorize a refresh`);
+      }
+      oauthStates.push({
+        provider_account_id: accountId,
+        ...(refresh === null ? {} : { refresh_token: refresh }),
+        ...(clientSecret === null ? {} : { client_secret: clientSecret }),
+        ...(typeof entry.expiresAt === "string" ? { expires_at: { __date: isoDate(entry.expiresAt, now) } } : {}),
+      });
+    }
   });
 
   // ── Provider nodes → BYOK providers ──────────────────────────────────────
@@ -212,18 +300,21 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
       skipped.push(`provider node ${index + 1}: needs both a prefix and a base URL`);
       return;
     }
-    if (type !== "openai-compatible" && type !== "anthropic-compatible") {
+    const wire = type === null ? undefined : NODE_WIRE_FAMILIES[type];
+    if (wire === undefined) {
       skipped.push(`provider node "${prefix}": type "${type ?? "unknown"}" is not a chat-completions provider`);
       return;
     }
-    // The node's prefix is the provider id callers address as `<prefix>/<model>`.
+    // The node's prefix is the provider id callers address as `<prefix>/<model>`,
+    // so it is both our provider id and the key a model reference resolves by.
+    nodePrefixes.add(prefix);
     providers.push({
       id: prefix,
       tenant_id: tenantId,
       enabled: true,
       requires_account: true,
       base_url: baseUrl,
-      wire_family_default: type === "anthropic-compatible" ? "messages" : "chat",
+      wire_family_default: wire.family,
       compatibility_profile: { imported_from_router_node: true, node_type: type },
     });
     // The router keeps a node's model list on the node; ours lives per model row.
@@ -234,12 +325,11 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
         id: crypto.randomUUID(),
         provider_id: prefix,
         model_id: id,
-        wire_family: type === "anthropic-compatible" ? "messages" : "chat",
-        endpoint_path: type === "anthropic-compatible" ? "/v1/messages" : "/v1/chat/completions",
+        wire_family: wire.family,
+        endpoint_path: wire.path,
         enabled: true,
         reasoning: false,
         tool_call: true,
-        web_search: false,
       });
     }
   });
@@ -273,7 +363,7 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
     ? (source.modelAliases as Row)
     : {};
   for (const [alias, target] of Object.entries(aliasSource)) {
-    const mapped = modelReference(target, remapped);
+    const mapped = modelReference(target, nodePrefixes, remapped);
     if (mapped === null) {
       skipped.push(`alias "${alias}": target "${String(target)}" uses an unsupported provider`);
       continue;
@@ -291,18 +381,18 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
   rows(source.combos).forEach((entry, index) => {
     const name = text(entry.name) ?? `combo ${index + 1}`;
     const members = (Array.isArray(entry.models) ? entry.models : [])
-      .map((member) => modelReference(member, remapped))
+      .map((member) => modelReference(member, nodePrefixes, remapped))
       .filter((member): member is string => member !== null);
     if (members.length < 2) {
       skipped.push(`combo "${name}": needs at least two resolvable members, found ${members.length}`);
       return;
     }
-    // Only `fallback` and `round_robin` exist on our side; the router's other
-    // strategies have no equivalent, so a different one imports as `fallback`
-    // and says so rather than inventing a strategy.
+    // Only `fallback` and `round_robin` exist on our side, so a strategy we do
+    // not carry imports as `fallback` and says so — a combo that silently
+    // reordered the operator's failover would be worse than one that reported it.
     const raw = text(entry.kind);
-    const strategy = raw === "round-robin" || raw === "round_robin" ? "round_robin" : "fallback";
-    if (raw !== null && raw !== strategy && raw !== "round-robin") {
+    const strategy = raw === null ? "fallback" : COMBO_STRATEGIES[raw] ?? "fallback";
+    if (raw !== null && strategy !== raw) {
       warnings.push(`combo "${name}": strategy "${raw}" imported as "${strategy}"`);
     }
     combos.push({
@@ -318,13 +408,17 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
   // ── Custom models (a flat list of extra ids) ─────────────────────────────
   let customModelCount = 0;
   for (const entry of rows(source.customModels)) {
-    const providerId = text(entry.provider) ?? text(entry.providerId);
+    const providerId = text(entry.provider) ?? text(entry.providerId) ?? text(entry.providerAlias);
     const modelId = text(entry.id) ?? text(entry.modelId) ?? text(entry.name);
     if (providerId === null || modelId === null) {
       skipped.push("custom model without a provider and model id");
       continue;
     }
-    const mapped = PROVIDER_MAP[providerId] ?? providerId;
+    const mapped = resolveProviderId(providerId, nodePrefixes, remapped);
+    if (mapped === null) {
+      skipped.push(`custom model "${modelId}": unknown provider "${providerId}"`);
+      continue;
+    }
     models.push({
       id: crypto.randomUUID(),
       provider_id: mapped,
@@ -334,17 +428,58 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
       enabled: true,
       reasoning: false,
       tool_call: true,
-      web_search: false,
     });
     customModelCount += 1;
   }
 
+  // ── Proxy pools → network pools ──────────────────────────────────────────
+  //
+  // `proxyUrl` is the endpoint the pool dials and `noProxy` the hosts it skips,
+  // which is exactly our `endpoint_config`. A pool credential, when the URL
+  // carries userinfo, is split out into the sealed `proxy_credential` column
+  // rather than left in the URL: the endpoint is logged, and a credential inside
+  // a logged string is a credential in a log.
+  const pools: BackupRow[] = [];
+  rows(source.proxyPools).forEach((entry, index) => {
+    const label = text(entry.name) ?? `proxy pool ${index + 1}`;
+    const rawUrl = text(entry.proxyUrl);
+    if (rawUrl === null) {
+      skipped.push(`proxy pool "${label}": no proxy URL`);
+      return;
+    }
+    const rawKind = text(entry.type) ?? "http";
+    const refused = REFUSED_PROXY_KINDS[rawKind];
+    if (refused !== undefined) {
+      skipped.push(`proxy pool "${label}": type "${rawKind}" (${refused})`);
+      return;
+    }
+    const kind = PROXY_KINDS[rawKind];
+    if (kind === undefined) {
+      skipped.push(`proxy pool "${label}": unknown type "${rawKind}"`);
+      return;
+    }
+    if (kind !== rawKind) remapped.add(`${rawKind} → ${kind}`);
+    const { endpoint, credential } = splitUrlCredential(rawUrl);
+    const config: Record<string, unknown> = { endpoint };
+    const noProxy = text(entry.noProxy);
+    if (noProxy !== null) config.no_proxy = noProxy;
+    pools.push({
+      id: crypto.randomUUID(),
+      kind,
+      endpoint_config: config,
+      ...(credential === null ? {} : { proxy_credential: credential }),
+      tenant_id: tenantId,
+      // A pool the router recorded as failing stays failing: `isActive: false`
+      // and `testStatus: "error"` is the router saying it could not reach it, and
+      // importing that as healthy would put a dead egress into rotation.
+      status: bool(entry.isActive, true) ? "active" : "disabled",
+      ...(text(entry.lastError) === null ? {} : { last_error: text(entry.lastError) }),
+      family: text(entry.name),
+      created_at: { __date: isoDate(entry.createdAt, now) },
+    });
+  });
+
   // ── What has no counterpart here ─────────────────────────────────────────
-  if (rows(source.proxyPools).length > 0) {
-    skipped.push(
-      `proxy pools (${rows(source.proxyPools).length}): imported as nothing — re-create them under Proxy`,
-    );
-  }
   if (Object.keys(typeof source.mitmAlias === "object" && source.mitmAlias !== null ? source.mitmAlias : {}).length > 0) {
     warnings.push("MITM aliases have no equivalent and were not imported");
   }
@@ -367,6 +502,8 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
         ...(apiKeys.length > 0 ? { api_keys: apiKeys } : {}),
         ...(aliases.length > 0 ? { model_aliases: aliases } : {}),
         ...(combos.length > 0 ? { model_combos: combos } : {}),
+        ...(pools.length > 0 ? { network_pools: pools } : {}),
+        ...(oauthStates.length > 0 ? { provider_oauth_states: oauthStates } : {}),
       },
     },
   };
@@ -381,6 +518,7 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
         apiKeys: apiKeys.length,
         aliases: aliases.length,
         combos: combos.length,
+        pools: pools.length,
       },
       skipped,
       warnings,

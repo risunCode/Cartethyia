@@ -17,7 +17,7 @@ not own model selection (`architecture.md`).
 it is false, dispatch selects among every active pool the tenant owns —
 least-loaded and not cooling down — and never an admin-pinned one.
 
-`kind` is `http`, `socks5`, or `bridge`. Health columns are the same eight every
+`kind` is `http`, `https`, or `socks5`. Health columns are the same eight every
 health-bearing row shares (`status`, `consecutive_failures`, `last_success_at`,
 `last_error`, `last_error_category`, `last_error_at`, `cooldown_until`,
 `last_recovered_at`), plus `last_latency_ms`, `last_health_check_at`, and
@@ -41,7 +41,7 @@ The role files are split on purpose:
 | `pool-state.ts` | Local inflight, rotation cursor, cooldown entries |
 | `pool-scripts.ts` | Redis scripts and key builders (`POOL_ADMIT_SCRIPT`) |
 | `loader.ts` | `DrizzleNetworkPoolLoader` — the read the selector is given |
-| `agent.ts` | Building the agent, and the errors that decide a relay fallback |
+| `agent.ts` | Building the agent, and the errors that classify a failed CONNECT |
 | `byte-accounting.ts` | In-memory sent/received counters |
 | `resolver.ts` | Turning a resolved endpoint into an outbound connection |
 
@@ -49,15 +49,21 @@ Strategy is per tenant: `least_loaded` (the default) does a weighted scan with a
 rotating tie-break; `round_robin` serves `rotate_count` requests per pool before
 advancing and skips a pool the same way account failover does.
 
-## Agents and fallback
+## Agents and relays
 
-`agent.ts` exports `TRANSPORT_KINDS` (`http`, `https`, `socks5`, `bridge`) and
-the three builders: `createHttpProxyAgent`, `createSocks5Agent`,
-`createBridgeAgent`. Two refusal classes are typed so the caller can tell a
-dead proxy from a bad handshake — `ProxyConnectRefusalError`,
-`ProxyConnectHandshakeError`. `shouldFallbackToBridgeRelay(error)` decides
-whether `src/network/outbound-fetch.ts` should retry the same request over the
-bridge relay instead of failing it.
+`agent.ts` exports `TRANSPORT_KINDS` (`http`, `https`, `socks5`) and two
+builders: `createHttpProxyAgent`, `createSocks5Agent`. Two refusal classes are
+typed so the caller can tell a dead proxy from a bad handshake —
+`ProxyConnectRefusalError`, `ProxyConnectHandshakeError`.
+
+`http` and `https` differ only in which flavor answers a `https:` target, so a
+hosted relay front door is recorded as the protocol it actually speaks. A
+serverless host that cannot answer CONNECT at all — `isRelayHost` recognizes
+`*.vercel.app`, `*.workers.dev`, `*.netlify.app`, `*.deno.dev` — carries a
+`relayEndpoint` instead, and `src/network/outbound-fetch.ts` sends the
+`x-relay-target`/`x-relay-path` contract to it. carte-bridge, the retired
+`bridge` kind with its own `x-bridge-*` contract, is gone; `0012_network_pool_https.sql`
+folds any row it left behind to `https`.
 
 An SSRF policy check runs on every dial. `src/network/ssrf.ts` rejects
 destinations the policy does not allow; custom provider hosts go through the

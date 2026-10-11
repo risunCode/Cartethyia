@@ -28,10 +28,10 @@ export class DrizzleNetworkPoolLoader implements NetworkPoolLoader {
     const { endpoint, rest } = splitEndpointConfig(raw);
     const kind = deriveKind(row.kind, endpoint ?? "");
     // Every kind dials `endpoint` and cannot be built without one: HTTP(S) and
-    // SOCKS5 dial the proxy host, a bridge dials the front door it then relays
-    // through. The transport config rides in the opaque keys.
+    // SOCKS5 dial the proxy host — a relay front door relays through it, but is
+    // still the host being dialled. The transport config rides in the opaque keys.
     const requiresEndpoint =
-      kind === "http" || kind === "https" || kind === "socks5" || kind === "bridge";
+      kind === "http" || kind === "https" || kind === "socks5";
     if (requiresEndpoint && !endpoint) return undefined;
     let credential: string | undefined;
     if (row.credentialCiphertext) {

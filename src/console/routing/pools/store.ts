@@ -17,7 +17,6 @@ import { createValidatedFetch } from "../../../network/outbound-fetch";
 import {
   createHttpProxyAgent,
   createSocks5Agent,
-  createBridgeAgent,
   deriveKind,
   splitEndpointConfig,
   type PoolAgent,
@@ -493,8 +492,8 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
    * Dials a public canary through an unsaved pool definition.
    *
    * Every `TransportKind` dials directly and gets a real end-to-end probe: an
-   * http/https/socks5 pool tunnels to the canary, and a `bridge` pool dials the
-   * bridge (CONNECT first, its header relay on refusal), so a passing probe
+   * http/https/socks5 pool tunnels to the canary — a hosted relay front door
+   * answers the canary through its own header relay — so a passing probe
    * always means real traffic reached the canary through the configured egress.
    * (A former daemon-backed kind returned a fabricated `"healthy"` here because
    * its activation happened on save; with that flavor removed, a pass is real.)
@@ -509,9 +508,7 @@ export class DrizzleNetworkPoolStore implements NetworkPoolStore {
       const agent =
         request.kind === "socks5"
           ? createSocks5Agent(rawEndpoint, request.credential, this.ssrfPolicy)
-          : request.kind === "bridge"
-            ? createBridgeAgent(rawEndpoint, request.credential, this.ssrfPolicy)
-            : createHttpProxyAgent(rawEndpoint, request.credential, this.ssrfPolicy);
+          : createHttpProxyAgent(rawEndpoint, request.credential, this.ssrfPolicy);
       const { response, latencyMs, egressIp } = await this.dialPoolCanary(agent);
       const result = classifyPoolProbeResponse("adhoc", response, latencyMs);
       return egressIp ? { ...result, egressIp } : result;

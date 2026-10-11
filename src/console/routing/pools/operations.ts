@@ -10,7 +10,6 @@ import {
   type RelayDeployRequest,
 } from "./relay-deploy";
 import { SPEED_TEST_MAX_BYTES, SPEED_TEST_MIN_BYTES } from "./speed-test-sizes";
-import { normalizeBridgeEndpoint } from "../../../network/pool/agent";
 import {
   MAX_BATCH_PROBE_TARGETS,
   POOL_BATCH_PROBE_CONCURRENCY,
@@ -146,11 +145,7 @@ export function createNetworkPoolOperations(config: NetworkPoolConfig) {
       ): Promise<NetworkPoolResponse> {
         const a = requireTenantScope(access, "dashboard:write");
         const normalizedConfig = normalizePoolConfig(request.config);
-        // The `bridge://` marker is an input convention, not a transport: fold
-        // it to the http(s) URL the pool dials once, here, so what is stored and
-        // validated is exactly what the loader hands the agent factory.
-        const endpoint =
-          request.kind === "bridge" ? normalizeBridgeEndpoint(request.endpoint) : request.endpoint;
+        const endpoint = request.endpoint;
         validateEndpoint(request.kind, endpoint, config.ssrfPolicy);
         validateTransportConfig(request.kind, normalizedConfig);
         validatePoolLimits(request.maxInflight, request.weight);
@@ -199,9 +194,7 @@ export function createNetworkPoolOperations(config: NetworkPoolConfig) {
           const existing = await config.store.get(a.tenantId, poolId);
           if (!existing) throw new ConsoleDomainError("pool_not_found", 404, `Pool ${poolId} not found`);
           const effectiveKind = request.kind ?? existing.kind;
-          const rawEndpoint = request.endpoint ?? existing.endpoint;
-          const effectiveEndpoint =
-            effectiveKind === "bridge" ? normalizeBridgeEndpoint(rawEndpoint) : rawEndpoint;
+          const effectiveEndpoint = request.endpoint ?? existing.endpoint;
           const mergedConfig = { ...(existing.config ?? {}), ...(request.config ?? {}) };
           const normalizedConfig = normalizePoolConfig(mergedConfig);
           validateEndpoint(effectiveKind, effectiveEndpoint, config.ssrfPolicy);

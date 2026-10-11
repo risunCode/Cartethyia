@@ -31,15 +31,13 @@ const PROXY_KEEP_ALIVE_TIMEOUT_MS = 60_000;
  * The transport a network pool dials outbound traffic through. Every kind is
  * dialled directly by the resolver; no pool spawns a child process.
  *
- * `bridge` is a carte-bridge front door. Where the runtime holds a raw socket
- * (Docker/Railway/VPS/local `server.js`) the bridge answers RFC CONNECT, so the
- * pool tunnels like any HTTP proxy; on the serverless runtimes (Vercel/Netlify/
- * Deno/Cloudflare) it cannot, and answers the CONNECT attempt with an ordinary
- * HTTP error instead. The validated fetcher therefore prefers CONNECT and
- * falls back to the bridge's `x-bridge-target`/`x-bridge-path` relay contract
- * on that refusal.
+ * `http` and `https` differ only in which flavor answers a `https:` target, so a
+ * hosted relay front door is recorded as the protocol it actually speaks. A
+ * serverless host that cannot answer CONNECT at all (see `isRelayHost`) is
+ * dialled through the `x-relay-target` contract instead, which
+ * `createHttpProxyAgent` selects from the hostname.
  */
-export const TRANSPORT_KINDS = ["http", "https", "socks5", "bridge"] as const;
+export const TRANSPORT_KINDS = ["http", "https", "socks5"] as const;
 
 /** One outbound transport kind. */
 export type TransportKind = (typeof TRANSPORT_KINDS)[number];
@@ -71,26 +69,6 @@ export function splitEndpointConfig(config: Record<string, unknown>): {
 export function deriveKind(dbKind: string, endpoint: string): TransportKind {
   if (dbKind === "http") return endpoint.startsWith("https:") ? "https" : "http";
   return dbKind as TransportKind;
-}
-
-/**
- * Normalizes a `bridge` pool endpoint to the http(s) URL the pool actually
- * dials.
- *
- * A bridge front door is a real https host (Railway/Vercel/Netlify/Deno) or an
- * http one locally. Operators and the dashboard's bulk form may spell it
- * `bridge://host` to state the kind explicitly — that marker is an input
- * convention, not a transport, and `new URL("bridge://host")` would otherwise
- * parse with a `bridge:` protocol and be dialed as plaintext HTTP. A bare host
- * is read as https, since every hosted front door terminates TLS.
- *
- * Every consumer of a bridge endpoint — request validation, the loader, the
- * agent factory, the health check — reads this one shape, so the marker can
- * never reach a dial.
- */
-export function normalizeBridgeEndpoint(endpoint: string): string {
-  if (endpoint.startsWith("bridge://")) return `https://${endpoint.slice("bridge://".length)}`;
-  return endpoint.includes("://") ? endpoint : `https://${endpoint}`;
 }
 
 // Pool agents — single egress
@@ -176,7 +154,7 @@ function createSsrfLookup(policy: SsrfPolicy): NonNullable<RequestOptions["looku
  * A proxy answered the CONNECT handshake with a non-200 status instead of
  * establishing the tunnel. Typed so the caller can read the status without
  * re-parsing text: the health machine treats 402/407 as "reachable but
- * unusable", and a `bridge` pool treats the whole class as "this front door
+ * unusable", and a relay pool treats the whole class as "this front door
  * does not do CONNECT, use the relay form".
  */
 export class ProxyConnectRefusalError extends Error {
@@ -195,7 +173,7 @@ export class ProxyConnectRefusalError extends Error {
  * the peer closed before answering.
  *
  * Tagged at the handshake on purpose. The distinction that matters to a caller
- * is *when* the failure happened: this class means "the bridge could not be
+ * is *when* the failure happened: this class means "the front door could not be
  * reached as a tunnel", which is the signal to fall back to the relay form. A
  * failure that happens *inside* an established tunnel — the target's own TLS
  * handshake failing, say — is a different error from a different code path and
@@ -210,19 +188,13 @@ export class ProxyConnectHandshakeError extends Error {
 }
 
 /**
- * True when a CONNECT attempt failed at the handshake, so a `bridge` pool
+ * True when a CONNECT attempt failed at the handshake, so a relay pool
  * should retry through the relay form. Only the two handshake classes qualify:
  * a `ProxyConnectRefusalError` (the front door answered "no CONNECT") and a
  * `ProxyConnectHandshakeError` (the front door reset or refused the socket). A
  * caller cancellation and any error raised after the tunnel was established are
  * never retried.
  */
-export function shouldFallbackToBridgeRelay(error: unknown): boolean {
-  return (
-    error instanceof ProxyConnectRefusalError || error instanceof ProxyConnectHandshakeError
-  );
-}
-
 /**
  * Shared HTTP CONNECT tunnel establishment (proxy handshake + SSRF-pinned
  * proxy DNS). Used by both scheme flavors below; the returned socket is the
@@ -266,7 +238,7 @@ function createProxyConnection(
     const proxyRequest = (isHttpsProxy ? httpsRequest : httpRequest)(proxyOptions);
     // Every failure before the tunnel is established — the socket reset, the
     // connection refused, the peer closing early, the CONNECT request itself
-    // erroring — is a handshake failure and is tagged as such, so a `bridge`
+    // erroring — is a handshake failure and is tagged as such, so a relay
     // pool can tell "this front door does not tunnel" from an error raised
     // later, inside a tunnel that did open.
     let established = false;
@@ -319,13 +291,6 @@ export interface ProxyAgentPair {
    * validated fetcher sends `x-relay-target`/`x-relay-path` to this URL.
    */
   readonly relayEndpoint?: URL;
-  /**
-   * Set only on `bridge` pools: the carte-bridge front door's base URL. The
-   * fetcher dials the CONNECT pair above first and, when the front door
-   * refuses (a serverless runtime cannot hold a socket), retries through the
-   * bridge-specific header relay contract.
-   */
-  readonly bridgeEndpoint?: URL;
 }
 
 export function isProxyAgentPair(value: unknown): value is ProxyAgentPair {
@@ -427,41 +392,6 @@ export function createHttpProxyAgent(
     ...(isRelayHost(proxy.hostname) ? { relayEndpoint: proxy } : {}),
   };
 }
-
-/**
- * One carte-bridge front door as a pool egress.
- *
- * The CONNECT pair is the primary transport: where the bridge's runtime holds a
- * raw socket it answers RFC CONNECT and the pool tunnels exactly like an HTTP
- * proxy. `bridgeEndpoint` is carried alongside as the fallback the fetcher uses
- * when the front door refuses CONNECT (the serverless runtimes), sending the
- * bridge-specific target/path headers.
- *
- * `relayEndpoint` is deliberately NOT set here even when the host matches
- * `isRelayHost`: that field selects the `x-relay-target` contract, which is a
- * different front door. A bridge uses `x-bridge-target`/`x-bridge-path`.
- */
-export function createBridgeAgent(
-  endpoint: string,
-  credential?: string,
-  policy: SsrfPolicy = {},
-  config: AgentConfig = {},
-  poolId?: string,
-): ProxyAgentPair {
-  let url: URL;
-  try {
-    url = new URL(normalizeBridgeEndpoint(endpoint));
-  } catch {
-    throw new InvalidPoolAgentConfigError(`invalid bridge endpoint: ${endpoint}`);
-  }
-  const bridge = new URL(withCredential(url, credential).toString());
-  return {
-    http: new HttpProxyAgent(bridge, policy, config, poolId),
-    https: new HttpsProxyAgent(bridge, policy, config, poolId),
-    bridgeEndpoint: bridge,
-  };
-}
-
 
 /**
  * Tally a SOCKS5 agent's tunnel.

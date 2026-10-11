@@ -109,9 +109,10 @@ export const credentialKind = pgEnum("credential_kind", ["api_key", "oauth", "no
 // models.wire_family.
 export const wireFamily = pgEnum("wire_family", ["chat", "responses", "messages"]);
 
-// `bridge` is a carte-bridge instance dialed as an application relay (or a
-// CONNECT tunnel where the runtime holds a socket) rather than an RFC proxy.
-export const networkPoolKind = pgEnum("network_pool_kind", ["http", "socks5", "bridge"]);
+// `https` is a hosted relay front door (Vercel, Cloudflare, Deno, Netlify):
+// plain HTTP CONNECT to an origin that terminates TLS itself, so the transport
+// is recorded as what it speaks rather than as a generic proxy.
+export const networkPoolKind = pgEnum("network_pool_kind", ["http", "https", "socks5"]);
 
 //  health_events.entity_kind — distinguishes which owning
 // table entity_id/account_id/network_pool_id references.
