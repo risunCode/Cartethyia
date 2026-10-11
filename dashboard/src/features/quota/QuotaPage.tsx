@@ -336,7 +336,7 @@ function QuotaCard({
     <Card className="overflow-hidden" aria-busy={busy}>
       {/* Header: icon + provider name + plan + account hint + actions */}
       <div
-        className="flex flex-wrap items-center gap-[8.75px] px-[12.25px] py-3.5"
+        className="flex flex-wrap items-center gap-4 px-6 py-3.5"
         style={{
           display: "flex",
           alignItems: "center",
@@ -363,7 +363,7 @@ function QuotaCard({
             </div>
             {quota?.plan && (
               <span
-                className="shrink-0 rounded-full bg-[var(--accent-soft)] px-3.5 py-[1.75px] text-[10px] font-semibold text-[var(--accent)]"
+                className="shrink-0 rounded-full bg-accent-soft px-3.5 py-1 text-2xs font-semibold text-accent"
                 style={{
                   padding: "2px 8px",
                   borderRadius: "9999px",
@@ -394,14 +394,14 @@ function QuotaCard({
             ) : null}
           </div>
           <div
-            className="truncate text-[11px] text-[var(--text-secondary)]"
+            className="truncate text-xs text-text-secondary"
             style={{ fontSize: "11px", color: "var(--text-secondary)" }}
           >
             {identity.primary}
           </div>
           {identity.secondary !== null && (
             <div
-              className="truncate text-[10px] text-[var(--text-tertiary)]"
+              className="truncate text-2xs text-text-tertiary"
               style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
             >
               {identity.secondary}
@@ -409,7 +409,7 @@ function QuotaCard({
           )}
           {quota && (
             <div
-              className="truncate text-[10px] text-[var(--text-tertiary)]"
+              className="truncate text-2xs text-text-tertiary"
               style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
             >
               {formatQuotaRefresh(quota.lastSuccessAt ?? quota.fetchedAt)}
@@ -417,7 +417,7 @@ function QuotaCard({
           )}
           {canReset && (
             <div
-              className="truncate text-[10px]"
+              className="truncate text-2xs"
               style={{
                 fontSize: "10px",
                 color: "var(--text-tertiary)",
@@ -449,7 +449,7 @@ function QuotaCard({
           {canCheckin && (
             <>
               <div
-                className="truncate text-[10px] text-[var(--text-tertiary)]"
+                className="truncate text-2xs text-text-tertiary"
                 style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
                 title="Daily growth state: manual pass result, else the sweep ledger for today"
               >
@@ -457,7 +457,7 @@ function QuotaCard({
               </div>
               {quotaWindows.some((window) => typeof window.limit === "number" && Number.isFinite(window.limit)) && (
                 <div
-                  className="truncate text-[10px] text-[var(--text-tertiary)]"
+                  className="truncate text-2xs text-text-tertiary"
                   style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
                 >
                   Total credits: {totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -576,7 +576,7 @@ function QuotaCard({
 
       {cardError && (
         <div
-          className="flex items-center justify-center gap-3.5 border-t border-[var(--inner-border)] px-7 py-5.25 text-center text-[11px] text-[var(--red)]"
+          className="flex items-center justify-center gap-3.5 border-t border-inner-border px-7 py-5.25 text-center text-xs text-red"
           style={{
             display: "flex",
             alignItems: "center",
@@ -644,7 +644,7 @@ function QuotaCard({
               >
                 <div className="quota-window-heading">
                   <span
-                    className="text-[11px] font-semibold text-[var(--text-primary)]"
+                    className="text-xs font-semibold text-text-primary"
                     style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}
                   >
                     {label}
@@ -677,7 +677,7 @@ function QuotaCard({
                   />
                 </div>
                 <span
-                  className="quota-window-remaining text-[11px] font-bold tabular-nums"
+                  className="quota-window-remaining text-xs font-bold tabular-nums"
                   style={{
                     fontSize: "11px",
                     fontWeight: 700,
@@ -756,7 +756,7 @@ function QuotaCard({
         </div>
       ) : !cardError ? (
         <div
-          className="border-t border-[var(--inner-border)] py-7 text-center text-[11px] text-[var(--text-tertiary)]"
+          className="border-t border-inner-border py-7 text-center text-xs text-text-tertiary"
           style={{
             borderTop: "1px solid var(--inner-border)",
             padding: "18px 14px",
@@ -870,9 +870,9 @@ export default function QuotaPage(): ReactNode {
         <CardHeader title="Quota" subtitle="Provider account limits and what is left of them" icon={<SlidersHorizontal size={16} />} />
       </Card>
       <Card>
-        <CardBody className="flex flex-col gap-[10px]">
-      <div className="flex flex-wrap items-center justify-between gap-[10px]">
-        <div className="flex flex-wrap items-center gap-[8px]">
+        <CardBody className="flex flex-col gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-5">
+        <div className="flex flex-wrap items-center gap-4">
           <Select
             aria-label="Filter quota by provider"
             value={providerFilter}
@@ -896,7 +896,7 @@ export default function QuotaPage(): ReactNode {
             ]}
           />
         </div>
-        <div className="flex flex-wrap items-center gap-[8px]">
+        <div className="flex flex-wrap items-center gap-4">
           <Button
             variant={expiringFirst ? "secondary" : "ghost"}
             size="sm"
@@ -928,12 +928,12 @@ export default function QuotaPage(): ReactNode {
           </Button>
         </div>
       </div>
-      <div className="flex items-center justify-between gap-[8px] border-t border-inner-border pt-[10px]">
-        <span className="text-[11px] text-text-tertiary">
+      <div className="flex items-center justify-between gap-4 border-t border-inner-border pt-5">
+        <span className="text-xs text-text-tertiary">
           {filteredAccounts.length} shown
           {emptyCount > 0 ? ` · ${emptyCount} empty` : ""}
         </span>
-        <span className="flex items-center gap-[10px] text-[11px] text-text-tertiary">
+        <span className="flex items-center gap-5 text-xs text-text-tertiary">
           {refreshingCount > 0
             ? `Refreshing ${refreshingCount} account${refreshingCount === 1 ? "" : "s"}…`
             : `Auto-refresh 60s · ${lastUpdated}`}
@@ -967,7 +967,7 @@ export default function QuotaPage(): ReactNode {
       </div>
         </CardBody>
       </Card>
-      <div className="flex min-h-0 flex-1 flex-col gap-[12px]">
+      <div className="flex min-h-0 flex-1 flex-col gap-6">
 
 
       {isLoading ? (

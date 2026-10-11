@@ -23,7 +23,7 @@ export function SectionHeading({
       {hasText ? (
         <div className="section-header-text">
           {eyebrow ? (
-            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary mb-[2px]">
+            <p className="text-xs font-bold uppercase tracking-label text-text-tertiary mb-1">
               {eyebrow}
             </p>
           ) : null}
@@ -72,27 +72,27 @@ export function StatCard({
     (status === "cooldown" ? "orange" : status === "disabled" ? "red" : "accent");
   const toneColor = toneColorMap[effectiveTone] ?? "text-accent";
   return (
-    <div className={cn("stat-card min-w-0 border border-inner-border rounded-card bg-surface-2", size === "roomy" ? "p-[18px]" : "p-[12px]")}>
+    <div className={cn("stat-card min-w-0 border border-inner-border rounded-card bg-surface-2", size === "roomy" ? "p-9" : "p-6")}>
       <div
         className={cn(
-          "flex items-center justify-between gap-[8px] font-bold uppercase tracking-[0.08em]",
-          size === "roomy" ? "text-[12px]" : "text-[10px]",
+          "flex items-center justify-between gap-4 font-bold uppercase tracking-label",
+          size === "roomy" ? "text-sm" : "text-2xs",
           toneColor,
         )}
       >
-        <span className="inline-flex items-center gap-[8px] min-w-0">
+        <span className="inline-flex items-center gap-4 min-w-0">
           {icon}
           <span>{label}</span>
         </span>
         {action ? <span className="shrink-0">{action}</span> : null}
       </div>
       <p
-        className={cn("font-mono tabular-nums font-bold leading-[1.15] mb-0", size === "roomy" ? "text-[28px] mt-[8px]" : "text-[20px] mt-[2px]")}
+        className={cn("font-mono tabular-nums font-bold leading-[1.15] mb-0", size === "roomy" ? "text-3xl mt-4" : "text-2xl mt-1")}
         style={valueColor ? { color: valueColor } : undefined}
       >
         {value}
       </p>
-      <span className={cn("stat-card-detail text-text-secondary", size === "roomy" ? "mt-[4px] block text-[13px]" : "text-[11px]")}>{detail}</span>
+      <span className={cn("stat-card-detail text-text-secondary", size === "roomy" ? "mt-2 block text-base" : "text-xs")}>{detail}</span>
     </div>
   );
 }
@@ -147,10 +147,10 @@ export function DataTable({
                       type="button"
                       onClick={() => onSort(key)}
                       title={`Sort by ${label}`}
-                      className="inline-flex items-center gap-[4px] cursor-pointer"
+                      className="inline-flex items-center gap-2 cursor-pointer"
                     >
                       <span>{label}</span>
-                      <span aria-hidden="true" className={cn("text-[9px]", active ? "opacity-100" : "opacity-[0.35]")}>
+                      <span aria-hidden="true" className={cn("text-2xs", active ? "opacity-100" : "opacity-[0.35]")}>
                         {active ? (sortDirection === "asc" ? "▲" : "▼") : "△"}
                       </span>
                     </button>

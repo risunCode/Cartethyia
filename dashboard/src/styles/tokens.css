@@ -55,10 +55,48 @@
   --color-active-pill: var(--active-pill);
   --color-input-bg: var(--input-bg);
 
+  /*
+   * The type scale. The sheets and the inline styles carried fifteen distinct
+   * font sizes, seven of them within 3px of each other (10/10.5/11/11.5/12/12.5/
+   * 13), which is why `text-[11px]` was the single most common utility in the
+   * tree. Collapsing them onto nine steps is the one place the rebuild
+   * intentionally moves pixels: a label at 10.5px becomes 10px, a caption at
+   * 12.5px becomes 12px. The steps are monotonic and every step is a real
+   * difference, so a writer picks by role (2xs = micro-label, xs = badge,
+   * sm = caption, base = body) instead of by remembering a number.
+   *
+   * These names shadow Tailwind's own defaults with a tighter scale. That is
+   * deliberate and safe here: the tree contained exactly one use of a default
+   * `text-*` utility before this, so nothing else moves.
+   */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 21px;
+  --text-3xl: 28px;
+
+  /** The uppercase-eyebrow letter-spacing the section headers and stat labels use. */
+  --tracking-label: 0.08em;
+
+  /* Sub-control radii. `rounded-control` (10px) is the field/chip radius; these
+     two name the smaller steps that `text-[…]`-style literals had been filling. */
+  --radius-chip: 6px;
+  --radius-inset: 8px;
+
   --radius-control: var(--radius-control);
   --radius-card: var(--radius-card);
   --radius-sidebar: var(--radius-sidebar);
   --radius-pill: var(--radius-pill);
+
+  /* Landing-page colours. They live in `landing.css`'s `.story` block, next to
+     the accent each `.story-theme-*` re-declares, and are surfaced here so the
+     gradients and the chapter card use `from-story-deep` instead of a hex. */
+  --color-story-deep: var(--story-deep);
+  --color-story-surface: var(--story-surface);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);

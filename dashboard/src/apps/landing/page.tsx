@@ -327,15 +327,15 @@ export function LandingPage(): ReactElement {
       </header>
 
       {showAll ? (
-        <main className="mx-auto w-[min(100%-2rem,1280px)] pb-17.5 pt-[88px] sm:w-[min(100%-3rem,1280px)]">
+        <main className="mx-auto w-[min(100%-2rem,1280px)] pb-17.5 pt-44 sm:w-[min(100%-3rem,1280px)]">
           <div className="mb-10.5 flex flex-wrap items-end justify-between gap-5.25">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/50">All chapters · 7 stories</p>
-              <h2 className="mt-3.5 font-serif text-[28px] font-normal leading-none tracking-tight text-white">Everything at a glance</h2>
-              <p className="mt-3.5 max-w-[60ch] text-[13px] leading-5 text-white/65">Hover a card to lift it — click to jump to its story. All 7 visuals, captions and signals visible without scrolling forever.</p>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/50">All chapters · 7 stories</p>
+              <h2 className="mt-3.5 font-serif text-3xl font-normal leading-none tracking-tight text-white">Everything at a glance</h2>
+              <p className="mt-3.5 max-w-[60ch] text-base leading-5 text-white/65">Hover a card to lift it — click to jump to its story. All 7 visuals, captions and signals visible without scrolling forever.</p>
             </div>
-            <div className="flex items-center gap-3.5 text-[11px] text-white/50">
-              <span className="h-[5.25px] w-[5.25px] rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" aria-hidden={true} /> Stylish overview
+            <div className="flex items-center gap-3.5 text-xs text-white/50">
+              <span className="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" aria-hidden={true} /> Stylish overview
             </div>
           </div>
           <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-3">
@@ -346,7 +346,7 @@ export function LandingPage(): ReactElement {
                   setShowAll(false);
                   requestAnimationFrame(() => scrollToChapter(idx));
                 }}
-                className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-[18px] border bg-[#0b1220] text-left transition hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 story-theme-${entry.theme}`}
+                className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-9 border bg-story-surface text-left transition hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 story-theme-${entry.theme}`}
                 tabIndex={0}
                 role="button"
                 aria-label={`Open ${entry.label}`}
@@ -358,26 +358,26 @@ export function LandingPage(): ReactElement {
                   }
                 }}
               >
-                <div className="relative h-[190px] overflow-hidden">
+                <div className="relative h-95 overflow-hidden">
                   <img src={entry.image} alt={entry.imageAlt} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]" loading="lazy" decoding="async" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#05070d]/85 via-[#05070d]/10 to-transparent" />
-                  <div className="absolute left-3 top-3 flex items-center gap-[5.25px]">
-                    <span className="rounded-full bg-white px-[5.25px] py-[1.75px] font-mono text-[10px] font-bold tracking-[0.08em] text-[#05070d]">{entry.number}</span>
-                    <span className="rounded-full border border-white/20 bg-black/25 px-3.5 py-[1.75px] text-[10px] font-bold uppercase tracking-[0.12em] text-white backdrop-blur">{entry.theme}</span>
+                  <div className="absolute inset-0 bg-gradient-to-t from-story-deep/85 via-story-deep/10 to-transparent" />
+                  <div className="absolute left-3 top-3 flex items-center gap-3">
+                    <span className="rounded-full bg-white px-3 py-1 font-mono text-2xs font-bold tracking-label text-story-deep">{entry.number}</span>
+                    <span className="rounded-full border border-white/20 bg-black/25 px-3.5 py-1 text-2xs font-bold uppercase tracking-[0.12em] text-white backdrop-blur">{entry.theme}</span>
                   </div>
-                  <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.14em] text-white/75">
+                  <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-2xs font-bold uppercase tracking-[0.14em] text-white/75">
                     <span className="truncate">{entry.location}</span>
                     <ArrowUpRight size={12} aria-hidden={true} className="opacity-60 group-hover:opacity-100" />
                   </div>
                 </div>
                 <div className="flex flex-1 flex-col gap-3.5 p-7">
-                  <h3 className="font-serif text-[18px] font-normal leading-tight tracking-tight text-white">{entry.title}</h3>
-                  <p className="line-clamp-2 text-[12.5px] leading-5 text-white/65">{entry.description}</p>
-                  <div className="mt-1.75 flex flex-wrap gap-[5.25px]">
+                  <h3 className="font-serif text-xl font-normal leading-tight tracking-tight text-white">{entry.title}</h3>
+                  <p className="line-clamp-2 text-sm leading-5 text-white/65">{entry.description}</p>
+                  <div className="mt-1.75 flex flex-wrap gap-3">
                     {entry.signals.map((s) => {
                       const Icon = signalIcons[s.icon];
                       return (
-                        <span key={`${entry.id}-${s.label}`} className="inline-flex items-center gap-1.75 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.75 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/75">
+                        <span key={`${entry.id}-${s.label}`} className="inline-flex items-center gap-1.75 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.75 text-2xs font-semibold uppercase tracking-label text-white/75">
                           <Icon size={11} aria-hidden={true} className="text-[var(--story-accent)]" />
                           {s.label}
                           <strong className="font-bold text-white">{s.value}</strong>

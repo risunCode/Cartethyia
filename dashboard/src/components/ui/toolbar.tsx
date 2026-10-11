@@ -10,10 +10,10 @@ export interface ToolbarProps {
 /** Responsive filter/action strip shared by data-heavy dashboard pages. */
 export function Toolbar({ children, meta, className = "" }: ToolbarProps): ReactNode {
   return (
-    <div className={cn("flex items-center justify-between gap-[8px] flex-wrap", className)}>
-      <div className="flex items-center gap-[8px] flex-wrap min-w-0">{children}</div>
+    <div className={cn("flex items-center justify-between gap-4 flex-wrap", className)}>
+      <div className="flex items-center gap-4 flex-wrap min-w-0">{children}</div>
       {meta ? (
-        <div className="ml-auto text-text-tertiary text-[11px]">{meta}</div>
+        <div className="ml-auto text-text-tertiary text-xs">{meta}</div>
       ) : null}
     </div>
   );

@@ -180,9 +180,9 @@ export default function Settings(): ReactNode {
         subtitle="Account security, privacy, and tenant data"
         icon={<Shield size={16} />}
       />
-      <CardBody className="flex flex-col gap-[20px]">
-        <section className="flex flex-col gap-[10px]">
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Account</h2>
+      <CardBody className="flex flex-col gap-10">
+        <section className="flex flex-col gap-5">
+          <h2 className="text-xs font-bold uppercase tracking-label text-text-tertiary">Account</h2>
           <div className="two-column-grid">
             <Card className="h-full">
               <CardHeader title="Security" subtitle="Change the password used to sign in to this console" icon={<Shield size={16} />} />
@@ -193,8 +193,8 @@ export default function Settings(): ReactNode {
             <PrivacyPanel />
           </div>
         </section>
-        <section className="flex flex-col gap-[10px]">
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-tertiary">Data</h2>
+        <section className="flex flex-col gap-5">
+          <h2 className="text-xs font-bold uppercase tracking-label text-text-tertiary">Data</h2>
           <BackupPanel />
         </section>
       </CardBody>

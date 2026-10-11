@@ -349,7 +349,7 @@ function StatusCodeWithExplainer({
         title={explainer}
         className={cn(
           "font-mono font-bold tabular-nums bg-transparent border border-transparent",
-          "rounded-[6px] cursor-pointer px-[4px] py-0 text-[inherit]",
+          "rounded-chip cursor-pointer px-2 py-0 text-[inherit]",
         )}
         style={{ color: STATUS_TONE_COLOR[code.tone] }}
       >
@@ -358,7 +358,7 @@ function StatusCodeWithExplainer({
       {open ? (
         <span
           role="status"
-          className="absolute z-30 top-[calc(100%+6px)] left-0 whitespace-normal min-w-[220px] max-w-[280px] border border-inner-border rounded-[10px] bg-popover-bg shadow-[0_12px_32px_rgba(0,0,0,0.16)] px-[10px] py-[8px] font-sans font-normal text-[11px] leading-[1.5] text-text-secondary"
+          className="absolute z-30 top-[calc(100%+6px)] left-0 whitespace-normal min-w-110 max-w-140 border border-inner-border rounded-control bg-popover-bg shadow-[0_12px_32px_rgba(0,0,0,0.16)] px-5 py-4 font-sans font-normal text-xs leading-[1.5] text-text-secondary"
         >
           {explainer}
         </span>
@@ -469,7 +469,7 @@ function PillTabs<T extends string>({
     <div
       role="tablist"
       aria-label={ariaLabel}
-      className="flex flex-wrap gap-[4px] min-w-0"
+      className="flex flex-wrap gap-2 min-w-0"
     >
       {options.map((option) => (
         <Button
@@ -619,7 +619,7 @@ function StatusFilters({
             <div
               role="menu"
               aria-label="Other HTTP statuses"
-              className="absolute z-[50] top-[calc(100%+4px)] right-0 min-w-[180px] flex flex-col gap-[2px] border border-inner-border rounded-[10px] bg-popover-bg shadow-popout p-[4px]"
+              className="absolute z-[50] top-[calc(100%+4px)] right-0 min-w-90 flex flex-col gap-1 border border-inner-border rounded-control bg-popover-bg shadow-popout p-2"
             >
               {rest.map((entry) => (
                 <div key={entry.status} role="none" className="[&>button]:w-full [&>button]:justify-between">
@@ -669,7 +669,7 @@ function ChartPanel({ period, metric }: { readonly period: Period; readonly metr
     );
   }
   return (
-    <div className="usage-panel-body h-[227px] w-full">
+    <div className="usage-panel-body h-113.5 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={buckets} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
           <defs>
@@ -786,7 +786,7 @@ function BreakdownSnapshot({
           <EmptyState title="No usage for this period" message="Route requests to populate the breakdown." />
         ) : (
           <div
-            className="scroll-region flex h-full flex-col gap-[8px] pr-[2px]"
+            className="scroll-region flex h-full flex-col gap-4 pr-1"
           >
             {rows.map((row) => {
               const pct = maxTotal > 0 ? Math.max(2, (row.total / maxTotal) * 100) : 2;
@@ -801,7 +801,7 @@ function BreakdownSnapshot({
                 <div
                   key={row.name}
                   title={`${displayName} · ${formatNumber(row.requests)} hits · ${formatNumber(okCount)} ok · ${formatNumber(row.total)} tokens · ${formatUsd(row.costUsd)}`}
-                  className="relative shrink-0 overflow-hidden rounded-[10px] border border-inner-border bg-surface-2"
+                  className="relative shrink-0 overflow-hidden rounded-control border border-inner-border bg-surface-2"
                 >
                   <div
                     aria-hidden="true"
@@ -809,21 +809,21 @@ function BreakdownSnapshot({
                     style={{ width: `${pct}%` }}
                   />
                   <div
-                    className="relative flex items-center justify-between gap-[8px] px-[12px] py-[10px]"
+                    className="relative flex items-center justify-between gap-4 px-6 py-5"
                   >
                     <span
-                      className="truncate font-mono tabular-nums min-w-0 flex-1 text-[11px] font-semibold"
+                      className="truncate font-mono tabular-nums min-w-0 flex-1 text-xs font-semibold"
                     >
                       {displayName}
                     </span>                    <span
-                      className="font-mono tabular-nums shrink-0 text-[10px] text-text-secondary"
+                      className="font-mono tabular-nums shrink-0 text-2xs text-text-secondary"
                     >
                       {formatNumber(row.requests)} hit · {formatNumber(okCount)} ok
                     </span>
-                    <span className="shrink-0 text-[11px] font-bold text-orange">
+                    <span className="shrink-0 text-xs font-bold text-orange">
                       {formatUsd(row.costUsd)}
                     </span>
-                    <span className="shrink-0 text-[11px] font-bold text-purple">
+                    <span className="shrink-0 text-xs font-bold text-purple">
                       {formatTokens(row.total)}
                     </span>
                   </div>
@@ -854,11 +854,11 @@ function FlowNode({
   readonly last?: boolean;
 }): ReactNode {
   return (
-    <div className="flex gap-[10px] min-w-0">
+    <div className="flex gap-5 min-w-0">
       <div className="flex flex-col items-center shrink-0">
         <span
           aria-hidden="true"
-          className="grid place-items-center w-[22px] h-[22px] rounded-[999px]"
+          className="grid place-items-center w-11 h-11 rounded-pill"
           style={{
             color: tone ?? "var(--accent)",
             background: `color-mix(in srgb, ${tone ?? "var(--accent)"} 16%, var(--surface-2))`,
@@ -867,13 +867,13 @@ function FlowNode({
           {icon}
         </span>
         {last ? null : (
-          <span aria-hidden="true" className="w-[2px] flex-1 min-h-[14px] bg-inner-border" />
+          <span aria-hidden="true" className="w-1 flex-1 min-h-7 bg-inner-border" />
         )}
       </div>
       <div className="min-w-0 flex-1" style={{ paddingBottom: last ? 0 : "12px" }}>
-        <div className="text-[12px] font-bold">{title}</div>
+        <div className="text-sm font-bold">{title}</div>
         <div
-          className="select-text mt-[2px] whitespace-pre-line text-[11px] text-text-secondary [overflow-wrap:anywhere] break-words"
+          className="select-text mt-1 whitespace-pre-line text-xs text-text-secondary [overflow-wrap:anywhere] break-words"
         >
           {meta}
         </div>
@@ -936,17 +936,17 @@ function RequestDetailDrawer({
     <Drawer open={requestId !== null} onClose={onClose} title="Request Detail">
       {detailQuery.isPending ? (
         <Stack gap="12px">
-          <div className="animate-pulse h-[24px] w-[66%] rounded-[8px] bg-surface-2" />
-          <div className="animate-pulse h-[96px] rounded-[10px] bg-surface-2" />
-          <div className="animate-pulse h-[96px] rounded-[10px] bg-surface-2" />
+          <div className="animate-pulse h-12 w-[66%] rounded-inset bg-surface-2" />
+          <div className="animate-pulse h-48 rounded-control bg-surface-2" />
+          <div className="animate-pulse h-48 rounded-control bg-surface-2" />
         </Stack>
       ) : detailQuery.isError || !detail ? (
         <ErrorState message="Failed to load request detail." onRetry={() => void detailQuery.refetch()} />
       ) : (
         <Stack gap="12px">
-          <div className="flex items-center gap-[8px] rounded-[10px] border border-inner-border bg-surface-2 px-[12px] py-[8px] min-w-0">
+          <div className="flex items-center gap-4 rounded-control border border-inner-border bg-surface-2 px-6 py-4 min-w-0">
             <span
-              className="select-text font-mono tabular-nums min-w-0 flex-1 [overflow-wrap:anywhere] break-words text-[11.5px]"
+              className="select-text font-mono tabular-nums min-w-0 flex-1 [overflow-wrap:anywhere] break-words text-xs"
               title={detail.requestId}
             >
               request_id {detail.requestId}
@@ -958,26 +958,26 @@ function RequestDetailDrawer({
               aria-label="Copy request ID"
               title="Copy request ID"
               onClick={copyRequestId}
-              className="shrink-0 p-[3px]"
+              className="shrink-0 p-1.5"
             />
           </div>
 
 
           {detail.errorKind ? (
-            <div role="alert" className="status-callout flex flex-col gap-[4px] [overflow-wrap:anywhere] break-words" data-tone="err">
-              <strong className="text-[12px]">
+            <div role="alert" className="status-callout flex flex-col gap-2 [overflow-wrap:anywhere] break-words" data-tone="err">
+              <strong className="text-sm">
                 {errorLabel(detail.status, detail.errorKind, detail.errorOrigin, detail.httpStatus)}
               </strong>
-              <span className="font-mono tabular-nums text-text-tertiary text-[10px] [overflow-wrap:anywhere]">
+              <span className="font-mono tabular-nums text-text-tertiary text-2xs [overflow-wrap:anywhere]">
                 {detail.errorKind}
               </span>
             </div>
           ) : null}
-          <section className="border border-inner-border rounded-[10px] overflow-hidden">
-            <div className="border-b border-inner-border px-[12px] py-[10px] text-[12.5px] font-bold">
+          <section className="border border-inner-border rounded-control overflow-hidden">
+            <div className="border-b border-inner-border px-6 py-5 text-sm font-bold">
               Flow and Detail
             </div>
-            <div className="flex flex-col p-[12px]">
+            <div className="flex flex-col p-6">
               <FlowNode
                 icon={<LogIn size={13} />}
                 title="Client request in"
@@ -1012,15 +1012,15 @@ function RequestDetailDrawer({
             return (
               <section
                 aria-label="Session signals"
-                className="grid grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-[8px] border border-inner-border rounded-[10px] p-[10px] bg-surface-2"
+                className="grid grid-cols-[repeat(auto-fit,minmax(110px,1fr))] gap-4 border border-inner-border rounded-control p-5 bg-surface-2"
               >
                 {signalItems.map(({ label, value, icon: Icon }) => (
                   <div
                     key={label}
-                    className="flex items-center gap-[7px] min-w-0 text-text-secondary"
+                    className="flex items-center gap-3.5 min-w-0 text-text-secondary"
                   >
                     <Icon size={14} aria-hidden="true" className="shrink-0 text-accent" />
-                    <span className="min-w-0 [overflow-wrap:anywhere] text-[11px]">
+                    <span className="min-w-0 [overflow-wrap:anywhere] text-xs">
                       {label}: <strong className="text-text-primary">{value}</strong>
                     </span>
                   </div>
@@ -1040,34 +1040,34 @@ function RequestDetailDrawer({
           ).map(([kind, label, payload, Icon]) => (
             <details
               key={kind}
-              className="rounded-[10px] border border-inner-border bg-surface-2 overflow-hidden"
+              className="rounded-control border border-inner-border bg-surface-2 overflow-hidden"
             >
               <summary
-                className="flex items-center justify-between gap-[8px] cursor-pointer px-[12px] py-[10px] text-[12px] font-bold"
+                className="flex items-center justify-between gap-4 cursor-pointer px-6 py-5 text-sm font-bold"
               >
-                <span className="inline-flex items-center gap-[7px] min-w-0">
+                <span className="inline-flex items-center gap-3.5 min-w-0">
                   <Icon size={14} className={cn("shrink-0", kind === "request" ? "text-accent" : "text-green")} />
                   <span className="[overflow-wrap:anywhere] break-words">{label}</span>
                 </span>
-                <span className="font-mono tabular-nums shrink-0 text-text-tertiary text-[10px] font-medium">
+                <span className="font-mono tabular-nums shrink-0 text-text-tertiary text-2xs font-medium">
                   {formatBytes(payloadView(kind).bytes)}
                 </span>
               </summary>
               {payload === undefined ? (
                 <div
-                  className="flex items-start gap-[10px] border-t border-inner-border bg-surface-1 px-[12px] py-[14px]"
+                  className="flex items-start gap-5 border-t border-inner-border bg-surface-1 px-6 py-7"
                 >
-                  <Database size={15} className="shrink-0 text-text-tertiary mt-[1px]" />
-                  <div className="min-w-0 flex flex-col gap-[3px]">
-                    <strong className="text-[12px] text-text-secondary">No payload captured</strong>
-                    <span className="text-[11px] text-text-tertiary [overflow-wrap:anywhere] break-words">
+                  <Database size={15} className="shrink-0 text-text-tertiary mt-0.5" />
+                  <div className="min-w-0 flex flex-col gap-1.5">
+                    <strong className="text-sm text-text-secondary">No payload captured</strong>
+                    <span className="text-xs text-text-tertiary [overflow-wrap:anywhere] break-words">
                       {label} is unavailable for this request.
                     </span>
                   </div>
                 </div>
               ) : (
                 <>
-                  <div className="flex justify-end border-t border-inner-border pt-[5px] px-[8px]">
+                  <div className="flex justify-end border-t border-inner-border pt-2.5 px-4">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1075,11 +1075,11 @@ function RequestDetailDrawer({
                       aria-label={`Copy ${label}`}
                       title={`Copy ${label}`}
                       onClick={() => copyPayload(kind, payload)}
-                      className="p-[2px]"
+                      className="p-1"
                     />
                   </div>
                   <pre
-                    className="select-text font-mono tabular-nums max-h-[256px] overflow-auto whitespace-pre-wrap [overflow-wrap:break-word] break-words m-0 border-t border-inner-border pt-[8px] px-[12px] pb-[12px] text-[10px] text-text-secondary"
+                    className="select-text font-mono tabular-nums max-h-128 overflow-auto whitespace-pre-wrap [overflow-wrap:break-word] break-words m-0 border-t border-inner-border pt-4 px-6 pb-6 text-2xs text-text-secondary"
                   >
                     {payloadView(kind).text}
                   </pre>
@@ -1120,11 +1120,11 @@ function InFlightPill({
           ? `${active} ${requestWord} executing right now from ${ips} unique client ${ipWord} — all clients combined, not a summary of the table below`
           : "Live feed disconnected — last seen value"
       }
-      className="inline-flex items-center gap-[6px] text-[11px] text-text-secondary whitespace-nowrap"
+      className="inline-flex items-center gap-3 text-xs text-text-secondary whitespace-nowrap"
     >
       <span
         aria-hidden="true"
-        className="w-[7px] h-[7px] rounded-[50%] shrink-0"
+        className="w-3.5 h-3.5 rounded-[50%] shrink-0"
         style={{
           background: live ? "var(--success)" : "var(--text-tertiary)",
           boxShadow: live ? "0 0 6px var(--success)" : "none",
@@ -1235,7 +1235,7 @@ function TokenScaleSwitch({
       aria-label={`${label}: currently ${currentName}, switch to ${nextName}`}
       title={`Show ${nextName}`}
       onClick={() => onChange(next)}
-      className="font-mono tabular-nums inline-flex items-center gap-[4px] px-[7px] py-[3px] border border-inner-border rounded-[999px] bg-surface-2 text-text-secondary cursor-pointer text-[10px] font-bold tracking-[0.04em] leading-[1]"
+      className="font-mono tabular-nums inline-flex items-center gap-2 px-3.5 py-1.5 border border-inner-border rounded-pill bg-surface-2 text-text-secondary cursor-pointer text-2xs font-bold tracking-[0.04em] leading-[1]"
     >
       <Scaling size={11} aria-hidden="true" />
       {currentName}
@@ -1467,7 +1467,7 @@ export default function Usage(): ReactNode {
           subtitle={usageHeadline(period, summaryQuery.isPending, summary)}
           icon={<Activity size={16} />}
         />
-        <CardBody className="flex flex-col gap-[16px]">
+        <CardBody className="flex flex-col gap-8">
       <div className="metric-grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
         <RequestsStatCard
           pending={summaryQuery.isPending}
@@ -1572,7 +1572,7 @@ export default function Usage(): ReactNode {
                   aria-label="Period"
                   value={period}
                   size="sm"
-                  className="w-auto min-w-[92px] shrink-0 grow-0 basis-auto"
+                  className="w-auto min-w-46 shrink-0 grow-0 basis-auto"
                   onValueChange={(value) => setParam("period", value)}
                   options={PERIOD_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                 />
@@ -1608,7 +1608,7 @@ export default function Usage(): ReactNode {
                 icon={hideProviderName ? <EyeOff size={13} /> : <Eye size={13} />}
                 onClick={toggleHideProviderName}
                 title={hideProviderName ? "Show real provider names" : "Mask provider names as Mysterious"}
-                className="text-[11px] h-[26px] px-[8px] py-0 text-text-secondary"
+                className="text-xs h-13 px-4 py-0 text-text-secondary"
               >
                 {hideProviderName ? "Provider masked" : "Mask provider"}
               </Button>
@@ -1618,15 +1618,15 @@ export default function Usage(): ReactNode {
         />
         <CardBody className="p-0">
           {requestsQuery.isPending && requestItems.length === 0 ? (
-            <div className="p-[20px]">
+            <div className="p-10">
               <LoadingState label="Loading requests…" />
             </div>
           ) : requestsQuery.isError && requestItems.length === 0 ? (
-            <div className="p-[20px]">
+            <div className="p-10">
               <ErrorState message="Could not load recent requests." onRetry={() => void requestsQuery.refetch()} />
             </div>
           ) : requestItems.length === 0 ? (
-            <div className="p-[20px]">
+            <div className="p-10">
               <EmptyState
                 title="No requests recorded for this period"
                 message="Route requests through the gateway to populate the table."
@@ -1634,7 +1634,7 @@ export default function Usage(): ReactNode {
               />
             </div>
           ) : (
-            <div id="usage-requests-scroll" className="rounded-[10px] border border-inner-border bg-surface-1">
+            <div id="usage-requests-scroll" className="rounded-control border border-inner-border bg-surface-1">
               <DataTable
                 maxHeight={445}
                 onScroll={handleTableScroll}
@@ -1668,14 +1668,14 @@ export default function Usage(): ReactNode {
                         background: isNew ? "color-mix(in srgb, var(--accent) 14%, transparent)" : undefined,
                       }}
                     >
-                    <td className="text-[11.5px] text-text-tertiary whitespace-nowrap">
+                    <td className="text-xs text-text-tertiary whitespace-nowrap">
                       <div>{formatTime(row.startedAt)}</div>
-                      <div className="text-[10.5px] mt-[1px]">{formatAgo(row.startedAt)}</div>
+                      <div className="text-2xs mt-0.5">{formatAgo(row.startedAt)}</div>
                     </td>
-                    <td className="max-w-[210px]">
-                      <div className="flex items-center gap-[6px] min-w-0">
+                    <td className="max-w-105">
+                      <div className="flex items-center gap-3 min-w-0">
                         <span
-                          className="truncate text-[12px] font-semibold"
+                          className="truncate text-sm font-semibold"
                           title={rowProviderId ?? "—"}
                         >
                           {hideProviderName ? "Mysterious" : rowProviderId ? (providerNames.get(rowProviderId) ?? rowProviderId) : "—"}
@@ -1687,9 +1687,9 @@ export default function Usage(): ReactNode {
                           : row.model ?? "—"}
                       </div>
                     </td>
-                    <td className="max-w-[140px]">
+                    <td className="max-w-70">
                       <div
-                        className="truncate text-[12px] font-semibold"
+                        className="truncate text-sm font-semibold"
                         title={usageApiKeyLabel(row)}
                       >
                         {usageApiKeyLabel(row)}
@@ -1698,7 +1698,7 @@ export default function Usage(): ReactNode {
                         {usageClientLabel(row)}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap text-[11px]">
+                    <td className="whitespace-nowrap text-xs">
                       <div>
                         <span
                           className="font-mono tabular-nums inline-block min-w-[13ch] text-text-secondary"
@@ -1712,32 +1712,32 @@ export default function Usage(): ReactNode {
                           httpStatus={row.httpStatus}
                         />
                       </div>
-                      <div className="truncate subline max-w-[220px]" title={surfaceFamilyLabel(row.surface)}>
+                      <div className="truncate subline max-w-110" title={surfaceFamilyLabel(row.surface)}>
                         {surfaceFamilyLabel(row.surface)}
                       </div>
                     </td>
                     <td className="mono">
-                      <div className="flex gap-[12px] justify-end">
-                        <span className="inline-flex items-center gap-[4px] text-text-secondary">
+                      <div className="flex gap-6 justify-end">
+                        <span className="inline-flex items-center gap-2 text-text-secondary">
                           <ArrowUp size={10} aria-label="Input tokens" /> IN {formatNumber(row.inputTokens)}
                         </span>
-                        <span className="inline-flex items-center gap-[4px] text-text-secondary">
+                        <span className="inline-flex items-center gap-2 text-text-secondary">
                           <ArrowDown size={10} aria-label="Output tokens" /> OUT {formatNumber(row.outputTokens)}
                         </span>
                       </div>
                       <div
-                        className="flex gap-[12px] justify-end mt-[1px] text-text-tertiary"
+                        className="flex gap-6 justify-end mt-0.5 text-text-tertiary"
                         title={row.estimatedCost === undefined ? "Unpriced model — no catalog rate" : undefined}
                       >
-                        <span className="inline-flex items-center gap-[4px]">
+                        <span className="inline-flex items-center gap-2">
                           <Database size={10} aria-label="Cached tokens" /> CACHED {formatNumber(row.cachedTokens ?? 0)}
                         </span>
-                        <span className="inline-flex items-center gap-[4px]">
+                        <span className="inline-flex items-center gap-2">
                           <DollarSign size={10} aria-label="Estimated cost" /> COST {costText}
                         </span>
                         {row.creditUsed !== undefined ? (
                           <span
-                            className="inline-flex items-center gap-[4px]"
+                            className="inline-flex items-center gap-2"
                             title="Provider-billed credits for this turn"
                           >
                             <Coins size={10} aria-label="Credits used" /> {formatCredit(row.creditUsed)}
@@ -1752,7 +1752,7 @@ export default function Usage(): ReactNode {
                       <div>{formatDuration(row.ttfbMs)}</div>
                       {row.resolveMs !== undefined ? (
                         <div
-                          className="text-[10.5px] mt-[1px] text-text-tertiary"
+                          className="text-2xs mt-0.5 text-text-tertiary"
                           title="Gateway-side time before the upstream dispatch began"
                         >
                           ({formatDuration(row.resolveMs)})

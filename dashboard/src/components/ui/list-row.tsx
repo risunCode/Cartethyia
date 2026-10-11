@@ -30,16 +30,16 @@ export function ListRow({
   return (
     <div
       className={cn(
-        "list-row flex items-center gap-[12px] rounded-[10px] border border-inner-border bg-surface-2 min-w-0 px-[14px] py-[10px]",
-        density === "compact" && "list-row-compact px-[10px] py-[6px] rounded-[8px] gap-[8px]",
+        "list-row flex items-center gap-6 rounded-control border border-inner-border bg-surface-2 min-w-0 px-7 py-5",
+        density === "compact" && "list-row-compact px-5 py-3 rounded-inset gap-4",
         className,
       )}
       {...props}
     >
       {leading ? <div className="list-row-leading shrink-0">{leading}</div> : null}
-      <div className="list-row-body flex-1 min-w-0 flex flex-col gap-[4px]">{children}</div>
+      <div className="list-row-body flex-1 min-w-0 flex flex-col gap-2">{children}</div>
       {actions ? (
-        <div className="list-row-actions flex items-center gap-[4px] shrink-0 flex-wrap">
+        <div className="list-row-actions flex items-center gap-2 shrink-0 flex-wrap">
           {actions}
         </div>
       ) : null}

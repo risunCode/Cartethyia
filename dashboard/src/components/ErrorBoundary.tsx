@@ -65,7 +65,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
 
           <button
             type="button"
-            className="btn btn-primary inline-flex w-full items-center justify-center rounded-control bg-accent font-semibold text-accent-foreground mt-[6px] h-[40px] text-[12.5px]"
+            className="btn btn-primary inline-flex w-full items-center justify-center rounded-control bg-accent font-semibold text-accent-foreground mt-3 h-20 text-sm"
             onClick={() => window.location.reload()}
           >
             Reload console

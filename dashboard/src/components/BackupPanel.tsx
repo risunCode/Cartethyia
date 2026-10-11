@@ -210,17 +210,17 @@ export function BackupPanel(): ReactNode {
                 </span>
               </label>
             </fieldset>
-            <div className="flex items-center justify-between gap-[12px] rounded-[10px] border border-inner-border px-[12px] py-[10px]">
+            <div className="flex items-center justify-between gap-6 rounded-control border border-inner-border px-6 py-5">
               <span>
-                <strong className="block text-[13px]">Highly Compress Backup</strong>
-                <small className="text-[11px] text-text-tertiary">Makes the download smaller.</small>
+                <strong className="block text-base">Highly Compress Backup</strong>
+                <small className="text-xs text-text-tertiary">Makes the download smaller.</small>
               </span>
               <Switch checked={highlyCompress} onChange={setHighlyCompress} aria-label="Highly Compress Backup" />
             </div>
             <p className="form-section-caption">
               The file contains provider credentials. Treat it like the database. Prompt and response bodies, health-event history, and console sessions are left out.
             </p>
-            <div className="mt-auto flex justify-end gap-[8px]">
+            <div className="mt-auto flex justify-end gap-4">
               <Button variant="primary" size="sm" onClick={() => { setPassword(""); setPasswordFor("download"); }} disabled={!includeConfig && !includeTelemetry} icon={<Download size={13} />}>
                 Download backup
               </Button>

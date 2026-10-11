@@ -19,8 +19,8 @@ const toneClass: Record<CodeChipTone, string> = {
   // `--surface-3` is not a defined token — only share.css referenced it, and
   // nothing defined it — so the soft chip uses the real `surface-muted` token.
   muted:
-    "code-chip-muted text-text-secondary bg-surface-muted border border-inner-border px-[8px] py-[2px] rounded-[6px]",
-  accent: "code-chip-accent text-accent bg-accent-soft px-[8px] py-[3px] rounded-[6px] font-bold",
+    "code-chip-muted text-text-secondary bg-surface-muted border border-inner-border px-4 py-1 rounded-chip",
+  accent: "code-chip-accent text-accent bg-accent-soft px-4 py-1.5 rounded-chip font-bold",
 };
 
 /**
@@ -41,7 +41,7 @@ export function CodeChip({
   return (
     <span
       className={cn(
-        "code-chip inline-flex items-center gap-[6px] min-w-0 max-w-full font-mono text-[12px] tabular-nums",
+        "code-chip inline-flex items-center gap-3 min-w-0 max-w-full font-mono text-sm tabular-nums",
         toneClass[tone],
         className,
       )}

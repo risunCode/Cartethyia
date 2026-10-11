@@ -35,10 +35,10 @@ const VARIANT: Record<ButtonVariant, string> = {
 };
 
 const SIZE: Record<ButtonSize, string> = {
-  sm: "btn-sm h-[30px] px-[10px] text-[11.5px] [&_svg]:size-[13px]",
+  sm: "btn-sm h-15 px-5 text-xs [&_svg]:size-6.5",
   md: "",
   lg: "",
-  icon: "btn-icon size-[34px] p-0 grid place-items-center [&_svg]:size-[15px]",
+  icon: "btn-icon size-17 p-0 grid place-items-center [&_svg]:size-7.5",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -63,10 +63,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         type={type}
         className={cn(
-          "btn inline-flex items-center justify-center gap-[7px] rounded-control font-semibold text-[12.5px] px-[14px] py-2 transition-all active:scale-[0.97]",
+          "btn inline-flex items-center justify-center gap-3.5 rounded-control font-semibold text-sm px-7 py-2 transition-all active:scale-[0.97]",
           VARIANT[variant],
           labeled
-            ? "btn-labeled h-[30px] px-[10px] gap-[6px] text-[11.5px] [&_svg]:size-[13px]"
+            ? "btn-labeled h-15 px-5 gap-3 text-xs [&_svg]:size-6.5"
             : SIZE[size],
           className,
         )}

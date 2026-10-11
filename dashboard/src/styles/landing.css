@@ -39,6 +39,11 @@ html[data-app="landing"] #root {
   --story-ink: #f5faff;
   --story-muted: rgba(225, 237, 246, .7);
   --story-line: rgba(225, 237, 246, .2);
+  /* The page's own near-black and the chapter card's surface. Named so the
+     gradients and the card stop carrying `#05070d` / `#0b1220` as literals; each
+     `.story-theme-*` re-declares the accent, not these, so one definition holds. */
+  --story-deep: #05070d;
+  --story-surface: #0b1220;
   --story-ease: cubic-bezier(.2,.8,.2,1);
   position: relative;
   min-height: calc(100svh * 7);

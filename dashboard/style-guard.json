@@ -5,7 +5,7 @@
   },
   "src/apps/landing/page.tsx": {
     "staticInline": 0,
-    "arbitrary": 28
+    "arbitrary": 4
   },
   "src/apps/share/page.tsx": {
     "staticInline": 1,
@@ -25,7 +25,7 @@
   },
   "src/components/BackupPanel.tsx": {
     "staticInline": 6,
-    "arbitrary": 7
+    "arbitrary": 0
   },
   "src/components/CompressionPanel.tsx": {
     "staticInline": 16,
@@ -37,7 +37,7 @@
   },
   "src/components/ErrorBoundary.tsx": {
     "staticInline": 4,
-    "arbitrary": 3
+    "arbitrary": 0
   },
   "src/components/HeaderPairsEditor.tsx": {
     "staticInline": 7,
@@ -67,53 +67,13 @@
     "staticInline": 31,
     "arbitrary": 0
   },
-  "src/components/ui/badge.tsx": {
-    "staticInline": 0,
-    "arbitrary": 5
-  },
-  "src/components/ui/button.tsx": {
-    "staticInline": 0,
-    "arbitrary": 14
-  },
-  "src/components/ui/code-chip.tsx": {
-    "staticInline": 0,
-    "arbitrary": 8
-  },
-  "src/components/ui/dialog-actions.tsx": {
-    "staticInline": 0,
-    "arbitrary": 0
-  },
   "src/components/ui/dialog.tsx": {
     "staticInline": 1,
     "arbitrary": 0
   },
   "src/components/ui/input.tsx": {
     "staticInline": 0,
-    "arbitrary": 7
-  },
-  "src/components/ui/layout.tsx": {
-    "staticInline": 0,
-    "arbitrary": 17
-  },
-  "src/components/ui/list-row.tsx": {
-    "staticInline": 0,
-    "arbitrary": 10
-  },
-  "src/components/ui/page-header.tsx": {
-    "staticInline": 0,
-    "arbitrary": 10
-  },
-  "src/components/ui/select.tsx": {
-    "staticInline": 0,
-    "arbitrary": 0
-  },
-  "src/components/ui/state.tsx": {
-    "staticInline": 0,
-    "arbitrary": 10
-  },
-  "src/components/ui/toolbar.tsx": {
-    "staticInline": 0,
-    "arbitrary": 3
+    "arbitrary": 2
   },
   "src/features/cli-tools/CliToolDetailPage.tsx": {
     "staticInline": 35,
@@ -125,7 +85,7 @@
   },
   "src/features/customization/CustomizationPage.tsx": {
     "staticInline": 0,
-    "arbitrary": 63
+    "arbitrary": 2
   },
   "src/features/logs/ConsoleLogPage.tsx": {
     "staticInline": 16,
@@ -133,7 +93,7 @@
   },
   "src/features/overview/OverviewPage.tsx": {
     "staticInline": 2,
-    "arbitrary": 57
+    "arbitrary": 1
   },
   "src/features/provider-detail/ProviderDetailPage.tsx": {
     "staticInline": 17,
@@ -161,15 +121,15 @@
   },
   "src/features/providers/ProvidersPage.tsx": {
     "staticInline": 0,
-    "arbitrary": 62
+    "arbitrary": 5
   },
   "src/features/proxy/ProxyPage.tsx": {
     "staticInline": 46,
-    "arbitrary": 6
+    "arbitrary": 0
   },
   "src/features/quota/QuotaPage.tsx": {
     "staticInline": 47,
-    "arbitrary": 24
+    "arbitrary": 0
   },
   "src/features/routing/CombosPage.tsx": {
     "staticInline": 19,
@@ -187,12 +147,8 @@
     "staticInline": 10,
     "arbitrary": 0
   },
-  "src/features/settings/SettingsPage.tsx": {
-    "staticInline": 0,
-    "arbitrary": 5
-  },
   "src/features/usage/UsagePage.tsx": {
     "staticInline": 0,
-    "arbitrary": 123
+    "arbitrary": 5
   }
 }

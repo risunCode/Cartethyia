@@ -145,8 +145,8 @@ export default function CustomizationPage(): ReactNode {
         <CardBody>
           <Stack gap="14px">
             <BackgroundPreview settings={settings} onBytes={setMediaBytes} bytes={mediaBytes} />
-            <div className="flex flex-wrap items-center gap-[8px]">
-              <label className="btn btn-primary inline-flex items-center justify-center gap-[7px] rounded-control font-semibold text-[12.5px] px-[14px] py-2 cursor-pointer bg-accent text-accent-foreground">
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="btn btn-primary inline-flex items-center justify-center gap-3.5 rounded-control font-semibold text-sm px-7 py-2 cursor-pointer bg-accent text-accent-foreground">
                 {busy ? "Working…" : settings.backgroundSet ? "Replace" : "Upload image or video"}
                 <input
                   type="file"
@@ -161,7 +161,7 @@ export default function CustomizationPage(): ReactNode {
                   Remove
                 </Button>
               ) : null}
-              <span className="text-[11.5px] text-text-tertiary">
+              <span className="text-xs text-text-tertiary">
                 Images are resized to 2560px. Videos play on desktop and show their first frame on mobile.
               </span>
             </div>
@@ -184,7 +184,7 @@ export default function CustomizationPage(): ReactNode {
           }
         />
         <CardBody>
-          <div className="grid gap-[20px] lg:grid-cols-2">
+          <div className="grid gap-10 lg:grid-cols-2">
             {BLUR_TARGET_ORDER.map((target) => {
               const chrome = target === "chrome";
               return (
@@ -218,25 +218,25 @@ export default function CustomizationPage(): ReactNode {
             role="switch"
             aria-checked={settings.emptyOutline}
             onClick={() => setSettings({ emptyOutline: !settings.emptyOutline })}
-            className="flex w-full items-center justify-between gap-[12px] rounded-card border border-inner-border bg-surface-2 px-[14px] py-[12px] text-left"
+            className="flex w-full items-center justify-between gap-6 rounded-card border border-inner-border bg-surface-2 px-7 py-6 text-left"
           >
             <span className="flex min-w-0 flex-col">
-              <span className="text-[12.5px] font-semibold text-text-primary">Dashed border</span>
-              <span className="text-[11px] text-text-tertiary">Off leaves the empty state sitting on the card.</span>
+              <span className="text-sm font-semibold text-text-primary">Dashed border</span>
+              <span className="text-xs text-text-tertiary">Off leaves the empty state sitting on the card.</span>
             </span>
             <span
               aria-hidden="true"
               className={
                 settings.emptyOutline
-                  ? "h-[20px] w-[36px] shrink-0 rounded-pill bg-accent p-[2px]"
-                  : "h-[20px] w-[36px] shrink-0 rounded-pill bg-surface-active p-[2px]"
+                  ? "h-10 w-18 shrink-0 rounded-pill bg-accent p-1"
+                  : "h-10 w-18 shrink-0 rounded-pill bg-surface-active p-1"
               }
             >
               <span
                 className={
                   settings.emptyOutline
-                    ? "block size-[16px] translate-x-[16px] rounded-pill bg-accent-foreground transition-transform"
-                    : "block size-[16px] rounded-pill bg-text-secondary transition-transform"
+                    ? "block size-8 translate-x-8 rounded-pill bg-accent-foreground transition-transform"
+                    : "block size-8 rounded-pill bg-text-secondary transition-transform"
                 }
               />
             </span>
@@ -289,7 +289,7 @@ function BackgroundPreview({
 
   if (!url) {
     return (
-      <div className="flex h-[120px] items-center justify-center rounded-card border border-dashed border-inner-border bg-surface-2 text-[12px] text-text-tertiary">
+      <div className="flex h-60 items-center justify-center rounded-card border border-dashed border-inner-border bg-surface-2 text-sm text-text-tertiary">
         No background yet. The console uses its plain surface.
       </div>
     );
@@ -302,13 +302,13 @@ function BackgroundPreview({
     opacity: settings.backgroundOpacity / 100,
   };
   return (
-    <div className="relative h-[150px] overflow-hidden rounded-card border border-inner-border bg-surface-2">
+    <div className="relative h-75 overflow-hidden rounded-card border border-inner-border bg-surface-2">
       {kind === "video" ? (
         <video src={url} muted playsInline preload="metadata" className="size-full" style={frame} />
       ) : (
         <img src={url} alt="" className="size-full" style={frame} />
       )}
-      <span className="absolute bottom-[8px] left-[10px] rounded-control bg-surface-1 px-[8px] py-[2px] text-[10.5px] text-text-secondary">
+      <span className="absolute bottom-[8px] left-[10px] rounded-control bg-surface-1 px-4 py-1 text-2xs text-text-secondary">
         {kind === "video" ? "Video" : "Image"}
         {bytes !== null ? ` · ${formatBytes(bytes)}` : ""}
         {settings.backgroundEnabled ? "" : " · hidden"}
@@ -325,12 +325,12 @@ function BackgroundControls({
   readonly setSettings: (patch: Partial<CustomizationSettings>) => void;
 }): ReactNode {
   return (
-    <div className="flex flex-col gap-[14px]">
-      <label className="flex min-h-[36px] items-center justify-between gap-[12px] text-[13px] font-semibold text-text-primary">
+    <div className="flex flex-col gap-7">
+      <label className="flex min-h-18 items-center justify-between gap-6 text-base font-semibold text-text-primary">
         <span>Show background</span>
         <Switch checked={settings.backgroundEnabled} onChange={(checked) => setSettings({ backgroundEnabled: checked })} aria-label="Show background" />
       </label>
-      <div className="grid gap-[14px] sm:grid-cols-2">
+      <div className="grid gap-7 sm:grid-cols-2">
         <Slider label="Visibility" value={settings.backgroundOpacity} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundOpacity} min={0} max={100} unit="%" onChange={(value) => setSettings({ backgroundOpacity: value })} />
         <Slider label="Blur" value={settings.backgroundBlur} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundBlur} min={0} max={100} unit="%" onChange={(value) => setSettings({ backgroundBlur: value })} />
         <Slider label="Zoom" value={settings.backgroundScale} defaultValue={CUSTOMIZATION_DEFAULTS.backgroundScale} min={100} max={180} unit="%" onChange={(value) => setSettings({ backgroundScale: value })} />
@@ -359,11 +359,11 @@ function Slider({
   readonly onChange: (value: number) => void;
 }): ReactNode {
   return (
-    <label className="flex flex-col gap-[4px] text-[12px] text-text-secondary">
+    <label className="flex flex-col gap-2 text-sm text-text-secondary">
       <span className="flex items-center justify-between">
         {label}
-        <span className="flex items-center gap-[6px]">
-          <span className="font-mono tabular-nums text-[11px] text-text-tertiary">
+        <span className="flex items-center gap-3">
+          <span className="font-mono tabular-nums text-xs text-text-tertiary">
             {value}
             {unit ?? ""}
           </span>
@@ -373,7 +373,7 @@ function Slider({
             disabled={value === defaultValue}
             aria-label={`Reset ${label}`}
             title={`Reset ${label} to ${defaultValue}${unit ?? ""}`}
-            className="flex size-[18px] items-center justify-center rounded-control text-text-tertiary hover:bg-hover hover:text-text-primary disabled:pointer-events-none disabled:opacity-30"
+            className="flex size-9 items-center justify-center rounded-control text-text-tertiary hover:bg-hover hover:text-text-primary disabled:pointer-events-none disabled:opacity-30"
           >
             <RotateCcw size={11} />
           </button>
@@ -412,14 +412,14 @@ function BlurSlider({
 }): ReactNode {
   const item = BLUR_TARGET_COPY[target] ?? BLUR_TARGET_COPY.cards;
   return (
-    <div className="flex flex-col gap-[16px] rounded-card border border-inner-border bg-surface-2 p-[16px]">
-      <div className="flex items-center gap-[10px]">
-        <span className="flex size-[32px] shrink-0 items-center justify-center rounded-control bg-surface-1 text-text-secondary">
+    <div className="flex flex-col gap-8 rounded-card border border-inner-border bg-surface-2 p-8">
+      <div className="flex items-center gap-5">
+        <span className="flex size-16 shrink-0 items-center justify-center rounded-control bg-surface-1 text-text-secondary">
           {item.icon}
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-[13px] font-semibold text-text-primary">{item.label}</span>
-          <span className="text-[10.5px] text-text-tertiary">{item.description}</span>
+          <span className="text-base font-semibold text-text-primary">{item.label}</span>
+          <span className="text-2xs text-text-tertiary">{item.description}</span>
         </span>
         <button
           type="button"
@@ -427,16 +427,16 @@ function BlurSlider({
           aria-checked={enabled}
           aria-label={`Toggle ${item.label} blur`}
           onClick={onToggle}
-          className={enabled ? "h-[20px] w-[36px] shrink-0 rounded-pill bg-accent p-[2px]" : "h-[20px] w-[36px] shrink-0 rounded-pill bg-surface-active p-[2px]"}
+          className={enabled ? "h-10 w-18 shrink-0 rounded-pill bg-accent p-1" : "h-10 w-18 shrink-0 rounded-pill bg-surface-active p-1"}
         >
-          <span className={enabled ? "block size-[16px] translate-x-[16px] rounded-pill bg-accent-foreground" : "block size-[16px] rounded-pill bg-text-secondary"} />
+          <span className={enabled ? "block size-8 translate-x-8 rounded-pill bg-accent-foreground" : "block size-8 rounded-pill bg-text-secondary"} />
         </button>
       </div>
-      <div className={enabled ? "flex flex-col gap-[12px]" : "flex flex-col gap-[12px] opacity-40"}>
-        <label className="flex flex-col gap-[6px] text-[12px] text-text-secondary">
+      <div className={enabled ? "flex flex-col gap-6" : "flex flex-col gap-6 opacity-40"}>
+        <label className="flex flex-col gap-3 text-sm text-text-secondary">
           <span className="flex items-center justify-between">
             Clarity
-            <span className="font-mono text-[11px] tabular-nums text-text-tertiary">{clarity}%</span>
+            <span className="font-mono text-xs tabular-nums text-text-tertiary">{clarity}%</span>
           </span>
           <input
             type="range"
@@ -449,15 +449,15 @@ function BlurSlider({
             className="blur-slider w-full"
             style={{ ["--fill" as string]: `${clarity}%` }}
           />
-          <span className="flex justify-between text-[11px] text-text-tertiary">
+          <span className="flex justify-between text-xs text-text-tertiary">
             <span>See-through</span>
             <span>Solid</span>
           </span>
         </label>
-        <label className="flex flex-col gap-[6px] text-[12px] text-text-secondary">
+        <label className="flex flex-col gap-3 text-sm text-text-secondary">
           <span className="flex items-center justify-between">
             Blur
-            <span className="font-mono text-[11px] tabular-nums text-text-tertiary">{depth}%</span>
+            <span className="font-mono text-xs tabular-nums text-text-tertiary">{depth}%</span>
           </span>
           <input
             type="range"
@@ -470,7 +470,7 @@ function BlurSlider({
             className="blur-slider w-full"
             style={{ ["--fill" as string]: `${depth}%` }}
           />
-          <span className="flex justify-between text-[11px] text-text-tertiary">
+          <span className="flex justify-between text-xs text-text-tertiary">
             <span>Sharp</span>
             <span>Blurred</span>
           </span>

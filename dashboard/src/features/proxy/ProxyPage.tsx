@@ -1131,13 +1131,13 @@ const PoolRow = memo(function PoolRow({
       <td style={{ minWidth: 0, maxWidth: "180px" }}>
         {pool.family ? (
           <span
-            className="truncate text-[12px] font-semibold text-text-secondary"
+            className="truncate text-sm font-semibold text-text-secondary"
             title={pool.family}
           >
             {pool.family}
           </span>
         ) : (
-          <span className="text-[11.5px] text-text-tertiary">—</span>
+          <span className="text-xs text-text-tertiary">—</span>
         )}
       </td>
       <td style={{ maxWidth: "220px" }}>
@@ -1152,7 +1152,7 @@ const PoolRow = memo(function PoolRow({
       <td style={{ minWidth: "110px" }}>
         <PoolUsageBars pool={pool} view={view} />
       </td>
-      <td className="whitespace-nowrap pl-[72px] text-right">
+      <td className="whitespace-nowrap pl-36 text-right">
         <Inline gap="4px" justify="end">
           <PoolActionButtons
             pool={pool}
@@ -1632,7 +1632,7 @@ export default function Proxy(): ReactNode {
 
           {/* Selection & Batch Toolbar (Image 2 style) */}
           {pools.length > 0 && (
-            <div className="nested-panel flex flex-wrap items-center justify-start overflow-x-auto rounded-card border border-inner-border bg-surface-2 p-[8px] text-[11px]">
+            <div className="nested-panel flex flex-wrap items-center justify-start overflow-x-auto rounded-card border border-inner-border bg-surface-2 p-4 text-xs">
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
                 <label
                   style={{
@@ -1794,7 +1794,7 @@ export default function Proxy(): ReactNode {
             </div>
           )}
           {!isPending && !isError && pools.length > 0 && (
-            <div className="proxy-table-scroll rounded-[10px] border border-inner-border bg-surface-1">
+            <div className="proxy-table-scroll rounded-control border border-inner-border bg-surface-1">
               <DataTable
                 maxHeight={460}
                 scrollRegion

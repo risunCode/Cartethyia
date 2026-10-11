@@ -21,7 +21,7 @@ export function BackLink({ to, label }: BackLinkProps): ReactNode {
         if (window.history.length > 1) navigate(-1);
         else navigate(to);
       }}
-      className="inline-flex items-center gap-[6px] text-accent text-[12px] bg-transparent border-0 p-0 cursor-pointer"
+      className="inline-flex items-center gap-3 text-accent text-sm bg-transparent border-0 p-0 cursor-pointer"
     >
       <ArrowLeft size={14} aria-hidden="true" />
       {label}
@@ -48,23 +48,23 @@ export function PageHeader({
   back,
 }: PageHeaderProps): ReactNode {
   return (
-    <div className="flex flex-col gap-[10px]">
+    <div className="flex flex-col gap-5">
       {back ? <BackLink {...back} /> : null}
-      <div className="flex items-center justify-between gap-[12px] flex-wrap">
-        <div className="flex items-center gap-[10px] min-w-0">
+      <div className="flex items-center justify-between gap-6 flex-wrap">
+        <div className="flex items-center gap-5 min-w-0">
           {icon ? <div className="card-header-icon">{icon}</div> : null}
           <div className="min-w-0">
-            <div className="flex items-center gap-[8px] flex-wrap">
-              <h1 className="text-[16px] font-bold">{title}</h1>
+            <div className="flex items-center gap-4 flex-wrap">
+              <h1 className="text-lg font-bold">{title}</h1>
               {badges}
             </div>
             {description ? (
-              <p className="mt-[2px] text-[11.5px] text-text-tertiary">{description}</p>
+              <p className="mt-1 text-xs text-text-tertiary">{description}</p>
             ) : null}
           </div>
         </div>
         {actions ? (
-          <div className={cn("flex items-center gap-[8px] flex-wrap min-w-0 max-w-full")}>
+          <div className={cn("flex items-center gap-4 flex-wrap min-w-0 max-w-full")}>
             {actions}
           </div>
         ) : null}

@@ -11,8 +11,8 @@ import { Button } from "./button";
  */
 function viewportClass(compact: boolean | undefined): string {
   return cn(
-    "state-viewport flex-1 min-h-[220px] flex items-center justify-center w-full",
-    compact === true && "state-viewport-compact min-h-0 py-[4px] px-0 [&_.state-box]:gap-[6px] [&_.state-box]:py-[8px] [&_.state-box-icon]:size-[30px]",
+    "state-viewport flex-1 min-h-110 flex items-center justify-center w-full",
+    compact === true && "state-viewport-compact min-h-0 py-2 px-0 [&_.state-box]:gap-3 [&_.state-box]:py-4 [&_.state-box-icon]:size-15",
   );
 }
 
@@ -38,7 +38,7 @@ export function EmptyState({
         </div>
         <h3>{title}</h3>
         <p>{message}</p>
-        {action ? <div className="mt-[8px]">{action}</div> : null}
+        {action ? <div className="mt-4">{action}</div> : null}
       </div>
     </div>
   );
@@ -82,14 +82,14 @@ export function ErrorState({
         </div>
         <h3 className="!text-red">{title}</h3>
         <p role="alert">{message}</p>
-        {action ? <div className="mt-[8px]">{action}</div> : null}
+        {action ? <div className="mt-4">{action}</div> : null}
         {onRetry ? (
           <Button
             variant="secondary"
             size="sm"
             onClick={onRetry}
             disabled={retrying}
-            className="mt-[6px]"
+            className="mt-3"
           >
             {retrying ? "Retrying…" : "Retry"}
           </Button>
@@ -119,7 +119,7 @@ export function StatePanel({
   const host = cn(
     "flex items-center justify-center",
     fill && "min-h-0 flex-1",
-    padding === "sm" ? "p-[20px]" : "p-[32px]",
+    padding === "sm" ? "p-10" : "p-16",
     className,
   );
   if (kind === "loading") {
