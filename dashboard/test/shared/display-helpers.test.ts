@@ -25,6 +25,8 @@ import { providerCanConfigureUserAgent } from "../../src/shared/provider-user-ag
 import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../src/lib/model-limits";
 import { requestProviderId } from "../../src/features/usage/request-provider";
 import { DASHBOARD_CODENAME, DASHBOARD_RELEASE_LABEL, DASHBOARD_VERSION } from "../../src/lib/version";
+import rootManifest from "../../../package.json";
+import dashboardManifest from "../../package.json";
 
 describe("formatModelTokens", () => {
   test("an absent limit renders as an em-dash, never as a number", () => {
@@ -316,9 +318,28 @@ describe("version metadata", () => {
     expect(DASHBOARD_RELEASE_LABEL).toBe(`v${DASHBOARD_VERSION} (${DASHBOARD_CODENAME})`);
   });
 
+  test("the version is the root manifest's, not the dashboard's own copy", () => {
+    // The sidebar badge renders `DASHBOARD_VERSION`, and it read
+    // `dashboard/package.json`, which nothing keeps in step with the root. A 2.2
+    // install therefore advertised v2.1: the root was bumped in b344008d and the
+    // dashboard manifest was not in that diff. `src/version.ts` already treats the
+    // root manifest as the single source of truth; this pins the client side to it.
+    expect(DASHBOARD_VERSION).toBe(rootManifest.version);
+  });
+
+  test("the dashboard manifest carries the root version", () => {
+    // This is the assertion with teeth for the drift that actually happened, and
+    // it is the one to keep: it fails on the next release that bumps the root and
+    // forgets here, which the assertion above cannot catch once both manifests
+    // agree. The field is only read by nothing now — nothing publishes a private
+    // package and the Dockerfile copies the file for layer caching — so a value
+    // that disagrees with the root is a stale lie with no reader but this test.
+    expect(dashboardManifest.version).toBe(rootManifest.version);
+  });
+
   test("the version is a non-empty string taken from package.json", () => {
-    // MEASURED: the dashboard's package.json carries a two-part version ("2.1"),
-    // not a semver triple. I first asserted `/^\d+\.\d+\.\d+/` and was wrong.
+    // MEASURED: the root manifest carries a two-part version ("2.2"), not a
+    // semver triple. I first asserted `/^\d+\.\d+\.\d+/` and was wrong.
     // Asserting the actual shape rather than a stricter guess keeps this a real
     // test of "it comes from package.json and is numeric", which is what the
     // release label needs.
