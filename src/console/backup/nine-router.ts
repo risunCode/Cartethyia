@@ -21,7 +21,7 @@
  */
 import type { BackupPayload, BackupRow } from "./contracts";
 import { BACKUP_APP, BACKUP_VERSION } from "./contracts";
-import { encryptCredential, hashSecret } from "../../security/crypto";
+import { hashSecret } from "../../security/crypto";
 
 /** What happened to the file, in terms an operator can act on. */
 export interface ImportReport {
@@ -187,11 +187,12 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
       provider_id: provider,
       tenant_id: tenantId,
       label,
-      // Re-encrypted with this instance's key: the router's stored form is not
-      // ours, and a credential must never be persisted in the clear.
-      credential_ciphertext: {
-        __bytes: encryptCredential(credential).toString("base64"),
-      },
+      // The plaintext, like every other sealed column in a payload: this
+      // conversion produces the same native payload a Cartethyia export
+      // produces, and the store re-seals it under this instance's key on the way
+      // in. Sealing it here instead would put a `{ __bytes }` cell in a column
+      // whose only portable form is a string, and the restore would drop it.
+      credential_ciphertext: credential,
       credential_kind: OAUTH_PROVIDERS.has(provider) ? "oauth" : "api_key",
       status: bool(entry.isActive, true) ? "active" : "disabled",
       consecutive_failures: 0,

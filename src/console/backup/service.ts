@@ -11,26 +11,28 @@
  *    configuration — which is the state that makes an operator's day worse than
  *    a plain failure would.
  *
- * Export is plain JSON at the operator's explicit request. That means the file
- * carries provider credentials and API-key hashes, so it is as sensitive as the
- * database: the layer doc and the dashboard copy say so, and export requires
- * password re-authentication.
+ * Export is a JSON object at the operator's explicit request, and it carries
+ * provider credentials and API keys decrypted — the only form in which they can
+ * be restored into an install with a different encryption key (see
+ * {@link sealedColumns}). So the file is as sensitive as the database: the layer
+ * doc and the dashboard copy say so, and export requires password
+ * re-authentication.
  */
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { ConsoleDomainError } from "../shared/errors";
 import { tablesForSection, tableName } from "./contracts";
 import type { BackupSection, RestoreWarning } from "./contracts";
-import { deleteAll, exportBackup, applyRestore, type DeleteAllResult, type DeleteAllScope } from "./store";
+import {
+  applyRestore,
+  decompressBackup,
+  deleteAll,
+  exportBackup,
+  type DeleteAllResult,
+  type DeleteAllScope,
+} from "./store";
 import { detectFormat, restoreOrder, validateRestorePayload } from "./validate";
 import { convert9RouterBackup, type ImportReport } from "./nine-router";
 import { isRecord } from "../../protocol/codecs";
-
-/** Console user rows carried by a native payload, if the section names them. */
-function consoleUsersIn(payload: unknown): readonly unknown[] {
-  if (!isRecord(payload) || !isRecord(payload.sections) || !isRecord(payload.sections.config)) return [];
-  const users = payload.sections.config.console_users;
-  return Array.isArray(users) ? users : [];
-}
 
 export interface BackupServiceOptions {
   readonly db: CartethyiaDatabase;
@@ -43,7 +45,7 @@ export interface ExportOptions {
   readonly password: string;
   /** The tenant whose rows are exported. Never another tenant's. */
   readonly tenantId: string;
-  /** Decrypt ciphertext and gzip the file. Applies to every selected section. */
+  /** Gzips the file. Changes nothing about what the payload carries. */
   readonly compressed?: boolean;
 }
 
@@ -68,7 +70,6 @@ export interface BackupInspection {
   readonly exportedAt: string;
   readonly rows: readonly BackupInspectionRow[];
   readonly total: number;
-  readonly hasConsoleUsers: boolean;
   readonly warnings: readonly RestoreWarning[];
 }
 
@@ -91,6 +92,50 @@ function sectionsOrDefault(sections: readonly BackupSection[] | undefined): read
   return sections;
 }
 
+/** The bytes of an uploaded backup file, as carried by a string. */
+function toBackupBytes(input: string): Uint8Array {
+  // Base64 is the only way file bytes travel inside a JSON body. A string that
+  // already is JSON is taken as the file's text; anything else is the encoded
+  // file, and a malformed payload still fails at `JSON.parse` rather than here.
+  if (input.trimStart().startsWith("{")) return Buffer.from(input, "utf8");
+  return Buffer.from(input, "base64");
+}
+
+/**
+ * Accepts a backup in any form the operator can hand it over, and parses it.
+ *
+ * The export offers a compressed download and names it `.json.gz`, so the file
+ * on the operator's disk is gzip bytes. The restore path used to read its body
+ * as JSON text, which meant their own backup was the one file it could not
+ * import. The shapes handled here are the ways a file actually arrives: a JSON
+ * object (the dashboard decodes the file in the browser), the export's own
+ * `{ bytes }` envelope, the file's text, and its bytes — base64-encoded for a
+ * JSON body, or raw.
+ *
+ * Whether it is compressed is decided by the bytes' magic, never by the
+ * filename: a `.json` that is really gzip is restored, and a `.gz` that is not
+ * is too.
+ */
+function normalizeBackupInput(input: unknown): unknown {
+  if (input === null || input === undefined) return input;
+  if (input instanceof Uint8Array) return parseBackupText(decompressBackup(input));
+  if (input instanceof ArrayBuffer) return parseBackupText(decompressBackup(new Uint8Array(input)));
+  if (typeof input === "string") return parseBackupText(decompressBackup(toBackupBytes(input)));
+  // The export's own envelope, handed straight back.
+  if (isRecord(input) && typeof input["bytes"] === "string" && Object.keys(input).length <= 3) {
+    return parseBackupText(decompressBackup(toBackupBytes(input["bytes"])));
+  }
+  return input;
+}
+
+function parseBackupText(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new ConsoleDomainError("invalid_request", 400, "that file is not a JSON backup");
+  }
+}
+
 export class BackupService {
   constructor(private readonly options: BackupServiceOptions) {}
 
@@ -103,7 +148,6 @@ export class BackupService {
       this.options.db,
       sections.flatMap((section) => tablesForSection(section)),
       options.tenantId,
-      options.compressed === true,
     );
     return { payload, counts };
   }
@@ -130,7 +174,7 @@ export class BackupService {
       throw new ConsoleDomainError("unauthorized", 401, "password is incorrect");
     }
 
-    const detected = detectFormat(payload);
+    const detected = detectFormat(normalizeBackupInput(payload));
     if (detected.kind === "unknown") {
       throw new ConsoleDomainError("invalid_request", 400, detected.reason);
     }
@@ -152,17 +196,12 @@ export class BackupService {
    * to. The caller has already proven that no console user exists and holds
    * the setup lock.
    *
-   * A file with no console users is restored, not refused: its configuration is
-   * worth recovering even when its accounts were not carried, and the caller
-   * decides what to do about sign-in. `hasConsoleUsers` reports what the file
-   * claimed, so the caller can tell "restored and its accounts sign in" from
-   * "restored, and now it needs an administrator".
+   * The configuration is restored; the sign-in accounts are not, because a
+   * backup does not carry them (see {@link CONFIG_TABLES}). The caller creates
+   * the administrator for the install it just recovered into.
    */
-  async restoreFirstBoot(
-    payload: unknown,
-    tenantId: string,
-  ): Promise<ImportResult & { readonly hasConsoleUsers: boolean }> {
-    const detected = detectFormat(payload);
+  async restoreFirstBoot(payload: unknown, tenantId: string): Promise<ImportResult> {
+    const detected = detectFormat(normalizeBackupInput(payload));
     if (detected.kind !== "native") {
       throw new ConsoleDomainError(
         "invalid_request",
@@ -171,11 +210,7 @@ export class BackupService {
       );
     }
     const result = await this.apply(detected.payload, tenantId);
-    return {
-      ...result,
-      format: "native",
-      hasConsoleUsers: consoleUsersIn(detected.payload).length > 0,
-    };
+    return { ...result, format: "native" };
   }
 
   /**
@@ -188,7 +223,7 @@ export class BackupService {
    * from the same validation a restore runs, and writes nothing.
    */
   inspect(payload: unknown): BackupInspection {
-    const detected = detectFormat(payload);
+    const detected = detectFormat(normalizeBackupInput(payload));
     if (detected.kind === "unknown") {
       throw new ConsoleDomainError("invalid_request", 400, detected.reason);
     }
@@ -202,7 +237,6 @@ export class BackupService {
         exportedAt: "",
         rows: [],
         total: 0,
-        hasConsoleUsers: false,
         warnings: [],
       };
     }
@@ -229,7 +263,6 @@ export class BackupService {
       exportedAt: typeof candidate.exportedAt === "string" ? candidate.exportedAt : "",
       rows,
       total,
-      hasConsoleUsers: consoleUsersIn(candidate).length > 0,
       warnings,
     };
   }

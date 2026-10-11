@@ -61,9 +61,8 @@ export interface SetupResponse {
 /**
  * Result of a first-boot restore.
  *
- * `warnings` is what a partial restore had to leave out, and `createdAdmin`
- * says whether the console then needed a new administrator to be reachable at
- * all — so the wizard can report both instead of only "it worked".
+ * `warnings` is what a partial restore had to leave out, so the wizard can
+ * report that instead of only "it worked".
  */
 /** A backup's cover, so the wizard can show what a file holds before restoring. */
 export interface SetupInspectResponse extends SetupResponse {
@@ -77,14 +76,13 @@ export interface SetupInspectResponse extends SetupResponse {
     readonly supported: boolean;
   }[];
   readonly total?: number;
-  readonly hasConsoleUsers?: boolean;
   readonly warnings?: readonly { readonly table?: string; readonly column?: string; readonly reason: string }[];
 }
 
 export interface SetupRestoreResponse extends SetupResponse {
   readonly restored?: Record<string, number>;
   readonly warnings?: readonly { readonly table?: string; readonly column?: string; readonly reason: string }[];
-  readonly hasConsoleUsers?: boolean;
+  /** The administrator this install was given, since the file carries none. */
   readonly createdAdmin?: boolean;
 }
 
@@ -461,7 +459,6 @@ export function createConsoleAuthRoutes(
         message,
         restored: outcome.restored,
         ...(partial ? { warnings: outcome.warnings } : {}),
-        hasConsoleUsers: outcome.hasConsoleUsers,
         createdAdmin: outcome.createdAdmin,
       } satisfies SetupRestoreResponse;
     },

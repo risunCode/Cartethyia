@@ -8,8 +8,17 @@ describe("backup contract coverage", () => {
     expect(tablesForSection("config").map(tableName)).not.toContain("studio_sessions");
   });
 
-  test("includes console users so a first boot can restore its accounts", () => {
-    expect(tablesForSection("config").map(tableName)).toContain("console_users");
+  test("never carries sign-in accounts, in either direction", () => {
+    // A backup is restored *into* an install, not over one: the file's admin
+    // username and password hash belong to the install that made it. Restoring
+    // them hands the recovering operator a credential they never chose, and a
+    // first boot has none to begin with, so the wizard always creates the
+    // administrator instead. Pinned in both directions because an export that
+    // wrote `console_users` would be the thing that made a restore look
+    // reasonable again.
+    const config = tablesForSection("config").map(tableName);
+    expect(config).not.toContain("console_users");
+    expect(config).not.toContain("console_sessions");
   });
 
   test("every config table has an ownership rule", () => {

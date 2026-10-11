@@ -25,7 +25,6 @@ import {
   cliToolMappings,
   cliToolSettings,
   consoleSettings,
-  consoleUsers,
   modelAliases,
   modelCombos,
   models,
@@ -59,8 +58,15 @@ export const MAX_ROWS_PER_TABLE = 500_000;
  * reverse, so a foreign key never points at a row that is not there yet. Tables
  * holding session/audit/runtime state are absent on purpose — a config restore
  * must not log everyone out, and audit history is not configuration.
- * `console_users` is the exception: a first-boot restore has no operator yet,
- * so the file has to carry the accounts that will sign in. Sessions stay out.
+ *
+ * `console_users` is absent for the same reason a restore must not touch the
+ * install's encryption: sign-in accounts belong to the install being restored
+ * *into*, not to the file. Restoring the exported admin's username and password
+ * hash would hand the recovering operator whatever credential the old install
+ * had — including one they never chose — and would fail closed on a fresh
+ * install whose hash was written by a different build. A first-boot restore
+ * therefore restores the configuration and leaves the wizard to create the
+ * administrator (see `setup-service.ts`).
  *
  * Every table here must also declare its owner in {@link ownershipOf}. A
  * restore replaces rows; it may only replace rows the restoring tenant owns, and
@@ -86,7 +92,6 @@ export const CONFIG_TABLES = [
   cliToolSettings,
   consoleSettings,
   apiKeys,
-  consoleUsers,
 ] as const satisfies readonly Table[];
 
 /**
@@ -105,6 +110,85 @@ export const TENANT_TABLE = tenants;
 
 /** Restorable metadata events and durable lifetime totals; payloads are excluded. */
 export const TELEMETRY_TABLES = [telemetryEvents, telemetryUsageTotals] as const satisfies readonly Table[];
+
+/**
+ * Every column sealed with this install's `CARTETHYIA_ENCRYPTION_KEY`.
+ *
+ * A backup is meant to move between installations, and sealed ciphertext is not:
+ * the bytes are opened only by the key that wrote them, so copying them into an
+ * install with a different key yields a credential no local code can ever read
+ * again. That is the defect this table exists to end — a restore used to insert
+ * the exported bytes verbatim, after first deleting the receiving install's own
+ * working credentials, which left every provider in the restored configuration
+ * unopenable and the new install's encryption destroyed.
+ *
+ * So a payload carries these columns **decrypted**, under the alias below, and a
+ * restore re-seals them under the key of the install it is writing into (export:
+ * `store.exportTable`, import: `store.toValues`). The file is as sensitive as the
+ * database either way — it always carried the plaintext API keys and the OAuth
+ * tokens they authorize — so this changes what a reader of the file sees, not
+ * what a reader of the database already had.
+ *
+ * The alias is not decoration. `"credential_ciphertext": "ya29.a0Af…"` names the
+ * cell for what it used to be rather than what it now holds, and a reader who
+ * trusts that name believes the file carries ciphertext it does not have —
+ * including whoever is debugging why a restored credential will not open. The
+ * column's own name stays in the schema, where it belongs.
+ *
+ * Keyed per table rather than by column name, because `credential_ciphertext`
+ * exists in two tables and means different things in each: an account's access
+ * token is not a proxy's credential.
+ *
+ * The one `bytea` column absent from here is `share_popups.image`: a PNG or JPEG
+ * the operator uploaded, opaque to this table, and it travels verbatim. Every
+ * other `bytea` column in the schema is here, so a new sealed column has to be
+ * added rather than discovered as the next broken restore.
+ */
+const SEALED_COLUMNS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  provider_accounts: { credential_ciphertext: "access_token" },
+  provider_oauth_states: {
+    refresh_ciphertext: "refresh_token",
+    client_secret_ciphertext: "client_secret",
+  },
+  network_pools: { credential_ciphertext: "proxy_credential" },
+  api_keys: { key_encrypted: "api_key" },
+  share_links: { token_encrypted: "share_token" },
+};
+
+/** The sealed columns of `table`, by column name. */
+export function sealedColumns(table: Table): ReadonlySet<string> {
+  return new Set(Object.keys(SEALED_COLUMNS[getTableName(table)] ?? {}));
+}
+
+/**
+ * The name a column travels under in a payload.
+ *
+ * Returns the column's own name for anything not sealed, so an export loop does
+ * not have to branch on the answer.
+ */
+export function payloadNameOf(table: Table, column: string): string {
+  return SEALED_COLUMNS[getTableName(table)]?.[column] ?? column;
+}
+
+/**
+ * A payload's secret names for `table`, mapped to the columns they fill.
+ *
+ * The inverse of {@link payloadNameOf}, and the one place a payload row is
+ * translated back into schema columns. It is what makes a payload portable in
+ * both directions: the export writes `access_token`, and a restore reads it as
+ * `credential_ciphertext` and seals it under its own key.
+ *
+ * An alias that is also a real column is dropped rather than mapped — the schema
+ * wins, because a row is validated against it.
+ */
+export function sealedAliases(table: Table): ReadonlyMap<string, string> {
+  const out = new Map<string, string>();
+  const allowed = columnNames(table);
+  for (const [column, alias] of Object.entries(SEALED_COLUMNS[getTableName(table)] ?? {})) {
+    if (!allowed.has(alias)) out.set(alias, column);
+  }
+  return out;
+}
 
 
 /**
@@ -297,6 +381,16 @@ export interface BackupPayload {
     readonly config?: Record<string, readonly BackupRow[]>;
     readonly telemetry?: Record<string, readonly BackupRow[]>;
   };
+  /**
+   * The interchange projection of `sections.config.provider_accounts`: one
+   * connection per row, with the router export's field names.
+   *
+   * At the root rather than inside `sections`, because it is not a table. Every
+   * key under `sections.config` is resolved against the live schema and reported
+   * when it does not match, so a projection living there would be announced as an
+   * unknown table on every single restore.
+   */
+  readonly providerConnections?: readonly Record<string, unknown>[];
 }
 
 /** One exported row: JSON-safe scalars only, so `JSON.stringify` round-trips. */

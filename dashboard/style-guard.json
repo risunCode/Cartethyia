@@ -69,7 +69,7 @@
   },
   "src/features/session/Setup.tsx": {
     "staticInline": 0,
-    "arbitrary": 5
+    "arbitrary": 2
   },
   "src/features/settings/SettingsPage.tsx": {
     "staticInline": 0,

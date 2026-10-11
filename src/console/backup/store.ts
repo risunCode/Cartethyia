@@ -30,13 +30,13 @@
  *   has a random PK, so the natural key is checked explicitly.
  */
 import { and, eq, sql } from "drizzle-orm";
-import { gzipSync } from "node:zlib";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { differsFrom } from "../../persistence/dialect";
 import { readTelemetryEvents, TELEMETRY_EVENT_DIR } from "../../observability/event-log";
 import { appendFile, mkdir } from "node:fs/promises";
 import { getTableColumns, type Column, type SQL, type Table } from "drizzle-orm";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
-import { decryptCredentialToString } from "../../security/crypto";
+import { decryptCredentialToString, encryptCredential } from "../../security/crypto";
 import {
   apiKeys,
   cliToolMappings,
@@ -69,6 +69,8 @@ import {
   columnNames,
   ownershipOf,
   replaceModeOf,
+  payloadNameOf,
+  sealedColumns,
   tableName,
   type BackupBytes,
   type BackupDate,
@@ -78,8 +80,35 @@ import {
   type ValidatedRestore,
 } from "./contracts";
 
+/** The driver's `Buffer` view of a `bytea` cell, or null when it holds none. */
+function toBuffer(value: unknown): Buffer | null {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  return null;
+}
+
+/**
+ * A sealed column, as the payload carries it: the plaintext.
+ *
+ * The ciphertext is deliberately *not* what travels — see
+ * {@link sealedColumns} for why. Ciphertext this install's key cannot open
+ * (sealed before a key rotation, or copied in from another install's database)
+ * exports as null rather than as its bytes: writing those bytes as text would
+ * put an unopenable string in the file, which a restore would then re-seal as
+ * though it were the secret itself.
+ */
+function decodeSealedForPayload(value: unknown): string | null {
+  const bytes = toBuffer(value);
+  if (bytes === null) return null;
+  try {
+    return decryptCredentialToString(bytes);
+  } catch {
+    return null;
+  }
+}
+
 /** Encodes one cell into a JSON-safe value. */
-function encodeCell(value: unknown, dataType: string, raw: boolean): unknown {
+function encodeCell(value: unknown, dataType: string): unknown {
   if (value === null || value === undefined) return null;
   if (dataType === "date") {
     const date = value instanceof Date ? value : new Date(String(value));
@@ -88,37 +117,29 @@ function encodeCell(value: unknown, dataType: string, raw: boolean): unknown {
       : ({ __date: date.toISOString() } satisfies BackupDate);
   }
   if (dataType === "custom") {
-    const bytes = Buffer.isBuffer(value)
-      ? value
-      : value instanceof Uint8Array
-        ? Buffer.from(value)
-        : null;
+    const bytes = toBuffer(value);
     if (bytes === null) return null;
-    if (!raw) return { __bytes: bytes.toString("base64") } satisfies BackupBytes;
-    try {
-      return decryptCredentialToString(bytes);
-    } catch {
-      return bytes.toString("utf8");
-    }
+    return { __bytes: bytes.toString("base64") } satisfies BackupBytes;
   }
   return value;
 }
-const RAW_SECRET_NAMES: Readonly<Record<string, string>> = {
-  credential_ciphertext: "access_token",
-  refresh_ciphertext: "refresh_token",
-  client_secret_ciphertext: "client_secret",
-  key_encrypted: "api_key",
-};
-
-function rawSecretName(name: string): string {
-  return RAW_SECRET_NAMES[name] ?? name;
-}
-function attachOauthSecrets(config: Record<string, readonly BackupRow[]>): void {
+/**
+ * Adds the `providerConnections` block a router export carries.
+ *
+ * The row tables above are the restore path; this block is the interchange
+ * shape another Cartethyia install (or a router migration) reads accounts from,
+ * so it keeps its own field names — `accessToken`, not
+ * `credential_ciphertext`. Both are built from the same decrypted values, so
+ * there is one decode and two projections of it rather than a second read.
+ */
+function attachOauthSecrets(
+  config: Record<string, readonly BackupRow[]>,
+): readonly Record<string, unknown>[] | undefined {
   const accounts = config.provider_accounts;
   const states = config.provider_oauth_states;
-  if (!Array.isArray(accounts)) return;
+  if (!Array.isArray(accounts)) return undefined;
   const byAccount = new Map((states ?? []).map((state) => [String(state.provider_account_id), state]));
-  config.providerConnections = accounts.map((account) => {
+  return accounts.map((account) => {
     const state = byAccount.get(String(account.id));
     return {
       id: account.id,
@@ -224,9 +245,9 @@ async function exportTable(
   db: CartethyiaDatabase,
   table: Table,
   tenantId: string,
-  raw: boolean,
 ): Promise<BackupRow[]> {
   const index = columnIndex(table);
+  const sealed = sealedColumns(table);
   const rows = (await db
     .select()
     .from(table)
@@ -235,9 +256,12 @@ async function exportTable(
   return rows.map((row) => {
     const out: BackupRow = {};
     for (const [name, { key, dataType }] of index) {
-      const secret = raw && name in RAW_SECRET_NAMES;
-      const value = encodeCell(row[key], secret ? "custom" : dataType, raw);
-      out[raw ? rawSecretName(name) : name] = value;
+      // A sealed column is written decrypted, under the name of the secret it
+      // holds — see `SEALED_COLUMNS` for why the column's own name would be a
+      // lie in a file that no longer carries its ciphertext.
+      out[payloadNameOf(table, name)] = sealed.has(name)
+        ? decodeSealedForPayload(row[key])
+        : encodeCell(row[key], dataType);
     }
     return out;
   });
@@ -255,7 +279,6 @@ export async function exportBackup(
   db: CartethyiaDatabase,
   tables: readonly Table[],
   tenantId: string,
-  raw = false,
 ): Promise<BackupExportResult> {
   const config: Record<string, readonly BackupRow[]> = {};
   const telemetry: Record<string, readonly BackupRow[]> = {};
@@ -266,14 +289,18 @@ export async function exportBackup(
   for (const table of tables) {
     const rows = table === telemetryEvents
       ? await exportEventFile(tenantId)
-      : await exportTable(db, table, tenantId, raw);
+      : await exportTable(db, table, tenantId);
     const name = tableName(table);
     counts[name] = rows.length;
     if (configSet.has(table)) config[name] = rows;
     else if (telemetrySet.has(table)) telemetry[name] = rows;
   }
-  if (raw) attachOauthSecrets(config);
-
+  // Always built: the row tables above now always carry the credentials
+  // decrypted, so the projection is always complete. It used to be conditional
+  // on the export being "raw", which made a plain JSON export carry a block of
+  // null tokens — a router migration from it produced accounts with no
+  // credential at all.
+  const providerConnections = attachOauthSecrets(config);
   const payload: BackupPayload = {
     app: BACKUP_APP,
     version: BACKUP_VERSION,
@@ -282,12 +309,52 @@ export async function exportBackup(
       ...(Object.keys(config).length > 0 ? { config } : {}),
       ...(Object.keys(telemetry).length > 0 ? { telemetry } : {}),
     },
+    ...(providerConnections === undefined ? {} : { providerConnections }),
   };
   return { counts, payload };
 }
-/** Gzip a raw backup. The bytes inside are plaintext; only the file is compressed. */
+/**
+ * Gzips a backup payload.
+ *
+ * `compressed` is a property of the *file*, and of nothing else: the payload is
+ * the same object either way. It used to also mean "decrypt the credentials",
+ * which coupled a transport choice to a security decision and left the plain
+ * JSON export carrying ciphertext no other install could open.
+ */
 export function compressBackup(payload: unknown): Buffer {
   return gzipSync(Buffer.from(JSON.stringify(payload), "utf8"));
+}
+
+/** The gzip magic, so a file can be recognised without trusting its name. */
+const GZIP_MAGIC = [0x1f, 0x8b] as const;
+
+/** Whether `bytes` starts with the gzip magic. */
+export function isGzipBytes(bytes: Uint8Array): boolean {
+  return GZIP_MAGIC.every((byte, index) => bytes[index] === byte);
+}
+
+/**
+ * Undoes {@link compressBackup}.
+ *
+ * A restore has to accept the file the export actually produces. The dashboard
+ * offers a compressed download and names it `.json.gz`, and until now that file
+ * could not be restored at all: the import path read the body as JSON text and
+ * `JSON.parse` of gzip bytes fails, so the operator's own backup — the only one
+ * they had — was rejected as "not a JSON backup".
+ *
+ * A file that is not gzipped is returned unchanged rather than refused, because
+ * a plain `.json` export is equally restorable and the bytes are the only thing
+ * that distinguishes them.
+ */
+export function decompressBackup(bytes: Uint8Array): string {
+  if (!isGzipBytes(bytes)) return Buffer.from(bytes).toString("utf8");
+  try {
+    return gunzipSync(bytes).toString("utf8");
+  } catch (error) {
+    throw new Error(
+      `that file is named or marked as gzip but could not be decompressed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**
@@ -314,16 +381,43 @@ function camelToSnake(name: string): string {
   return name.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`);
 }
 
+/**
+ * Re-seals one secret column under **this** install's key.
+ *
+ * The payload carries the plaintext (see {@link sealedColumns}), so every
+ * restore writes ciphertext the importing install can actually open. This is
+ * the step whose absence destroyed the receiving install's credentials: the
+ * file's bytes were inserted verbatim after the install's own rows had been
+ * deleted, so the restored configuration held secrets sealed under a key that
+ * was not in the room.
+ *
+ * A null cell is null again — every sealed column is nullable, and "this
+ * account has no stored credential" is a state the schema has to represent.
+ * Validation drops any other non-string cell before it gets here, so a
+ * non-string is a contract break rather than a case to coerce.
+ */
+function sealSecret(value: unknown, table: string, column: string): Buffer | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") {
+    throw new Error(`${table}.${column} must be restored as a plaintext string, got ${typeof value}`);
+  }
+  return encryptCredential(value);
+}
+
 /** Builds a Drizzle row object from a payload row, coercing each cell. */
 function toValues(table: Table, row: BackupRow): Record<string, unknown> {
   const index = columnIndex(table);
   const allowed = columnNames(table);
+  const sealed = sealedColumns(table);
+  const name = tableName(table);
   const values: Record<string, unknown> = {};
-  for (const [name, cell] of Object.entries(row)) {
-    if (!allowed.has(name)) throw new Error(`${tableName(table)}.${name} is not a known column`);
-    const entry = index.get(name);
+  for (const [column, cell] of Object.entries(row)) {
+    if (!allowed.has(column)) throw new Error(`${name}.${column} is not a known column`);
+    const entry = index.get(column);
     if (entry === undefined) continue;
-    values[entry.key] = decodeCell(cell, entry.dataType);
+    values[entry.key] = sealed.has(column)
+      ? sealSecret(cell, name, column)
+      : decodeCell(cell, entry.dataType);
   }
   return values;
 }

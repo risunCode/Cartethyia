@@ -37,8 +37,6 @@ export interface RestoreBackupOutcome {
   readonly skipped: Record<string, number>;
   /** Parts of the file that could not be restored. */
   readonly warnings: readonly RestoreWarning[];
-  /** Whether the file's own accounts are what will sign in from now on. */
-  readonly hasConsoleUsers: boolean;
   /** Whether this restore had to create an administrator to stay reachable. */
   readonly createdAdmin: boolean;
 }
@@ -202,6 +200,14 @@ export class FirstBootSetupService {
 
   private async restoreBackupOnce(payload: unknown, admin?: AdminBootstrap): Promise<RestoreBackupOutcome> {
     if (!(await this.requiresSetup())) throw new Error("Setup already completed");
+    // A backup carries no sign-in accounts (see `CONFIG_TABLES`), so every
+    // first-boot restore has to create the administrator. Requiring it before
+    // the restore rather than discovering its absence afterwards means a missing
+    // password costs the operator nothing, instead of committing a whole
+    // configuration and then rolling the tenant back to ask for one.
+    if (admin === undefined || admin.password.length === 0) {
+      throw new Error("A backup carries no administrator account; set a username and password to finish");
+    }
     const tenantId = randomUUID();
     await this.db.insert(tenants).values({ id: tenantId, name: "Default", status: "active" });
     let result: Awaited<ReturnType<BackupService["restoreFirstBoot"]>>;
@@ -211,25 +217,9 @@ export class FirstBootSetupService {
         verifyPassword: async () => false,
       });
       result = await backup.restoreFirstBoot(payload, tenantId);
-    } catch (error) {
-      await this.db.delete(tenants).where(eq(tenants.id, tenantId));
-      throw error;
-    }
-
-    // The file left nobody to sign in with. Create the administrator rather
-    // than discarding a restore that worked, so the operator keeps the
-    // configuration and still gets a console.
-    if (!(await this.requiresSetup())) {
-      return { ...result, createdAdmin: false };
-    }
-    if (admin === undefined || admin.password.length === 0) {
-      // Nothing forced the caller to supply one: it did not know the file was
-      // missing users until now. Roll the tenant back so a retry is clean, and
-      // say exactly what is needed.
-      await this.db.delete(tenants).where(eq(tenants.id, tenantId));
-      throw new Error("Backup has no console users; set an administrator username and password to finish");
-    }
-    try {
+      // Inside the same guard as the restore: a failure to create the
+      // administrator must leave no tenant behind, exactly as a failed restore
+      // does, or the next attempt finds setup already completed and locked.
       await this.createConsoleUser(
         this.db,
         tenantId,

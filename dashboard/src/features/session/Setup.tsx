@@ -5,6 +5,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { consoleRequest } from "../../data/api";
+import { readBackupFile } from "../../lib/backup-file";
 import { queryClient } from "../../data/query-client";
 import { queryKeys } from "../../data/query-keys";
 
@@ -30,15 +31,12 @@ interface SetupInspectResult extends SetupResult {
     readonly supported: boolean;
   }[];
   readonly total?: number;
-  readonly hasConsoleUsers?: boolean;
   readonly warnings?: readonly RestoreWarning[];
 }
 
 interface SetupRestoreResult extends SetupResult {
   readonly restored?: Record<string, number>;
   readonly warnings?: readonly RestoreWarning[];
-  readonly hasConsoleUsers?: boolean;
-  readonly createdAdmin?: boolean;
 }
 
 /**
@@ -59,7 +57,6 @@ interface BackupPreview {
     readonly supported: boolean;
   }[];
   readonly total: number;
-  readonly hasConsoleUsers: boolean;
   readonly warnings: readonly RestoreWarning[];
 }
 
@@ -80,11 +77,6 @@ export default function Setup(): ReactNode {
   const [mode, setMode] = useState<"create" | "restore">("create");
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<BackupPreview | null>(null);
-  /**
-   * The file is restored, but it carried no account, so the wizard has to ask
-   * for one — otherwise the configuration comes back and nobody can sign in.
-   */
-  const [needsAdmin, setNeedsAdmin] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -157,40 +149,40 @@ export default function Setup(): ReactNode {
     }
   };
 
-  const restore = async (file: File, admin?: { password: string; username?: string; displayName?: string }) => {
+  const restore = async (file: File) => {
     setPending(true);
     setError(null);
     try {
-      const text = await file.text();
-      const backup = JSON.parse(text) as unknown;
+      // A backup carries no sign-in accounts, so the administrator is always
+      // part of the restore request rather than a second pass over the file.
+      if (password.length < 8) {
+        setError("Administrator password must be at least 8 characters.");
+        return;
+      }
+      if (password !== confirm) {
+        setError("Passwords do not match.");
+        return;
+      }
+      const backup = await readBackupFile(file);
       const result = await consoleRequest<SetupRestoreResult>("/auth/setup/restore", {
         method: "POST",
-        body: JSON.stringify({ backup, ...(admin ?? {}) }),
+        body: JSON.stringify({
+          backup,
+          username: username.trim(),
+          password,
+          ...(displayName.trim() ? { display_name: displayName.trim() } : {}),
+        }),
       });
       if (result.status !== "success") {
         setError(result.message ?? "Restore failed. Please try again.");
         return;
       }
-      // The file restored, but left nobody to sign in with. Ask once, using the
-      // restore that already happened rather than throwing it away.
-      if (result.hasConsoleUsers === false && result.createdAdmin !== true) {
-        setNeedsAdmin(true);
-        setPending(false);
-        return;
-      }
       queryClient.removeQueries({ queryKey: queryKeys.session.current });
       navigate("/login", { replace: true });
     } catch (reason: unknown) {
-      if (reason instanceof SyntaxError) {
-        setError("That file is not a JSON backup.");
+      if (reason instanceof Error) {
+        setError(reason.message);
         return;
-      }
-      if (reason && typeof reason === "object" && "message" in reason) {
-        const msg = (reason as { message: unknown }).message;
-        if (typeof msg === "string") {
-          setError(msg);
-          return;
-        }
       }
       setError("An unexpected network error occurred.");
     } finally {
@@ -198,44 +190,17 @@ export default function Setup(): ReactNode {
     }
   };
 
-  const restoreWithAdmin = async () => {
-    if (!restoreFile) return;
-    if (password.length < 8) {
-      setError("Administrator password must be at least 8 characters.");
-      return;
-    }
-    if (password !== confirm) {
-      setError("Passwords do not match.");
-      return;
-    }
-    await restore(restoreFile, {
-      password,
-      username: username.trim(),
-      ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
-    });
-  };
-
   const pickFile = (file: File | null) => {
     setRestoreFile(file);
     setError(null);
-    setNeedsAdmin(false);
     if (file === null) {
       setPreview(null);
       return;
     }
     // Inspect on the server: only the live schema knows which of these tables
     // still exist, so the "unsupported" verdict cannot be computed here.
-    void file
-      .text()
-      .then(async (text) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(text) as unknown;
-        } catch {
-          setPreview(null);
-          setError("That file is not a JSON backup.");
-          return;
-        }
+    void readBackupFile(file)
+      .then(async (parsed) => {
         try {
           const result = await consoleRequest<SetupInspectResult>("/auth/setup/inspect", {
             method: "POST",
@@ -246,26 +211,24 @@ export default function Setup(): ReactNode {
             setError(result.message ?? "Could not read that backup.");
             return;
           }
-          const hasUsers = result.hasConsoleUsers === true;
           setPreview({
             fileName: file.name,
             version: result.version ?? 0,
             exportedAt: result.exportedAt ?? "",
             rows: result.rows ?? [],
             total: result.total ?? 0,
-            hasConsoleUsers: hasUsers,
             warnings: result.warnings ?? [],
           });
-          // Ask up front, from what the peek already reported, rather than
-          // restoring first and trying to read a refusal back.
-          setNeedsAdmin(!hasUsers);
         } catch {
           // A failed peek must not block the restore: the button stays live and
           // the real attempt reports the real reason.
           setPreview(null);
         }
       })
-      .catch(() => setPreview(null));
+      .catch((reason: unknown) => {
+        setPreview(null);
+        setError(reason instanceof Error ? reason.message : "That file is not a JSON backup.");
+      });
   };
 
   if (open === false) {
@@ -302,7 +265,7 @@ export default function Setup(): ReactNode {
           <p className="auth-desc">
             {mode === "create"
               ? "Configure the administrator account for Cartethyia AI Gateway"
-              : "Restore a backup. Its accounts sign in; no new account is created."}
+              : "Restore a backup's configuration. A backup carries no accounts, so set the administrator for this install."}
           </p>
         </div>
 
@@ -334,10 +297,7 @@ export default function Setup(): ReactNode {
                 disabled={pending || open === null || restoreFile === null}
                 onClick={() => {
                   if (!restoreFile) return;
-                  // Without accounts the wizard has to supply one, so a single
-                  // click sends both rather than restoring into a dead console.
-                  if (needsAdmin) void restoreWithAdmin();
-                  else void restore(restoreFile);
+                  void restore(restoreFile);
                 }}
               >
                 {pending ? "Restoring…" : "Restore backup"}
@@ -347,7 +307,7 @@ export default function Setup(): ReactNode {
               ref={restoreInputRef}
               id="setup-backup"
               type="file"
-              accept="application/json,.json"
+              accept="application/json,.json,.gz,application/gzip"
               disabled={pending}
               className="hidden"
               onChange={(event) => {
@@ -359,53 +319,42 @@ export default function Setup(): ReactNode {
 
             {preview ? <BackupSummary preview={preview} /> : null}
 
-            {needsAdmin ? (
-              <div className="flex flex-col gap-3 p-3 border border-[color-mix(in_srgb,var(--status-warning)_35%,transparent)] rounded-control">
-                <p className="m-0 text-text-secondary text-caption">
-                  This backup has no console accounts, so nothing could sign in
-                  after restoring it. Set an administrator below — the rest of
-                  the file is restored either way.
-                </p>
-                <Input
-                  label="Administrator Username"
-                  id="restore-username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  autoComplete="username"
-                />
-                <Input
-                  label="Master Password"
-                  hint="(min. 8 chars)"
-                  id="restore-password"
-                  type="password"
-                  required
-                  minLength={8}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="new-password"
-                />
-                <Input
-                  label="Confirm Password"
-                  id="restore-confirm"
-                  type="password"
-                  required
-                  minLength={8}
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  autoComplete="new-password"
-                />
-                <Button
-                  variant="primary"
-                  type="button"
-                  disabled={pending || open === null}
-                  onClick={() => void restoreWithAdmin()}
-                  className="w-full h-20"
-                >
-                  {pending ? "Restoring…" : "Restore and create administrator"}
-                </Button>
-              </div>
-            ) : null}
+            <div className="flex flex-col gap-3">
+              <p className="m-0 text-text-secondary text-caption">
+                A backup holds no sign-in accounts, so restoring one never
+                restores an administrator. Set the account for this install —
+                the file's own passwords are not reused.
+              </p>
+              <Input
+                label="Administrator Username"
+                id="restore-username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                autoComplete="username"
+              />
+              <Input
+                label="Master Password"
+                hint="(min. 8 chars)"
+                id="restore-password"
+                type="password"
+                required
+                minLength={8}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+              <Input
+                label="Confirm Password"
+                id="restore-confirm"
+                type="password"
+                required
+                minLength={8}
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
 
             {error ? <SetupError message={error} /> : null}
           </div>
@@ -491,11 +440,6 @@ function BackupSummary({ preview }: { readonly preview: BackupPreview }): ReactN
           {preview.fileName}
         </span>
         <span className="inline-flex items-center flex-none px-3.5 py-px border border-inner-border rounded-md bg-surface-2 text-text-secondary text-badge tabular-nums">v{preview.version}</span>
-        {preview.hasConsoleUsers ? (
-          <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--green)_40%,transparent)] text-green">accounts</span>
-        ) : (
-          <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] text-status-warning">no accounts</span>
-        )}
         {unsupported.length > 0 ? (
           <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] text-status-warning">
             {unsupported.length} unsupported

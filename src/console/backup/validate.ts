@@ -25,6 +25,8 @@ import {
   columnNames,
   droppedColumns,
   findTable,
+  sealedAliases,
+  sealedColumns,
   tableName,
   type BackupRow,
   type BackupSection,
@@ -217,13 +219,33 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
       const dropped = droppedColumns(table);
       const types = columnTypes(table);
       const required = requiredColumns(table);
+      const sealed = sealedColumns(table);
       const rows: BackupRow[] = [];
       // One warning per (table, column), not per row: a retired column is one
       // fact about the file, and repeating it 4,000 times is noise.
       const reported = new Set<string>();
+      // A payload names its secrets for what they are (`access_token`), not for
+      // the column that seals them (`credential_ciphertext`) — the ciphertext is
+      // the one thing a backup cannot carry between installations. Map them back
+      // before anything else looks at the row, or the credentials would be
+      // dropped as unknown columns and the configuration would come back with
+      // none of them.
+      const aliases = sealedAliases(table);
       const capped = Math.min(value.length, MAX_ROWS_PER_TABLE);
+      const rowsIn: readonly unknown[] =
+        aliases.size === 0
+          ? value
+          : value.slice(0, capped).map((row) => {
+              if (!isPlainObject(row)) return row;
+              const mapped: Record<string, unknown> = {};
+              for (const [column, cell] of Object.entries(row)) {
+                mapped[aliases.get(column) ?? column] = cell;
+              }
+              return mapped;
+            });
+
       for (let i = 0; i < capped; i++) {
-        const row = value[i];
+        const row = rowsIn[i];
         if (!isPlainObject(row)) {
           warnings.push({ table: name, reason: `row ${i} is not an object; skipped` });
           continue;
@@ -240,12 +262,6 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
         // A column the schema never had is dropped from the row rather than
         // failing the table: the rest of the row still restores.
         const unknownColumns = Object.keys(sanitizedRow).filter((column) => !allowed.has(column));
-        const knownRow: Record<string, unknown> =
-          unknownColumns.length === 0
-            ? sanitizedRow
-            : Object.fromEntries(
-                Object.entries(sanitizedRow).filter(([column]) => allowed.has(column)),
-              );
         for (const column of unknownColumns) {
           if (reported.has(column)) continue;
           reported.add(column);
@@ -255,6 +271,39 @@ export function validateRestorePayload(payload: unknown, tenantId: string): Rest
             reason: `not a column of ${tableName(table)}; the column was dropped from every row`,
           });
         }
+        // A sealed column may only be restored from plaintext, because plaintext
+        // is the only form the store can re-seal under *this* install's key (see
+        // `sealedColumns`). A `{ __bytes }` cell in one of those columns is
+        // therefore ciphertext written by another install — the shape every
+        // backup before the credential portability fix produced — and it is
+        // dropped with a reason rather than inserted as though it were readable
+        // here, which is the defect that left restored providers unopenable. The
+        // rest of the row still restores: an account without its token is
+        // recoverable, and the operator re-authorizes one credential rather than
+        // losing the configuration.
+        let sealedRow = sanitizedRow;
+        if (sealed.size > 0) {
+          for (const column of sealed) {
+            if (!(column in sealedRow)) continue;
+            const cell = sealedRow[column];
+            if (cell === null || cell === undefined || typeof cell === "string") continue;
+            if (!reported.has(column)) {
+              reported.add(column);
+              warnings.push({
+                table: name,
+                column,
+                reason:
+                  "held ciphertext sealed under another install's key; the credential was not restored, so re-authorize it",
+              });
+            }
+            sealedRow = Object.fromEntries(Object.entries(sealedRow).filter(([key]) => key !== column));
+          }
+        }
+        const knownRow: Record<string, unknown> =
+          unknownColumns.length === 0
+            ? sealedRow
+            : Object.fromEntries(Object.entries(sealedRow).filter(([column]) => allowed.has(column)));
+
         // A row missing a column the database cannot fill in would abort the
         // whole transaction. Drop that row and report it, so one stale row
         // costs one row instead of the entire restore.

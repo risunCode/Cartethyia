@@ -7,6 +7,7 @@ import { Stack } from "./ui/stack";
 import { Switch } from "./ui/switch";
 import { toast } from "../lib/toast";
 import { downloadBytes, downloadTextFile } from "../lib/download";
+import { readBackupFile } from "../lib/backup-file";
 import { getErrorMessage } from "../lib/helpers";
 import { useDeleteAllBackup, useExportBackup, useRestoreBackup } from "../hooks/backup";
 import { Dialog } from "./ui/dialog";
@@ -159,18 +160,9 @@ export function BackupPanel(): ReactNode {
   const performRestore = async () => {
     const file = pendingRestoreFile;
     if (file === null) return;
-    let text: string;
-    try {
-      text = await file.text();
-    } catch {
-      throw new Error("Could not read that file.");
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new Error("That file is not valid JSON.");
-    }
+    // The compressed download is gzip bytes on disk, so the file cannot be read
+    // as text — see `readBackupFile`.
+    const parsed = await readBackupFile(file);
     const result = await restoreBackup.mutateAsync({ password, backup: parsed, onProgress: (progress) => setTransfer((current) => ({ ...progress, startedAt: current?.startedAt ?? Date.now() })) });
     setRestored(result.restored);
     setReport(result.report ?? null);
@@ -230,7 +222,7 @@ export function BackupPanel(): ReactNode {
               <input
                 ref={fileInput}
                 type="file"
-                accept="application/json,.json"
+                accept="application/json,.json,.gz,application/gzip"
                 className="sr-only"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
