@@ -30,6 +30,13 @@ export interface WebSearchBridgeResult {
   readonly modelId: string;
   readonly query: string;
   readonly results: WebSearchOutcome;
+  /**
+   * The client's own `tool_use` id, when the search arrived as a hosted tool
+   * call. The completed round must be addressed back to it or the client's
+   * pending call is never closed and it re-issues the search — see
+   * {@link WebSearchInvocation.callId}.
+   */
+  readonly callId?: string;
 }
 
 /** Collaborators the bridge reads from the dispatch handler. */
@@ -124,6 +131,7 @@ export async function runWebSearchBridge(
         modelId: candidate.model_id,
         query: invocation.query,
         results,
+        ...(invocation.callId === undefined ? {} : { callId: invocation.callId }),
       };
     } catch (error) {
       // Every configured provider is tried before giving up: a fallback that
@@ -160,9 +168,28 @@ export function formatSearchResults(result: WebSearchBridgeResult): string {
   return lines.join("\n");
 }
 
-/** Stable id for one served search round, shared by the upstream injection and the client echo. */
-export function servedSearchCallId(result: WebSearchBridgeResult): string {
-  return `srvtoolu_${result.providerId}_${result.query.length}_${result.results.results.length}`;
+/**
+ * Accounting id for one served search round — **never** a `tool_use` id.
+ *
+ * It is derived from the provider, the query length, and the hit count, so two
+ * rounds that happen to share those three values produce the *same* string. That
+ * is fine for correlating telemetry and useless as a tool id, because the
+ * Messages contract requires every `tool_use`/`tool_use_id` pair in one
+ * conversation to be distinct. A per-round suffix makes it unique; the caller
+ * prefers the client's own {@link WebSearchBridgeResult.callId} on the wire and
+ * only reaches for this when there is no client call to address.
+ */
+function servedSearchCallId(result: WebSearchBridgeResult): string {
+  return `srvtoolu_${result.providerId}_${result.query.length}_${result.results.results.length}_${crypto.randomUUID().slice(0, 8)}`;
+}
+/**
+ * The id a served round must be addressed by on the wire.
+ *
+ * The client's own call id when it sent one — that is what closes its pending
+ * tool round. Otherwise a fresh gateway id, never a shared one.
+ */
+function servedSearchWireId(result: WebSearchBridgeResult): string {
+  return result.callId ?? servedSearchCallId(result);
 }
 /** Visible hit list: title and URL only, so a chat client shows the results, not the query. */
 function visibleSearchHits(result: WebSearchBridgeResult): string {
@@ -182,7 +209,9 @@ export function servedSearchEvents(
   result: WebSearchBridgeResult,
   surface: SourceSurface,
 ): readonly CanonicalEvent[] {
-  const callId = servedSearchCallId(result);
+  // The client's own call id when it sent one: this is the pair that closes its
+  // pending tool round, and a mismatched id is what made it re-issue the search.
+  const callId = servedSearchWireId(result);
   const hits = result.results.results.map((hit) => ({
     type: "web_search_result",
     title: hit.title.length > 0 ? hit.title : hit.url,
@@ -349,7 +378,10 @@ export function withServedWebSearch(
   // replying in raw DSML tool-call syntax — but the real cause was the tool
   // declaration still reaching the upstream, which is fixed at the source.
   // With the declaration gone, a finished round leaves no pattern to imitate.
-  const callId = servedSearchCallId(result);
+  // The upstream injection is the other half of the same round, so it must carry
+  // the same id the client is waiting on — a round whose two halves disagree
+  // about the id is the loop.
+  const callId = servedSearchWireId(result);
   const searchToolName = declaredTools?.find(isWebSearchTool)?.name ?? "web_search";
   return {
     ...rest,

@@ -61,6 +61,21 @@ function parseSearchArguments(value: unknown): Record<string, unknown> | undefin
 export interface WebSearchInvocation {
   readonly query: string;
   readonly maxResults: number;
+  /**
+   * The id of the client's own `tool_use` block, when it sent the search as a
+   * hosted tool call rather than as prose.
+   *
+   * The Messages contract requires a `tool_result.tool_use_id` to reference a
+   * preceding `tool_use` id. A hosted-search client (Claude Code, Codex CLI)
+   * keeps its call pending until it sees that exact id come back, so dropping it
+   * here and minting a gateway-side id instead leaves the round unclosed — the
+   * client cannot pair the result with anything it sent and re-issues the
+   * search, which is the "search loops forever" report.
+   *
+   * Absent for a prose query (nothing to pair with) and for the function-tool
+   * loop, which reads the id off the pending call itself.
+   */
+  readonly callId?: string;
 }
 
 /** Returns true when a canonical request declares or invokes web search. */
@@ -99,7 +114,14 @@ export function extractWebSearchInvocation(
         typeof rawMax === "number" && Number.isFinite(rawMax)
           ? Math.min(Math.max(1, Math.floor(rawMax)), 50)
           : 10;
-      return { query, maxResults };
+      // Carry the client's own call id so the completed round can be addressed
+      // back to it. Without this the bridge mints its own id and the client's
+      // pending tool call is never closed.
+      return {
+        query,
+        maxResults,
+        ...(part.call_id.length > 0 ? { callId: part.call_id } : {}),
+      };
     }
   }
   for (let messageIndex = request.messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
