@@ -60,6 +60,36 @@ function providerServiceKinds(provider: ProviderResponse): readonly string[] {
   return Array.isArray(kinds) && kinds.length > 0 ? kinds : ["llm"];
 }
 
+/**
+ * Endpoint tails an operator pastes into the Base URL field instead of a root.
+ * The same shape the server strips in `splitEndpointBaseUrl`; this copy is what
+ * lets the form say so before a request is made.
+ */
+const ENDPOINT_TAIL = /\/(?:v\d+\/)?(?:messages|chat\/completions|responses|completions|embeddings|images\/generations)$/;
+
+/**
+ * The root to use when the typed Base URL ends at a per-request endpoint, or
+ * null when it already looks like a root.
+ *
+ * The suggestion is the bare origin, matching the server's
+ * `splitEndpointBaseUrl`: for `…/anthropic/v1/messages` the whole path belongs
+ * to that endpoint, and offering `…/anthropic` would still derive the model
+ * list at `…/anthropic/models` and fail.
+ */
+function pastedEndpointRoot(value: string): string | null {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (trimmed === "") return null;
+  let url: URL;
+  let pathname: string;
+  try {
+    url = new URL(trimmed);
+    pathname = url.pathname.replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+  return ENDPOINT_TAIL.test(pathname) ? url.origin : null;
+}
+
 
 // ── Custom Compatible Provider Modal ──────────────────────────────────────────
 
@@ -88,12 +118,16 @@ function AddCompatibleModal({
   const [testResult, setTestResult] = useState<{
     ok: boolean;
     message: string;
+    /** The server corrected a pasted endpoint path; shown beside the outcome. */
+    warning?: string;
   } | null>(null);
   const [testing, setTesting] = useState(false);
 
   const isAnthropic = variant === "anthropic-compatible";
   const defaultWire: WireFamily = isAnthropic ? "messages" : "chat";
   const [wireFamily, setWireFamily] = useState<WireFamily>(defaultWire);
+  // The root the field should hold, when what was typed ends at an endpoint.
+  const pastedEndpoint = useMemo(() => pastedEndpointRoot(baseUrl), [baseUrl]);
 
   useEffect(() => {
     if (!open) return;
@@ -137,11 +171,16 @@ function AddCompatibleModal({
       if (result.ok) {
         const models =
           typeof result.modelCount === "number" ? ` — upstream advertised ${result.modelCount} model(s)` : "";
-        setTestResult({ ok: true, message: `Connected successfully (${result.latencyMs}ms)${models}.` });
+        setTestResult({
+          ok: true,
+          message: `Connected successfully (${result.latencyMs}ms)${models}.`,
+          ...(result.warning === undefined ? {} : { warning: result.warning }),
+        });
       } else {
         setTestResult({
           ok: false,
           message: result.error ?? "Connection failed.",
+          ...(result.warning === undefined ? {} : { warning: result.warning }),
         });
       }
     } catch (err) {
@@ -237,6 +276,10 @@ function AddCompatibleModal({
         <div className="form-group">
           <label className="form-label" htmlFor="compat-url">
             <span>Base URL</span>
+            <span className="form-hint">
+              The root only. Do not paste the full endpoint — leave off
+              {isAnthropic ? " `/v1/messages`." : " `/chat/completions`."}
+            </span>
           </label>
           <Inline gap="8px">
             <div className="flex-1 min-w-0">
@@ -254,6 +297,13 @@ function AddCompatibleModal({
               Paste
             </Button>
           </Inline>
+          {pastedEndpoint === null ? null : (
+            <p className="mt-1.5 text-caption text-orange">
+              That looks like a full endpoint. Use{" "}
+              <code className="font-mono">{pastedEndpoint}</code> instead — Cartethyia appends the
+              endpoint path itself.
+            </p>
+          )}
         </div>
         {isAnthropic ? null : (
           <Select
@@ -297,15 +347,22 @@ function AddCompatibleModal({
             </Button>
           </Inline>
           {testResult ? (
-            <div
-              className={cn(
-                "mt-3 text-caption leading-[1.4] break-words",
-                testResult.ok ? "text-green" : "text-red",
-              )}
-            >
-              {testResult.ok ? "✓ " : "✗ "}
-              {testResult.message}
-            </div>
+            <>
+              <div
+                className={cn(
+                  "mt-3 text-caption leading-[1.4] break-words",
+                  testResult.ok ? "text-green" : "text-red",
+                )}
+              >
+                {testResult.ok ? "✓ " : "✗ "}
+                {testResult.message}
+              </div>
+              {testResult.warning ? (
+                <div className="mt-2 text-caption leading-[1.4] break-words text-orange">
+                  ⚠ {testResult.warning}
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
         <ListRow className="justify-between">

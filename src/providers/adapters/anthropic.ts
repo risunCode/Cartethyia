@@ -18,7 +18,7 @@ import { GatewayError } from "../../protocol/gateway-error";
 import { buildClaudeMessagesRequest, filterClaudeCustomHeaders } from "../integrations/shared/claude-messages";
 import { sendClaudeMessagesRequest } from "../../protocol/upstream/send-claude-messages";
 import { applyParamQuirks } from "../../transport/translation/quirks";
-import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext } from "../contracts";
+import type { ProviderDispatchTarget, ProviderAdapter, ProviderDispatchContext, ProviderId } from "../contracts";
 import { providerBaseUrl } from "../metadata";
 
 /** Construction options for the plain Anthropic API-key adapter. */
@@ -26,6 +26,12 @@ interface AnthropicAdapterOptions {
   readonly fetch?: typeof fetch;
   readonly base_url?: string;
   readonly custom_headers?: Readonly<Record<string, unknown>>;
+  /**
+   * Provider this adapter serves. Defaults to `anthropic`; an Anthropic-compatible
+   * upstream on its own host (DeepSeek's `/anthropic` surface) passes its own id
+   * so the registry's identity check holds and per-provider quirks resolve.
+   */
+  readonly provider_id?: ProviderId;
 }
 
 /**
@@ -34,7 +40,7 @@ interface AnthropicAdapterOptions {
  * never share the same fetch as [CC] OAuth impersonation.
  */
 export class AnthropicApiKeyAdapter implements ProviderAdapter {
-  readonly provider_id = "anthropic" as const;
+  readonly provider_id: ProviderId;
   private readonly fetchFn: typeof fetch;
   private readonly baseUrl: string | undefined;
   private readonly customHeaders: Readonly<Record<string, unknown>> | undefined;
@@ -43,6 +49,7 @@ export class AnthropicApiKeyAdapter implements ProviderAdapter {
     this.fetchFn = options.fetch ?? globalThis.fetch;
     this.baseUrl = options.base_url;
     this.customHeaders = options.custom_headers;
+    this.provider_id = options.provider_id ?? ("anthropic" as const);
   }
 
   async *dispatch(
@@ -54,14 +61,14 @@ export class AnthropicApiKeyAdapter implements ProviderAdapter {
       throw new GatewayError(
         "capability_unsupported",
         400,
-        "anthropic supports messages only",
+        `${this.provider_id} supports messages only`,
       );
     }
     if (context.credential.credential_kind !== "api_key") {
       throw new GatewayError(
         "invalid_request",
         400,
-        `anthropic: x-api-key credential required (got credential_kind=${context.credential.credential_kind})`,
+        `${this.provider_id}: x-api-key credential required (got credential_kind=${context.credential.credential_kind})`,
       );
     }
     if (
@@ -71,7 +78,7 @@ export class AnthropicApiKeyAdapter implements ProviderAdapter {
       throw new GatewayError(
         "invalid_request",
         400,
-        "anthropic: API key is missing a secret value",
+        `${this.provider_id}: API key is missing a secret value`,
       );
     }
     const apiKey = new TextDecoder().decode(context.credential.secret);
@@ -109,6 +116,43 @@ export function createAnthropicAdapter(fetchImpl?: typeof fetch): ProviderAdapte
   return new AnthropicApiKeyAdapter({
     base_url: providerBaseUrl("anthropic"),
     ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }),
+  });
+}
+
+/**
+ * Builds the Messages adapter for an Anthropic-compatible provider that is not
+ * itself `anthropic` — DeepSeek's `/anthropic` surface, for instance. The id and
+ * base URL are explicit because this adapter serves a provider's own host, and
+ * `assertAdapterIdentity` in the registry requires the adapter to report the id
+ * it was registered under.
+ */
+export function createAnthropicCompatibleAdapter(options: {
+  readonly provider_id: ProviderId;
+  readonly base_url: string;
+  readonly fetch?: typeof fetch;
+}): ProviderAdapter {
+  return new AnthropicApiKeyAdapter({
+    provider_id: options.provider_id,
+    base_url: options.base_url,
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+  });
+}
+
+/**
+ * DeepSeek's Messages models are served through DeepSeek's own Anthropic-
+ * compatible host, which speaks the `messages` wire (not the OpenAI chat wire it
+ * also serves). The base URL carries the `/anthropic` root because the wire
+ * path is appended to it (`/anthropic/v1/messages`); the provider's id is
+ * `deepseek` so the registry's identity check and provider-keyed quirks (e.g.
+ * `applyParamQuirks`) resolve against DeepSeek, not the Anthropic builtin.
+ *
+ * The OpenAI-compatible `deepseek` base URL is unchanged and still serves the
+ * provider's `/v1/models` discovery; only the dispatch wire moves to Messages.
+ */
+export function createDeepseekAnthropicAdapter(): ProviderAdapter {
+  return createAnthropicCompatibleAdapter({
+    provider_id: "deepseek" as const,
+    base_url: providerBaseUrl("deepseek").replace(/\/+$/, "") + "/anthropic",
   });
 }
 

@@ -100,19 +100,63 @@ export function stripEndpointBasePath(endpointPath: string, baseUrl: string | un
 }
 
 /**
+ * Endpoint tails an operator may paste into the Base URL field instead of a
+ * root. They all end at a per-request path (`/models` is the one exception the
+ * model list already handles), so a base carrying one of them cannot be a root
+ * and every derived URL — the model list, and the dispatch endpoint joined by
+ * `stripEndpointBasePath` — comes out wrong.
+ */
+const ENDPOINT_TAIL = /\/(?:v\d+\/)?(?:messages|chat\/completions|responses|completions|embeddings|images\/generations)$/;
+
+/**
+ * The root an operator's pasted URL really meant, plus the endpoint tail that
+ * was removed.
+ *
+ * The suggestion is the bare **origin**, not the path left behind. For
+ * `https://api.deepseek.com/anthropic/v1/messages` the tail `/v1/messages` is
+ * only the last segment; `/anthropic` is part of that same endpoint, and
+ * suggesting `https://api.deepseek.com/anthropic` would still derive the model
+ * list at `…/anthropic/models` and 404 — the very failure this corrects. A URL
+ * that is already a root comes back with an empty `stripped`.
+ */
+export function splitEndpointBaseUrl(baseUrl: string): { readonly baseUrl: string; readonly stripped: string } {
+  const trimmed = baseUrl.replace(/\/+$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { baseUrl: trimmed, stripped: "" };
+  }
+  const basePath = parsed.pathname.replace(/\/+$/, "");
+  const match = ENDPOINT_TAIL.exec(basePath);
+  if (match === null) return { baseUrl: trimmed, stripped: "" };
+  return { baseUrl: parsed.origin, stripped: basePath };
+}
+
+/**
  * Base URL an operator's model list lives under (`<base>/models`). A bare host
  * has no version segment, so it gets the `/v1` prefix; a base that already
- * carries a path (conventionally `/v1`) is used as-is.
+ * carries a path (conventionally `/v1`) is used as-is. A pasted endpoint path
+ * is stripped first, so `…/anthropic/v1/messages` discovers at `<host>/v1/models`
+ * rather than one level below a per-request path.
  */
 export function modelDiscoveryBaseUrl(baseUrl: string): string {
+  // A pasted endpoint is not a base at all, so its whole path is discarded and
+  // the list is looked for at `<origin>/v1`. A base that already IS a root —
+  // bare host, or a version/gateway prefix — keeps that path, because
+  // `https://gateway.example/api/v1` legitimately serves its list there.
   const trimmed = baseUrl.replace(/\/+$/, "");
-  let basePath: string;
+  let parsed: URL;
   try {
-    basePath = new URL(trimmed).pathname.replace(/\/+$/, "");
+    parsed = new URL(trimmed);
   } catch {
     return `${trimmed}/v1`;
   }
-  return basePath === "" || basePath === "/" ? `${trimmed}/v1` : trimmed;
+  const basePath = parsed.pathname.replace(/\/+$/, "");
+  const isPastedEndpoint = ENDPOINT_TAIL.test(basePath);
+  const listBase = isPastedEndpoint ? parsed.origin : `${parsed.origin}${basePath}`;
+  if (isPastedEndpoint || basePath === "" || basePath === "/") return `${listBase}/v1`;
+  return listBase;
 }
 
 /**

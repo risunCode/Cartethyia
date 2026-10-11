@@ -114,6 +114,12 @@ export interface ByokConnectionTestResult {
   /** Number of models the upstream advertised; absent when the body was not a list. */
   readonly modelCount?: number;
   readonly error?: string;
+  /**
+   * A non-blocking note about what was corrected or looks wrong in the submitted
+   * base URL. Absent when the input was already a root. The test still reports
+   * `ok` on its own terms; this is the operator-facing explanation.
+   */
+  readonly warning?: string;
 }
 
 /** One entry of a batched provider-wide probe (`probeAllModels`). */

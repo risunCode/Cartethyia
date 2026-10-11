@@ -31,14 +31,20 @@ export const DEEPSEEK_MODELS: readonly ModelDefinition[] = [
   defineModel({
     id: "deepseek-v4-pro",
     providerId: DEEPSEEK_PROVIDER_ID,
-    wireFamily: "chat",
+    wireFamily: "messages",
+    // The wire default for `messages` is `/messages`, but this provider's base
+    // already ends at `/anthropic`, so the default would compose to
+    // `/anthropic/messages`. DeepSeek publishes the versioned path, so the row
+    // declares it — the same reason the Anthropic rows above do.
+    endpoint: "/v1/messages",
     reasoning: true,
     toolCall: true,
   }),
   defineModel({
     id: "deepseek-v4.1-flash",
     providerId: DEEPSEEK_PROVIDER_ID,
-    wireFamily: "chat",
+    wireFamily: "messages",
+    endpoint: "/v1/messages",
     vision: true,
     reasoning: true,
     toolCall: true,

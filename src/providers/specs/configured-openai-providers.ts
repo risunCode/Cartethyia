@@ -16,8 +16,9 @@ export const GENERIC_API_KEY_PROVIDER_IDS = [
   "nvidia",
   "gmi",
   "ollamacloud",
-  // Bare root: the `/v1`-prefixed paths stay pinned.
-  "deepseek",
+  // `deepseek` is intentionally absent: it dispatches on the Anthropic Messages
+  // wire at its `/anthropic` root, not the OpenAI chat/responses wires, so it
+  // carries a dedicated entry in `default-registry.ts` instead.
 ] as const;
 
 type GenericApiKeyProviderId = (typeof GENERIC_API_KEY_PROVIDER_IDS)[number];
@@ -39,5 +40,4 @@ export const GENERIC_API_KEY_SPECS = {
   nvidia: genericApiKeySpec("nvidia"),
   gmi: genericApiKeySpec("gmi"),
   ollamacloud: genericApiKeySpec("ollamacloud"),
-  deepseek: genericApiKeySpec("deepseek"),
 } satisfies Readonly<Record<GenericApiKeyProviderId, ApiKeyProviderSpec>>;

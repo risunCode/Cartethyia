@@ -51,6 +51,7 @@ import {
   modelDiscoveryBaseUrl,
   modelListUrl,
   resolveByokWireProfile,
+  splitEndpointBaseUrl,
 } from "../operations/byok-wire-profile";
 import { resolveCustomCliHeaders } from "../operations/custom-cli-headers";
 import { resolveCredentialForAccount } from "../operations/provider-credential-service";
@@ -512,6 +513,15 @@ export class ProviderProbingService {
     const wireFamily: WireFamily = (WIRE_FAMILIES as readonly string[]).includes(requestedWire)
       ? (requestedWire as WireFamily)
       : "chat";
+    // An operator who pasted a full endpoint (`…/anthropic/v1/messages`) gets it
+    // stripped before the model list is derived, and told so. Probing the
+    // corrected root is what makes the result actionable: the alternative is a
+    // bare 404 against a path the gateway built from their own typo.
+    const submitted = splitEndpointBaseUrl(request.baseUrl);
+    const warning =
+      submitted.stripped === ""
+        ? undefined
+        : `Base URL pointed at the endpoint "${submitted.stripped}". Cartethyia derives the model list from the root, so it tested "${submitted.baseUrl}" instead. Save that root as the Base URL.`;
     const url = modelListUrl(request.baseUrl);
     const outbound = asOutboundBinding(await this.outboundFetchFor(tenantId));
     const probeFetch = createProbeFetch(outbound.fetch);
@@ -538,6 +548,7 @@ export class ProviderProbingService {
           latencyMs,
           statusCode: response.status,
           error: `Upstream rejected the connection test with HTTP ${response.status}`,
+          ...(warning === undefined ? {} : { warning }),
         };
       }
       // A body is nice to have but not required: some gateways answer `/models`
@@ -562,12 +573,14 @@ export class ProviderProbingService {
         latencyMs,
         statusCode: response.status,
         ...(modelCount === undefined ? {} : { modelCount }),
+        ...(warning === undefined ? {} : { warning }),
       };
     } catch (error) {
       return {
         ok: false,
         latencyMs: Date.now() - startedAt,
         error: error instanceof Error ? error.message : "Connection test failed",
+        ...(warning === undefined ? {} : { warning }),
       };
     } finally {
       outbound.release?.();

@@ -147,7 +147,10 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   { id: "mistral", displayName: "Mistral AI", baseUrl: "https://api.mistral.ai/v1", credentialUrl: "https://console.mistral.ai/api-keys" },
   { id: "fireworks", displayName: "Fireworks AI", baseUrl: "https://api.fireworks.ai/inference/v1", credentialUrl: "https://fireworks.ai/account/api-keys" },
   { id: "nvidia", displayName: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", credentialUrl: "https://build.nvidia.com/settings/api-keys" },
-  { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", credentialUrl: "https://platform.deepseek.com/api_keys" },
+  // DeepSeek serves the Anthropic Messages wire at its own `/anthropic` root;
+  // the base URL stays the OpenAI-compatible host for `/v1/models` discovery,
+  // and the registry pins the Messages endpoint separately.
+  { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", wireFamilyDefault: "messages", credentialUrl: "https://platform.deepseek.com/api_keys" },
   { id: "gmi", displayName: "GMI Cloud", baseUrl: "https://api.gmi-serving.com/v1", credentialUrl: "https://console.gmicloud.ai" },
   {
     // The Z.AI Coding Plan subscription endpoint is a dedicated coding-plan

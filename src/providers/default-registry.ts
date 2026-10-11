@@ -208,14 +208,14 @@ export const PROVIDER_CAPABILITIES = {
   fireworks: configuredProvider("fireworks"),
   nvidia: configuredProvider("nvidia"),
   deepseek: {
-    ...configuredProvider(
-      "deepseek",
-      async () => (await import("./specs/deepseek")).DEEPSEEK_MODELS,
-    ),
-    // The host serves a standard `/v1/models`, verified live, so the shared
-    // fetcher reads it as-is and the base catalog supplies limits and pricing
-    // for the ids it already files under `deepseek`. The static catalog above is
-    // the floor, not a rival: discovery adds to it rather than replacing it.
+    // DeepSeek dispatches on its Anthropic Messages wire at the `/anthropic`
+    // root (the provider id is `deepseek`, so provider-keyed quirks resolve
+    // against DeepSeek, not the Anthropic builtin), while `/v1/models`
+    // discovery stays on the OpenAI-compatible host. The two surfaces are
+    // separate upstreams on one provider.
+    endpointPathsByWireFamily: { messages: "/v1/messages" },
+    loadAdapter: async () => (await import("./adapters/anthropic")).createDeepseekAnthropicAdapter(),
+    loadModels: async () => (await import("./specs/deepseek")).DEEPSEEK_MODELS,
     loadModelDiscovery: openAIModelDiscovery("deepseek", {
       headers: (credential) => ({ authorization: `Bearer ${credential}` }),
     }),
