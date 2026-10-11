@@ -51,28 +51,24 @@ export function CompressionPanel(): ReactNode {
               toggle. The dropdown stays usable while off so the operator can
               pick a strength before switching it on. */}
           <div
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "10px 16px",
-            }}
+            className="flex items-start gap-x-8 gap-y-5"
           >
-            <div style={{ display: "flex", gap: "10px", minWidth: 0, flex: "1 1 auto" }}>
-              <Scissors size={16} style={{ flexShrink: 0, marginTop: "2px", color: "var(--text-secondary)" }} />
-              <div style={{ minWidth: 0 }}>
+            <div className="flex gap-5 min-w-0 flex-auto">
+              <Scissors size={16} className="shrink-0 mt-1 text-text-secondary" />
+              <div className="min-w-0">
                 <label htmlFor="compression-rtk">
-                  <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                  <Inline gap="6px" className="text-body font-semibold">
                     Prune tool output (RTK)
                   </Inline>
                 </label>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)", overflowWrap: "anywhere", maxWidth: "100%" }}>
+                <div className="text-badge text-text-tertiary wrap-anywhere max-w-full">
                   Compact bulky tool results (diffs, grep dumps, listings) in the message history so a
                   long conversation stops re-sending megabytes of raw output. Higher strength compresses
                   more aggressively.
                 </div>
               </div>
             </div>
-            <Inline gap="8px" style={{ flexShrink: 0, alignItems: "center", marginLeft: "auto" }}>
+            <Inline gap="8px" className="shrink-0 items-center ml-auto">
               <Select
                 id="compression-rtk-level"
                 aria-label="RTK strength"
@@ -114,27 +110,23 @@ export function CompressionPanel(): ReactNode {
 
           {/* PonyTail (system directive): same shape — strength dropdown + toggle. */}
           <div
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "10px 16px",
-            }}
+            className="flex items-start gap-x-8 gap-y-5"
           >
-            <div style={{ display: "flex", gap: "10px", minWidth: 0, flex: "1 1 auto" }}>
-              <Sparkles size={16} style={{ flexShrink: 0, marginTop: "2px", color: "var(--text-secondary)" }} />
-              <div style={{ minWidth: 0 }}>
+            <div className="flex gap-5 min-w-0 flex-auto">
+              <Sparkles size={16} className="shrink-0 mt-1 text-text-secondary" />
+              <div className="min-w-0">
                 <label htmlFor="compression-ponytail">
-                  <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                  <Inline gap="6px" className="text-body font-semibold">
                     PonyTail (system directive)
                   </Inline>
                 </label>
-                <div style={{ fontSize: "11px", color: "var(--text-tertiary)", overflowWrap: "anywhere", maxWidth: "100%" }}>
+                <div className="text-badge text-text-tertiary wrap-anywhere max-w-full">
                   Appends a minimal-code directive to the system content, biasing the model toward the
                   smallest working change. Higher strength pushes harder toward deletion over addition.
                 </div>
               </div>
             </div>
-            <Inline gap="8px" style={{ flexShrink: 0, alignItems: "center", marginLeft: "auto" }}>
+            <Inline gap="8px" className="shrink-0 items-center ml-auto">
               <Select
                 id="compression-ponytail-level"
                 aria-label="PonyTail strength"
@@ -177,20 +169,9 @@ export function CompressionPanel(): ReactNode {
           {rtkOn || ponyOn ? (
             <p
               role="note"
-              style={{
-                display: "flex",
-                gap: "8px",
-                alignItems: "flex-start",
-                margin: 0,
-                padding: "8px 10px",
-                borderRadius: "8px",
-                border: "1px solid var(--orange)",
-                background: "var(--orange-soft)",
-                color: "var(--text-secondary)",
-                fontSize: "11px",
-              }}
+              className="flex gap-4 items-start m-0 py-4 px-5 rounded-inset border border-orange bg-orange-soft text-text-secondary text-badge"
             >
-              <TriangleAlert size={14} style={{ flexShrink: 0, marginTop: "1px", color: "var(--orange)" }} />
+              <TriangleAlert size={14} className="shrink-0 mt-0.5 text-orange" />
               <span>
                 Your AI may produce degraded quality while compression is active: it sees a
                 shortened history and a minimal-code directive, so fewer tokens but a chance of

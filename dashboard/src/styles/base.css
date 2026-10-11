@@ -23,12 +23,15 @@
  */
 @layer components {
 /* Scrollbars: the page column hides its bar, while contained regions (the
-   sidebar rail, dialogs, `.scroll-region`) keep a thin overlay style. */
+   sidebar rail, dialogs, `.scroll-region`) keep a thin overlay style.
+   `.mlab-scroll` is absent on purpose — console.css owns that class and declares
+   the same two properties, so listing it here too would give the selector two
+   owners for no difference. Its `::-webkit-scrollbar` rules below stay, because
+   those selectors are distinct. */
 .app-sidebar nav,
 .dialog-panel .modal-body,
 .drawer-body,
-.scroll-region,
-.mlab-scroll {
+.scroll-region {
   scrollbar-width: thin;
   scrollbar-color: var(--inner-border) transparent;
 }
@@ -161,9 +164,7 @@ html[data-glass-depth="2"] {
   h3,
   .topbar-title,
   .brand-name,
-  .auth-title,
-  .section-header-text h1,
-  .section-header-text h2 {
+  .auth-title {
     font-family: var(--font-head);
     letter-spacing: -0.015em;
     font-weight: 700;

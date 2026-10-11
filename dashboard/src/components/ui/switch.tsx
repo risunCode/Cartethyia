@@ -1,4 +1,5 @@
-import type { CSSProperties } from "react";
+import type { ReactNode } from "react";
+import { cn } from "../../lib/cn";
 
 export interface SwitchProps {
   checked: boolean;
@@ -8,7 +9,8 @@ export interface SwitchProps {
   label?: string;
   /** Accessible name override. Defaults to the visible `label` when present. */
   ["aria-label"]?: string;
-  style?: CSSProperties;
+  /** Merged onto the label, so a caller can position the control (e.g. `ml-3`). */
+  className?: string;
 }
 
 export function Switch({
@@ -18,13 +20,12 @@ export function Switch({
   id,
   label,
   ["aria-label"]: ariaLabel,
-  style,
-}: SwitchProps) {
+  className = "",
+}: SwitchProps): ReactNode {
   return (
     <label
       htmlFor={id}
-      className={`switch-container ${disabled ? "is-disabled" : ""}`.trim()}
-      style={style}
+      className={cn(`switch-container ${disabled ? "is-disabled" : ""}`.trim(), className)}
     >
       <button
         type="button"

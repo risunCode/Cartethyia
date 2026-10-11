@@ -153,7 +153,7 @@ export function ModelPickerModal({
           maxWidth: "100%",
         }}
       >
-        <div style={{ position: "relative" }}>
+        <div className="relative">
           <Search
             size={14}
             style={{
@@ -195,21 +195,7 @@ export function ModelPickerModal({
             }}
           >
             {selected.map((s) => (
-              <span
-                key={s}
-                className="font-mono tabular-nums" style={{ display: "inline-flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  fontSize: "11px",
-                  background: "var(--accent-soft)",
-                  color: "var(--accent)",
-                  padding: "2px 6px",
-                  borderRadius: "6px",
-                  border: "1px solid var(--accent)",
-                  maxWidth: "100%",
-                  overflow: "hidden",
-                  wordBreak: "break-all" }}
-              >
+              <span key={s} className="font-mono tabular-nums inline-flex items-center gap-2 text-badge bg-accent-soft text-accent py-1 px-3 rounded-chip border border-accent max-w-full overflow-hidden break-all">
                 <span
                   style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                 >
@@ -252,30 +238,20 @@ export function ModelPickerModal({
         >
           {isLoading ? (
             <div
-              style={{
-                padding: "32px",
-                textAlign: "center",
-                fontSize: "12px",
-                color: "var(--text-tertiary)",
-              }}
+              className="p-16 text-center text-caption text-text-tertiary"
             >
               Loading catalog…
             </div>
           ) : isError ? (
-            <div style={{ padding: "32px", textAlign: "center", fontSize: "12px" }}>
-              <p style={{ color: "var(--text-tertiary)" }}>Failed to load catalog.</p>
-              <button type="button" onClick={refetch} style={{ marginTop: "8px" }}>
+            <div className="p-16 text-center text-caption">
+              <p className="text-text-tertiary">Failed to load catalog.</p>
+              <button type="button" onClick={refetch} className="mt-4">
                 Retry
               </button>
             </div>
           ) : grouped.length === 0 ? (
             <div
-              style={{
-                padding: "32px",
-                textAlign: "center",
-                fontSize: "12px",
-                color: "var(--text-tertiary)",
-              }}
+              className="p-16 text-center text-caption text-text-tertiary"
             >
               No models found.
             </div>
@@ -285,7 +261,7 @@ export function ModelPickerModal({
               return (
               <div
                 key={groupKey}
-                style={{ display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 }}
+                className="flex flex-col gap-4 min-w-0"
               >
                 <div
                   style={{
@@ -340,12 +316,7 @@ export function ModelPickerModal({
                         {sel && (
                           <Check
                             size={12}
-                            style={{
-                              position: "absolute",
-                              top: "8px",
-                              right: "8px",
-                              color: "var(--accent)",
-                            }}
+                            className="absolute top-4 right-4 text-accent"
                           />
                         )}
                         <span
@@ -403,7 +374,7 @@ export function ModelPickerModal({
                               {e.entry.contextLimit ? (
                                 `${formatShortTokens(e.entry.contextLimit)} ctx`
                               ) : (
-                                <span title={UNKNOWN_LIMITS_TOOLTIP} style={{ cursor: "help" }}>
+                                <span title={UNKNOWN_LIMITS_TOOLTIP} className="cursor-help">
                                   n/a ctx
                                 </span>
                               )}
@@ -411,7 +382,7 @@ export function ModelPickerModal({
                               {e.entry.outputLimit ? (
                                 `${formatShortTokens(e.entry.outputLimit)} out`
                               ) : (
-                                <span title={UNKNOWN_LIMITS_TOOLTIP} style={{ cursor: "help" }}>
+                                <span title={UNKNOWN_LIMITS_TOOLTIP} className="cursor-help">
                                   n/a out
                                 </span>
                               )}

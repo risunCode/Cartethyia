@@ -145,7 +145,7 @@ export function ThinkingSelect({
   return (
     <div
       title="Reasoning effort every test in this section sends. Auto leaves the model's own reasoning default in place."
-      style={{ minWidth: "148px", flexShrink: 0 }}
+      className="min-w-74 shrink-0"
     >
       <Select
         id={id}
@@ -313,12 +313,7 @@ export function AddModelModal({
         />
         <div>
           <div
-            style={{
-              fontSize: "11px",
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-              marginBottom: "4px",
-            }}
+            className="text-badge font-semibold text-text-secondary mb-2"
           >
             Thinking
           </div>
@@ -332,7 +327,7 @@ export function AddModelModal({
             }}
             disabled={probe.isPending}
           />
-          <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+          <div className="text-badge text-text-tertiary mt-2">
             Sent with the test. Auto leaves the model's own reasoning default in place.
           </div>
         </div>
@@ -470,23 +465,13 @@ function ModelCard({
         }}
       >
         {/* Header: icon tile + name (single-line ellipsis, no mid-token wrap) + copy */}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", minWidth: 0 }}>
+        <div className="flex items-start gap-4 min-w-0">
           <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: "26px",
-              height: "26px",
-              borderRadius: "8px",
-              background: "var(--teal-soft)",
-              color: "var(--teal)",
-              flexShrink: 0,
-            }}
+            className="inline-flex items-center justify-center w-13 h-13 rounded-inset bg-teal-soft text-teal shrink-0"
           >
             <Bot size={14} />
           </span>
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "2px" }}>
+          <div className="flex-1 min-w-0 flex flex-col gap-1">
             <div
               title={copyId}
               className="font-mono tabular-nums" style={{ minWidth: 0,
@@ -500,14 +485,7 @@ function ModelCard({
               {qualifiedId}
             </div>
             <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "6px",
-                minWidth: 0,
-                fontSize: "10px",
-                color: "var(--text-tertiary)",
-              }}
+              className="flex items-center gap-3 min-w-0 text-micro text-text-tertiary"
             >
               <span
                 title={`${model.wireFamily} · ${model.route ?? providerId}`}
@@ -575,16 +553,9 @@ function ModelCard({
 
         {/* Meta: one quiet line — caps + latency live here, not inside the button */}
         <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            minWidth: 0,
-            fontSize: "11px",
-            color: "var(--text-secondary)",
-          }}
+          className="flex items-center gap-3 min-w-0 text-badge text-text-secondary"
         >
-          <span style={{ display: "inline-flex", gap: "5px" }}>
+          <span className="inline-flex gap-2.5">
             {model.reasoning ? (
               <span title="Reasoning" aria-label="Reasoning" style={{ display: "inline-flex", color: "var(--purple)" }}>
                 <Brain size={12} />
@@ -596,28 +567,28 @@ function ModelCard({
               </span>
             ) : null}
             {model.toolCall ? (
-              <span title="Tool calling" aria-label="Tool calling" style={{ display: "inline-flex", color: "var(--orange)" }}>
+              <span title="Tool calling" aria-label="Tool calling" className="inline-flex text-orange">
                 <Wrench size={12} />
               </span>
             ) : null}
             {searchCapable ? (
-              <span title="Web search" aria-label="Web search" style={{ display: "inline-flex", color: "var(--teal)" }}>
+              <span title="Web search" aria-label="Web search" className="inline-flex text-teal">
                 <Globe size={12} />
               </span>
             ) : null}
           </span>
-          <span style={{ whiteSpace: "nowrap" }}>
+          <span className="whitespace-nowrap">
             {model.contextLimit ? (
               `${formatModelTokens(model.contextLimit)} ctx`
             ) : (
-              <span title={UNKNOWN_LIMITS_TOOLTIP} style={{ cursor: "help" }}>
+              <span title={UNKNOWN_LIMITS_TOOLTIP} className="cursor-help">
                 n/a ctx
               </span>
             )}
             {model.outputLimit ? (
               ` · ${formatModelTokens(model.outputLimit)} out`
             ) : (
-              <span title={UNKNOWN_LIMITS_TOOLTIP} style={{ cursor: "help" }}>
+              <span title={UNKNOWN_LIMITS_TOOLTIP} className="cursor-help">
                 {` · n/a out`}
               </span>
             )}
@@ -626,7 +597,7 @@ function ModelCard({
 
         {/* Actions: equal-weight buttons; the thinking setting lives in the
             section header so it applies to the whole section at once. */}
-        <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+        <div className="flex gap-3 items-center flex-wrap">
           <Button
             variant="secondary"
             size="sm"
@@ -642,17 +613,17 @@ function ModelCard({
                     ? "Last probe failed — click to retry"
                     : `Test ${qualifiedId}`
             }
-            style={{ flex: 1, justifyContent: "center" }}
+            className="flex-1 justify-center"
             icon={
               probe.isPending ? (
                 <Loader2 size={12} className="animate-spin" />
               ) : probeResult ? (
                 probeResult.ok ? (
-                  <span style={{ display: "inline-flex", color: "var(--green)" }}>
+                  <span className="inline-flex text-green">
                     <CheckCircle2 size={12} />
                   </span>
                 ) : (
-                  <span style={{ display: "inline-flex", color: "var(--red)" }}>
+                  <span className="inline-flex text-red">
                     <AlertTriangle size={12} />
                   </span>
                 )
@@ -770,10 +741,10 @@ export function ModelGrid({
           group.rows.length === 0 ? null : (
             <section
               key={group.key}
-              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+              className="flex flex-col gap-4"
             >
-              <div style={{ display: "flex", alignItems: "baseline", gap: "8px", minWidth: 0 }}>
-                <span style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-secondary)" }}>
+              <div className="flex items-baseline gap-4 min-w-0">
+                <span className="text-caption font-bold text-text-secondary">
                   {group.label}
                 </span>
                 <span className="form-section-caption">

@@ -3,6 +3,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { type CSSProperties, type ReactNode } from "react";
 
 import { FormField } from "../patterns/form-field";
+import { cn } from "../../lib/cn";
 
 export interface SelectOption {
   readonly value: string;
@@ -61,7 +62,12 @@ export function Select({
       <RadixSelect.Trigger
         id={id}
         aria-label={ariaLabelProp ?? label}
-        className={`radix-select-trigger ${SIZE_HEIGHT_CLASS[size]} ${className}`.trim()}
+        // `cn` (twMerge), not a template string: `size` emits a height class and a
+        // caller may pass its own (`h-16` for a 32px control in a toolbar). Two
+        // same-specificity height classes would otherwise be resolved by stylesheet
+        // order, not by the caller's intent, and the control would silently take the
+        // atom's size instead of the one asked for.
+        className={cn("radix-select-trigger", SIZE_HEIGHT_CLASS[size], className)}
         style={{
           ...style,
           // Runtime-computed (depends on `disabled`), so they stay inline: the

@@ -102,7 +102,7 @@ function TokenBudgetField({
         disabled={disabled}
       />
       <div
-        style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "6px" }}
+        className="flex flex-wrap gap-3 mt-3"
         role="group"
         aria-label={`${label} presets`}
       >
@@ -114,11 +114,8 @@ function TokenBudgetField({
             aria-label={`${preset.label}, ${preset.description} tokens`}
             onClick={() => onChange(preset.label)}
             disabled={disabled}
+            className="py-1 px-4 rounded-chip text-micro font-semibold"
             style={{
-              padding: "2px 8px",
-              borderRadius: "6px",
-              fontSize: "10px",
-              fontWeight: 600,
               cursor: disabled ? "not-allowed" : "pointer",
               border: `1px solid ${selected === preset.label ? "var(--accent)" : "var(--inner-border)"}`,
               background: selected === preset.label ? "var(--accent-soft)" : "transparent",
@@ -178,20 +175,15 @@ function RemoteRoutingRow({
 
   return (
     <div
+      className="flex items-center justify-between gap-6 py-2 px-5 rounded-inset"
       style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "12px",
         minHeight: "44px",
-        padding: "8px 10px",
         border: "1px solid var(--inner-border)",
-        borderRadius: "8px",
         background: enabled ? "var(--accent-soft)" : "var(--surface-1)",
       }}
     >
       <div>
-        <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>
+        <div className="text-caption font-semibold text-text-primary">
           {tool.name}
         </div>
         <p className="form-section-caption">
@@ -200,7 +192,7 @@ function RemoteRoutingRow({
             : "Remote routing off — this key's requests go straight to the provider."}
         </p>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+      <div className="flex items-center gap-4">
         <Switch
           checked={enabled}
           disabled={busy || pending || mappings.isLoading}
@@ -248,16 +240,16 @@ function RemoteRoutingSection({
   const tools = (registry.data ?? []).filter((tool) => tool.mappingSupported);
   if (keyId.length === 0 || tools.length === 0) return null;
   return (
-    <section aria-labelledby="remote-routing-heading" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+    <section aria-labelledby="remote-routing-heading" className="flex flex-col gap-4">
       <div>
-        <h4 id="remote-routing-heading" style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
+        <h4 id="remote-routing-heading" className="text-caption font-bold text-text-primary">
           Remote routing
         </h4>
         <p className="form-section-caption">
           Route this key's CLI model calls through persisted mappings and grant routing:cli_mapping. Applies immediately — no save needed.
         </p>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+      <div className="flex flex-col gap-3">
         {tools.map((tool) => (
           <RemoteRoutingRow
             key={tool.id}
@@ -449,12 +441,13 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
     <div className="api-key-form-layout">
       <section className="api-key-form-section api-key-form-section-wide">
         <h3 className="form-section-title">Credential mode</h3>
-        <div role="group" aria-label="Credential mode" style={{ display: "flex", gap: "8px" }}>
+        <div role="group" aria-label="Credential mode" className="flex gap-4">
           {(["personal", "share"] as const).map((modeOption) => (
             <button key={modeOption} type="button" aria-pressed={keyMode === modeOption}
               disabled={busy || modeLocked} onClick={() => setKeyMode(modeOption)}
               title={modeLocked ? "Credential mode cannot change after creation" : undefined}
-              style={{ border: "1px solid var(--inner-border)", borderRadius: "8px", padding: "8px 12px",
+              className="rounded-inset py-2 px-6"
+              style={{ border: "1px solid var(--inner-border)",
                 color: keyMode === modeOption ? "var(--accent)" : "var(--text-secondary)",
                 background: keyMode === modeOption ? "var(--accent-soft)" : "var(--surface-2)",
                 cursor: modeLocked ? "not-allowed" : "pointer", opacity: modeLocked && keyMode !== modeOption ? 0.5 : 1 }}>
@@ -577,34 +570,25 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
           />
         </div>
         <div
+          className="flex items-center justify-between gap-6 px-6 py-5 bg-surface-2"
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "12px",
             borderRadius: "12px",
             border: "1px solid var(--inner-border)",
-            background: "var(--surface-2)",
-            padding: "10px 12px",
           }}
         >
           <div>
-            <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
+            <div className="text-caption font-bold text-text-primary">
               Token budget
             </div>
-            <p style={{ marginTop: "2px", fontSize: "10.5px", color: "var(--text-tertiary)" }}>
+            <p className="mt-1 text-text-tertiary text-micro">
               {isOneTime
                 ? "One-time cap; it does not reset."
                 : "Daily and monthly limits reset automatically."}
             </p>
           </div>
           <div
+            className="flex gap-2 p-1 rounded-inset bg-surface-1"
             style={{
-              display: "flex",
-              gap: "4px",
-              padding: "2px",
-              borderRadius: "8px",
-              background: "var(--surface-1)",
               border: "1px solid var(--inner-border)",
             }}
           >
@@ -612,15 +596,11 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
               type="button"
               onClick={() => setBudgetMode("recurring")}
               disabled={busy}
+              className="py-2 px-5 rounded-chip font-semibold border-0 cursor-pointer"
               style={{
-                padding: "4px 10px",
-                borderRadius: "6px",
                 fontSize: "10.5px",
-                fontWeight: 600,
                 background: !isOneTime ? "var(--accent-soft)" : "transparent",
                 color: !isOneTime ? "var(--accent)" : "var(--text-tertiary)",
-                border: "none",
-                cursor: "pointer",
               }}
             >
               Recurring
@@ -629,15 +609,11 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
               type="button"
               onClick={() => setBudgetMode("one-time")}
               disabled={busy}
+              className="py-2 px-5 rounded-chip font-semibold border-0 cursor-pointer"
               style={{
-                padding: "4px 10px",
-                borderRadius: "6px",
                 fontSize: "10.5px",
-                fontWeight: 600,
                 background: isOneTime ? "var(--accent-soft)" : "transparent",
                 color: isOneTime ? "var(--accent)" : "var(--text-tertiary)",
-                border: "none",
-                cursor: "pointer",
               }}
             >
               One-time
@@ -763,20 +739,14 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
         <div className="api-key-form-columns">
         <div>
           <label
-            style={{
-              fontSize: "11px",
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-              display: "block",
-              marginBottom: "6px",
-            }}
+            className="text-badge font-semibold text-text-secondary block mb-3"
           >
             Model access
           </label>
           <div
             role="group"
             aria-label="Model access mode"
-            style={{ display: "flex", gap: "6px", marginBottom: "8px" }}
+            className="flex gap-3 mb-4"
           >
             {(["whitelist", "blacklist"] as const).map((option) => (
               <button
@@ -790,11 +760,8 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
                     ? "Only the listed models may be used. An empty list allows every model."
                     : "The listed models are refused. Everything else is allowed."
                 }
+                className="flex-1 py-2.5 px-4 text-badge font-semibold"
                 style={{
-                  flex: 1,
-                  padding: "5px 8px",
-                  fontSize: "11px",
-                  fontWeight: 600,
                   borderRadius: "7px",
                   border: `1px solid ${modelAccessMode === option ? "var(--accent)" : "var(--inner-border)"}`,
                   background: modelAccessMode === option ? "var(--accent-soft)" : "var(--surface-2)",
@@ -808,48 +775,26 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             ))}
           </div>
           <label
-            style={{
-              fontSize: "11px",
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-              display: "block",
-              marginBottom: "6px",
-            }}
+            className="text-badge font-semibold text-text-secondary block mb-3"
           >
             {modelAccessMode === "whitelist" ? "Allowed models" : "Blocked models"}
           </label>
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+          <div className="flex gap-3 flex-wrap mb-4">
             {models.length === 0 ? (
               <span className="form-section-caption">
                 {modelAccessMode === "whitelist" ? "All models allowed" : "No models blocked"}
               </span>
             ) : (
               models.map((m) => (
-                <span
-                  key={m}
-                  className="font-mono tabular-nums" style={{ display: "inline-flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    fontSize: "11px",
-                    background: "var(--accent-soft)",
-                    color: "var(--accent)",
-                    padding: "2px 8px",
-                    borderRadius: "6px",
-                    border: "1px solid var(--accent)" }}
-                >
+                <span key={m}
+                 className="font-mono tabular-nums inline-flex items-center gap-2 text-badge bg-accent-soft text-accent py-1 px-4 rounded-chip border border-accent">
                   {m}
                   <button
                     type="button"
                     aria-label={`Remove ${m} from the model list`}
                     onClick={() => setModels((prev) => prev.filter((x) => x !== m))}
                     disabled={busy}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 0,
-                      display: "flex",
-                    }}
+                    className="bg-transparent border-0 cursor-pointer p-0 flex"
                   >
                     ×
                   </button>
@@ -877,33 +822,28 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             multi
           />
         </div>
-        <section aria-labelledby="blocked-routers-heading" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        <section aria-labelledby="blocked-routers-heading" className="flex flex-col gap-4">
           <div>
-            <h4 id="blocked-routers-heading" style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
+            <h4 id="blocked-routers-heading" className="text-caption font-bold text-text-primary">
               Blocked client routers
             </h4>
             <p className="form-section-caption">
               Matching fingerprints are rejected with 403 before routing. Detection is best-effort; clients without a fingerprint are not matched. This may also block bazaar probe links that share the same fingerprint.
             </p>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div className="flex flex-col gap-3">
             {CLIENT_ROUTERS.map((router) => (
               <div
                 key={router.id}
+                className="flex items-center justify-between gap-6 py-2 px-5 rounded-inset"
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "12px",
                   minHeight: "44px",
-                  padding: "8px 10px",
                   border: "1px solid var(--inner-border)",
-                  borderRadius: "8px",
                   background: blockedRouters.includes(router.id) ? "var(--accent-soft)" : "var(--surface-1)",
                 }}
               >
                 <div>
-                  <div style={{ fontSize: "12px", color: "var(--text-primary)" }}>
+                  <div className="text-caption text-text-primary">
                     Block {router.label} Client
                   </div>
                   <p className="form-section-caption">
@@ -926,11 +866,11 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             ))}
           </div>
         </section>
-        <section aria-labelledby="routing-scopes-heading" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <h4 id="routing-scopes-heading" style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
+        <section aria-labelledby="routing-scopes-heading" className="flex flex-col gap-4">
+          <h4 id="routing-scopes-heading" className="text-caption font-bold text-text-primary">
             Routing
           </h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div className="flex flex-col gap-3">
             {/* routing:cli_mapping is intentionally absent here: it is the scope
                 half of the Remote routing switch below, which grants it and
                 enables the routes together. Listing it separately let the two
@@ -938,20 +878,15 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             {TENANT_KEY_SCOPES.filter((scope) => scope === "routing:invoke").map((scope) => (
               <div
                 key={scope}
+                className="flex items-center justify-between gap-6 py-2 px-5 rounded-inset"
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "12px",
                   minHeight: "44px",
-                  padding: "8px 10px",
                   border: "1px solid var(--inner-border)",
-                  borderRadius: "8px",
                   background: scopes.includes(scope) ? "var(--accent-soft)" : "var(--surface-1)",
                 }}
               >
                 <div>
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{scope}</div>
+                  <div className="text-caption font-semibold text-text-primary">{scope}</div>
                   <p className="form-section-caption">{SCOPE_DESCRIPTIONS[scope]}</p>
                 </div>
                 <Switch checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} disabled={busy} aria-label={`Grant ${scope}`} />
@@ -985,28 +920,23 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
             );
           }}
         />
-        <section aria-labelledby="dashboard-scopes-heading" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          <h4 id="dashboard-scopes-heading" style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>
+        <section aria-labelledby="dashboard-scopes-heading" className="flex flex-col gap-4">
+          <h4 id="dashboard-scopes-heading" className="text-caption font-bold text-text-primary">
             Dashboard / Resources
           </h4>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div className="flex flex-col gap-3">
             {TENANT_KEY_SCOPES.filter((scope) => !scope.startsWith("routing:")).map((scope) => (
               <div
                 key={scope}
+                className="flex items-center justify-between gap-6 py-2 px-5 rounded-inset"
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "12px",
                   minHeight: "44px",
-                  padding: "8px 10px",
                   border: "1px solid var(--inner-border)",
-                  borderRadius: "8px",
                   background: scopes.includes(scope) ? "var(--accent-soft)" : "var(--surface-1)",
                 }}
               >
                 <div>
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{scope}</div>
+                  <div className="text-caption font-semibold text-text-primary">{scope}</div>
                   <p className="form-section-caption">{SCOPE_DESCRIPTIONS[scope]}</p>
                 </div>
                 <Switch checked={scopes.includes(scope)} onChange={() => toggleScope(scope)} disabled={busy} aria-label={`Grant ${scope}`} />

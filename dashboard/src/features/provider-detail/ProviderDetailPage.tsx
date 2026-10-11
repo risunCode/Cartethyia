@@ -416,7 +416,7 @@ export default function ProviderDetail(): ReactNode {
         }
         back={{ to: "/providers", label: "Back to Providers" }}
         actions={
-          <Inline gap="8px" style={{ flexWrap: "wrap", width: "100%", maxWidth: "100%", minWidth: 0 }}>
+          <Inline gap="8px" className="flex-wrap w-full max-w-full min-w-0">
             {provider.isBuiltIn ? (
               <Button
                 variant={provider.enabled ? "danger" : "secondary"}
@@ -464,7 +464,7 @@ export default function ProviderDetail(): ReactNode {
         <Card>
           <CardHeader title="Accounts" icon={<Cable size={16} />} />
           <CardBody>
-            <p style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
+            <p className="text-caption text-text-secondary">
               This provider is a public, unauthenticated route — no account or credential is
               needed. Routing already works without any setup here.
             </p>
@@ -523,7 +523,7 @@ export default function ProviderDetail(): ReactNode {
               </CardActions>
             }
           />
-          <CardBody style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <CardBody className="flex flex-col gap-5">
             <UsageFloorControl providerId={id} />
             {accountsQuery.isPending ? (
               <LoadingState label="Loading accounts..." />
@@ -560,7 +560,7 @@ export default function ProviderDetail(): ReactNode {
             subtitle={`${llmModels.length} model${llmModels.length === 1 ? "" : "s"} registered`}
             icon={<Boxes size={16} />}
             action={
-            <Inline gap="6px" style={{ flexWrap: "wrap", alignItems: "center" }}>
+            <Inline gap="6px" className="flex-wrap items-center">
               <ThinkingSelect
                 id="models-section-thinking-effort"
                 value={thinkingEffort}
@@ -642,7 +642,7 @@ export default function ProviderDetail(): ReactNode {
             </Inline>
           }
         />
-        <CardBody style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <CardBody className="flex flex-col gap-8">
           {modelsQuery.isPending ? (
             <LoadingState label="Loading models..." />
           ) : modelsQuery.isError ? (
@@ -672,7 +672,7 @@ export default function ProviderDetail(): ReactNode {
             subtitle="Run a real search request through the selected provider."
             icon={<Globe size={16} />}
           />
-          <CardBody style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <CardBody className="flex flex-col gap-6">
             {modelsQuery.isPending ? (
               <LoadingState label="Loading search models..." />
             ) : modelsQuery.isError ? (
@@ -684,7 +684,7 @@ export default function ProviderDetail(): ReactNode {
               />
             ) : (
               <>
-                <label style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "11px", color: "var(--text-secondary)" }}>
+                <label className="flex flex-col gap-2.5 text-badge text-text-secondary">
                   Search model
                   <select
                     value={activeSearchModel}
@@ -709,7 +709,7 @@ export default function ProviderDetail(): ReactNode {
                     ))}
                   </select>
                 </label>
-                <label style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "11px", color: "var(--text-secondary)" }}>
+                <label className="flex flex-col gap-2.5 text-badge text-text-secondary">
                   Query
                   <input
                     value={searchQuery}
@@ -732,7 +732,7 @@ export default function ProviderDetail(): ReactNode {
                     }}
                   />
                 </label>
-                <Inline gap="8px" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                <Inline gap="8px" className="items-center flex-wrap">
                   <Button
                     variant="primary"
                     size="sm"
@@ -765,18 +765,18 @@ export default function ProviderDetail(): ReactNode {
                     }}
                   >
                     {searchTestResult.results.map((hit, index) => (
-                      <div key={`${hit.url}:${index}`} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      <div key={`${hit.url}:${index}`} className="flex flex-col gap-1">
                         <a
                           href={hit.url}
                           target="_blank"
                           rel="noreferrer"
-                          style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}
+                          className="text-caption text-text-primary font-semibold"
                         >
                           {hit.title || hit.url}
                         </a>
-                        <span style={{ fontSize: "11px", color: "var(--text-tertiary)", wordBreak: "break-all" }}>{hit.url}</span>
+                        <span className="text-badge text-text-tertiary break-all">{hit.url}</span>
                         {hit.snippet ? (
-                          <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{hit.snippet}</span>
+                          <span className="text-badge text-text-secondary">{hit.snippet}</span>
                         ) : null}
                       </div>
                     ))}
@@ -797,7 +797,7 @@ export default function ProviderDetail(): ReactNode {
             }
             icon={activeService === "imageGeneration" ? <ImageIcon size={16} /> : <Video size={16} />}
           />
-          <CardBody style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <CardBody className="flex flex-col gap-6">
             {modelsQuery.isPending ? (
               <LoadingState label={`Loading ${serviceLabel(activeService).toLowerCase()} models...`} />
             ) : modelsQuery.isError ? (

@@ -80,7 +80,7 @@ export function HealthEventsModal({
 
   return (
     <Dialog open={true} onClose={onClose} title={`Health & Error Log — ${title}`} size="lg">
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px", minWidth: 0 }}>
+      <div className="flex flex-col gap-7 min-w-0">
         <div
           style={{
             display: "flex",
@@ -94,16 +94,16 @@ export function HealthEventsModal({
             border: "1px solid var(--inner-border)",
           }}
         >
-          <div style={{ minWidth: 0 }}>
-            <Inline gap="8px" style={{ flexWrap: "wrap" }}>
-              <span style={{ fontSize: "13px", fontWeight: 600 }}>Account status:</span>
+          <div className="min-w-0">
+            <Inline gap="8px" className="flex-wrap">
+              <span className="text-body font-semibold">Account status:</span>
               <Badge tone={statusTone(status)} dot>{status.toUpperCase()}</Badge>
               {errorCategory ? (
                 <Badge tone="warn" title={errorMessage ?? undefined}>{errorCategory}</Badge>
               ) : null}
             </Inline>
             {errorMessage ? (
-              <p style={{ fontSize: "11.5px", color: "var(--red)", marginTop: "4px", overflowWrap: "anywhere" }}>
+              <p className="text-badge text-red mt-2 wrap-anywhere">
                 {errorMessage}
               </p>
             ) : null}
@@ -135,8 +135,8 @@ export function HealthEventsModal({
             }}
           >
             <div>
-              <div style={{ fontSize: "12px", fontWeight: 600 }}>Credential management</div>
-              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+              <div className="text-caption font-semibold">Credential management</div>
+              <div className="text-badge text-text-tertiary">
                 {staticMode ? "Static mode: no refresh request will be sent." : "OAuth refresh is enabled for this account."}
               </div>
             </div>
@@ -150,14 +150,9 @@ export function HealthEventsModal({
             </Button>
           </div>
         ) : null}
-        <div style={{ minWidth: 0 }}>
+        <div className="min-w-0">
           <h4
-            style={{
-              fontSize: "12px",
-              fontWeight: 600,
-              color: "var(--text-secondary)",
-              marginBottom: "8px",
-            }}
+            className="text-caption font-semibold text-text-secondary mb-4"
           >
             Transition Events & Audit ({events.length})
           </h4>
@@ -179,22 +174,22 @@ export function HealthEventsModal({
               <DataTable headers={["Timestamp", "From → To", "Model", "Category", "Reason / Details"]}>
                 {events.map((ev) => (
                   <tr key={ev.id}>
-                    <td style={{ fontSize: "11px", color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>
+                    <td className="text-badge text-text-tertiary whitespace-nowrap">
                       {new Date(ev.createdAt).toLocaleString()}
                     </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                    <td className="whitespace-nowrap">
+                      <span className="text-badge text-text-secondary">
                         {ev.fromStatus ?? "new"} →{" "}
                       </span>
                       <Badge tone={statusTone(ev.toStatus)}>{ev.toStatus}</Badge>
                     </td>
-                    <td className="font-mono tabular-nums" style={{ fontSize: "11px", color: "var(--text-secondary)", overflowWrap: "anywhere" }}>
+                    <td className="font-mono tabular-nums text-badge text-text-secondary wrap-anywhere">
                       {ev.modelId ?? "—"}
                     </td>
-                    <td className="font-mono tabular-nums" style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}>
+                    <td className="font-mono tabular-nums text-badge text-text-secondary">
                       {ev.errorCategory ?? "—"}
                     </td>
-                    <td style={{ fontSize: "11px", color: "var(--text-primary)", minWidth: "220px", maxWidth: "520px", overflowWrap: "anywhere" }}>
+                    <td className="text-badge text-text-primary min-w-110 max-w-260 wrap-anywhere">
                       {ev.reason ?? "—"}
                     </td>
                   </tr>

@@ -187,16 +187,10 @@ function AliasesSection(): ReactNode {
                 }
               >
                 <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    flexWrap: "wrap",
-                    minWidth: 0,
-                  }}
+                  className="flex items-center gap-4 flex-wrap min-w-0"
                 >
                   <CodeChip value={a.alias} tone="accent" />
-                  <ArrowRight size={13} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
+                  <ArrowRight size={13} className="text-text-tertiary shrink-0" />
                   <CodeChip value={a.targetModel} tone="plain" />
                 </div>
               </ListRow>
@@ -221,7 +215,7 @@ function AliasesSection(): ReactNode {
         <form
           id="alias-form"
           onSubmit={handleSave}
-          style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          className="flex flex-col gap-6"
         >
           <Input
             label="Alias name"
@@ -232,7 +226,7 @@ function AliasesSection(): ReactNode {
             required
           />
           <Inline gap="8px" align="flex-end">
-            <div style={{ flex: 1 }}>
+            <div className="flex-1">
               <Input
                 label="Target model"
                 id="target-model-input"
@@ -270,7 +264,7 @@ function AliasesSection(): ReactNode {
         title="Delete Model Alias"
       >
         <Stack gap="12px">
-          <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+          <p className="text-body text-text-secondary">
             Are you sure you want to delete alias <strong>{deleteConfirm?.alias}</strong>? Clients
             requesting this name will need their full model path.
           </p>
@@ -486,7 +480,7 @@ function CombosSection(): ReactNode {
             }
             renderItem={(c) => (
               <ListRow
-                style={{ alignItems: "flex-start" }}
+                className="items-start"
                 actions={
                   <Inline gap="8px">
                     <Select
@@ -530,30 +524,20 @@ function CombosSection(): ReactNode {
                 }
               >
                 <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "12px",
-                    flexWrap: "wrap",
-                  }}
+                  className="flex items-center justify-between gap-6 flex-wrap"
                 >
                   {/* The strategy is already shown by the Select beside it; a
                       badge repeating the same value was redundant. */}
-                  <strong style={{ fontSize: "13px" }}>{c.name}</strong>
+                  <strong className="text-body">{c.name}</strong>
                 </div>
 
-                <Inline gap="6px" style={{ flexWrap: "wrap" }}>
+                <Inline gap="6px" className="flex-wrap">
                   {c.members.slice(0, COMBO_MEMBER_CHIP_MAX).map((m) => (
                     <CodeChip key={m} value={m} />
                   ))}
                   {c.members.length > COMBO_MEMBER_CHIP_MAX ? (
-                    <span
-                      className="font-mono tabular-nums" style={{ fontSize: "11px",
-                        color: "var(--text-tertiary)",
-                        alignSelf: "center" }}
-                      title={c.members.slice(COMBO_MEMBER_CHIP_MAX).join(", ")}
-                    >
+                    <span title={c.members.slice(COMBO_MEMBER_CHIP_MAX).join(", ")}
+                     className="font-mono tabular-nums text-badge text-text-tertiary self-center">
                       +{c.members.length - COMBO_MEMBER_CHIP_MAX} more models
                     </span>
                   ) : null}
@@ -580,7 +564,7 @@ function CombosSection(): ReactNode {
         <form
           id="combo-form"
           onSubmit={handleSave}
-          style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          className="flex flex-col gap-6"
         >
           <Input
             label="Combo name"
@@ -598,8 +582,8 @@ function CombosSection(): ReactNode {
             options={COMBO_STRATEGY_OPTIONS}
           />
           <Stack gap="6px">
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>
+            <div className="flex items-center justify-between">
+              <label className="text-caption font-semibold text-text-secondary">
                 Member models — drag to reorder
               </label>
               <Button
@@ -699,7 +683,7 @@ function CombosSection(): ReactNode {
         title="Delete Model Combo"
       >
         <Stack gap="12px">
-          <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+          <p className="text-body text-text-secondary">
             Are you sure you want to delete combo <strong>{deleteConfirm?.name}</strong>? Any
             aliases pointing to it will fail to resolve.
           </p>

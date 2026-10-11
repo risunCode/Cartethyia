@@ -38,7 +38,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
     if (this.state.error === null) return this.props.children;
     return (
       <main className="auth-viewport">
-        <div className="card-solid auth-window" style={{ border: "1px solid var(--red-soft)" }}>
+        <div className="card-solid auth-window border border-red-soft">
           <div className="auth-header">
             <h1 className="auth-title">Console view failed</h1>
             <p className="auth-desc">This view could not be rendered.</p>
@@ -55,17 +55,17 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
               lineHeight: 1.5,
             }}
           >
-            <strong style={{ display: "block", color: "var(--text-primary)", marginBottom: "4px" }}>
+            <strong className="block text-text-primary mb-2">
               Rendering error
             </strong>
-            <span className="select-text" style={{ wordBreak: "break-word" }}>
+            <span className="select-text break-words">
               {this.state.error.message}
             </span>
           </div>
 
           <button
             type="button"
-            className="btn btn-primary inline-flex w-full items-center justify-center rounded-control bg-accent font-semibold text-accent-foreground mt-3 h-20 text-sm"
+            className="btn btn-primary inline-flex w-full items-center justify-center rounded-control bg-accent font-semibold text-accent-foreground mt-3 h-20 text-caption"
             onClick={() => window.location.reload()}
           >
             Reload console

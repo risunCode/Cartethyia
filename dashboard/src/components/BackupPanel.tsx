@@ -32,21 +32,21 @@ function ImportReportPanel({ report }: { readonly report: BackupImportReport }):
   return (
     <Stack gap="8px">
       {imported.length > 0 ? (
-        <p style={{ fontSize: "12px" }}>
+        <p className="text-caption">
           Imported: {imported.map(([name, count]) => `${count} ${name}`).join(", ")}
         </p>
       ) : null}
       {report.remapped.length > 0 ? (
-        <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+        <p className="text-caption text-text-secondary">
           Remapped provider ids: {report.remapped.join(", ")}
         </p>
       ) : null}
       {report.skipped.length > 0 ? (
         <div>
-          <p style={{ fontSize: "12px", color: "var(--yellow)" }}>
+          <p className="text-caption text-yellow">
             Skipped ({report.skipped.length}) — nothing was guessed:
           </p>
-          <ul style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: "4px 0 0 16px" }}>
+          <ul className="text-badge text-text-tertiary mt-2 ml-8">
             {report.skipped.map((entry) => (
               <li key={entry}>{entry}</li>
             ))}
@@ -55,8 +55,8 @@ function ImportReportPanel({ report }: { readonly report: BackupImportReport }):
       ) : null}
       {report.warnings.length > 0 ? (
         <div>
-          <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Warnings:</p>
-          <ul style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: "4px 0 0 16px" }}>
+          <p className="text-caption text-text-secondary">Warnings:</p>
+          <ul className="text-badge text-text-tertiary mt-2 ml-8">
             {report.warnings.map((entry) => (
               <li key={entry}>{entry}</li>
             ))}
@@ -212,8 +212,8 @@ export function BackupPanel(): ReactNode {
             </fieldset>
             <div className="flex items-center justify-between gap-6 rounded-control border border-inner-border px-6 py-5">
               <span>
-                <strong className="block text-base">Highly Compress Backup</strong>
-                <small className="text-xs text-text-tertiary">Makes the download smaller.</small>
+                <strong className="block text-body">Highly Compress Backup</strong>
+                <small className="text-badge text-text-tertiary">Makes the download smaller.</small>
               </span>
               <Switch checked={highlyCompress} onChange={setHighlyCompress} aria-label="Highly Compress Backup" />
             </div>

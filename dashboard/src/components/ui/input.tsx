@@ -8,7 +8,7 @@ import { cn } from "../../lib/cn";
  * table) still select on them; the box itself is utilities.
  */
 const FIELD =
-  "w-full rounded-control border border-inner-border bg-surface-2 text-text-primary px-6 py-4 text-base outline-none transition-[border-color,box-shadow] duration-[var(--dur-micro)] ease-[var(--ease-spring)] focus:border-accent focus:shadow-[0_0_0_2px_color-mix(in_srgb,var(--accent)_15%,transparent)]";
+  "w-full rounded-control border border-inner-border bg-surface-2 text-text-primary px-6 py-4 text-body outline-none transition-[border-color,box-shadow] duration-[var(--dur-micro)] ease-[var(--ease-spring)] focus:border-accent focus:shadow-[0_0_0_2px_color-mix(in_srgb,var(--accent)_15%,transparent)]";
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -46,7 +46,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               onClick={() => setVisible((v) => !v)}
               aria-label={visible ? "Hide password" : "Show password"}
               aria-pressed={visible}
-              className="absolute right-[10px] bg-transparent border-none text-text-tertiary cursor-pointer p-1 inline-flex items-center justify-center"
+              className="absolute right-5 bg-transparent border-none text-text-tertiary cursor-pointer p-1 inline-flex items-center justify-center"
             >
               {visible ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>

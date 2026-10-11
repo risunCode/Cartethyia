@@ -84,7 +84,7 @@ export function RoutingStrategyCard({
     <Card>
       <CardHeader title="Routing Strategy" subtitle={subtitle} icon={<Layers size={16} />} />
       <CardBody>
-        <div style={{ display: "grid", gap: "10px", width: "100%", minWidth: 0 }}>
+        <div className="grid gap-5 w-full min-w-0">
           <Row
             action={
               <Switch
@@ -94,9 +94,9 @@ export function RoutingStrategyCard({
               />
             }
           >
-            <div style={{ minWidth: 0 }}>
+            <div className="min-w-0">
               <label htmlFor="routing-round-robin">
-                <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                <Inline gap="6px" className="text-body font-semibold">
                   <Repeat
                     size={15}
                     aria-hidden="true"
@@ -134,13 +134,13 @@ export function RoutingStrategyCard({
                 />
               }
             >
-              <div style={{ minWidth: 0 }}>
+              <div className="min-w-0">
                 <label htmlFor="routing-rotate-count">
-                  <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                  <Inline gap="6px" className="text-body font-semibold">
                     <RefreshCw
                       size={15}
                       aria-hidden="true"
-                      style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
+                      className="text-text-tertiary shrink-0"
                     />
                     Accounts per rotation
                   </Inline>
@@ -161,9 +161,9 @@ export function RoutingStrategyCard({
               />
             }
           >
-            <div style={{ minWidth: 0 }}>
+            <div className="min-w-0">
               <label htmlFor="routing-skip-proxy">
-                <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                <Inline gap="6px" className="text-body font-semibold">
                   <Cable
                     size={15}
                     aria-hidden="true"
@@ -197,11 +197,11 @@ export function RoutingStrategyCard({
                 minWidth: 0,
               }}
             >
-              <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600, marginBottom: "6px" }}>
+              <Inline gap="6px" className="text-body font-semibold mb-3">
                 <Fingerprint
                   size={15}
                   aria-hidden="true"
-                  style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
+                  className="text-text-tertiary shrink-0"
                 />
                 Client identity
               </Inline>
@@ -223,7 +223,7 @@ export function RoutingStrategyCard({
                   <ChevronDown size={14} aria-hidden="true" />
                 </div>
               )}
-              <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+              <div className="text-badge text-text-tertiary mt-2">
                 {userAgentEditable
                   ? "Sent when the provider has no identity of its own."
                   : "Set by the provider. It cannot be changed."}
@@ -239,19 +239,19 @@ export function RoutingStrategyCard({
               }}
             >
               <label htmlFor="routing-max-inflight" className="form-label">
-                <Inline gap="6px" style={{ fontSize: "13px", fontWeight: 600 }}>
+                <Inline gap="6px" className="text-body font-semibold">
                   <Gauge
                     size={15}
                     aria-hidden="true"
-                    style={{ color: "var(--text-tertiary)", flexShrink: 0 }}
+                    className="text-text-tertiary shrink-0"
                   />
                   Max inflight / account
                 </Inline>
               </label>
-              <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginBottom: "6px" }}>
+              <div className="text-badge text-text-tertiary mb-3">
                 Shared provider ceiling. One step past {SLIDER_MAX} is unlimited.
               </div>
-              <Inline gap="10px" style={{ marginTop: "6px" }}>
+              <Inline gap="10px" className="mt-3">
                 <input
                   id="routing-max-inflight"
                   type="range"
@@ -302,7 +302,7 @@ export function RoutingStrategyCard({
               align="flex-start"
               className="form-section-caption"
             >
-              <Info size={12} style={{ flexShrink: 0, marginTop: "1px" }} />
+              <Info size={12} className="shrink-0 mt-0.5" />
               <span>
                 This provider doesn't reliably work through a plain HTTP/S proxy — use a SOCKS5 or
                 proxy pool instead if you need to route it.

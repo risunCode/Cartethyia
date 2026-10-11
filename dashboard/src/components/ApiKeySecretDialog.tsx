@@ -42,27 +42,22 @@ export function ApiKeySecretDialog({
       description="Copy it now, or reveal it again later from the key's Share button."
       size="md"
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5, margin: 0 }}>
+      <div className="flex flex-col gap-7">
+        <p className="text-body text-text-secondary m-0 leading-normal">
           A personal key stays recoverable. Open the key's Share button and choose
           Reveal to see it again and copy it. Rotating the key replaces this secret,
           and any client still using it starts getting 401s.
         </p>
         <code
+          className="block py-5 px-6 rounded-inset bg-surface-1 text-caption text-text-primary"
           style={{
-            display: "block",
-            padding: "10px 12px",
-            borderRadius: "8px",
-            background: "var(--surface-1)",
             border: "1px solid var(--inner-border)",
-            fontSize: "12px",
             wordBreak: "break-all",
-            color: "var(--text-primary)",
           }}
         >
           {secret}
         </code>
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <div className="flex gap-4 flex-wrap">
           <ClipboardButton
             value={secret ?? ""}
             size="sm"

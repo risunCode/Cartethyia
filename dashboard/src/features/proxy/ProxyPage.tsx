@@ -292,7 +292,7 @@ function PoolEditForm({
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuotaGb(e.target.value)}
           style={inputStyle}
         />
-        <div style={{ fontSize: "10.5px", color: "var(--text-tertiary)", marginTop: "4px" }}>
+        <div className="text-micro text-text-tertiary mt-2">
           {quotaValue === null
             ? "No quota — the bar shows a running total only."
             : `Bar turns orange at 80% and red once ${formatBytes(quotaValue)} is exceeded.`}
@@ -427,9 +427,9 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
     );
   });
   return (
-    <form id="add-proxy-form" onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+    <form id="add-proxy-form" onSubmit={submit} className="flex flex-col gap-6">
+      <div className="flex justify-between items-center">
+        <span className="text-caption text-text-secondary">
           Paste one per line · http / https / socks5
         </span>
         <Button variant="secondary" size="sm" type="button" onClick={handlePaste}>
@@ -447,7 +447,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
           lineHeight: 1.55,
         }}
       >
-        <strong style={{ color: "var(--text-primary)" }}>How to add proxies</strong>
+        <strong className="text-text-primary">How to add proxies</strong>
         <div>One proxy per line. Supported formats: HTTP, HTTPS, and SOCKS5.</div>
         <div>Authentication is optional: <code>https://username:password@host:port</code>.</div>
         <div>Without credentials: <code>http://host:port</code>. The username/password stays private.</div>
@@ -800,7 +800,7 @@ function PoolTitleBlock({
       >
         {maskValues ? MYSTERIOUS_PROXY : view.poolLabel}
       </span>
-      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "3px", minWidth: 0, flexWrap: "wrap" }}>
+      <div className="flex items-center gap-3 mt-1.5 min-w-0 flex-wrap">
         {pool.status === "disabled" ? (
           <Badge tone="disabled" title={pool.lastError}>
             Disabled{view.proxyFailureLabel ? ` · ${view.proxyFailureLabel}` : ""}
@@ -848,12 +848,12 @@ function PoolAddressBlock({
           {maskIp ? "IP masked" : pool.egressIp}
         </span>
       ) : (
-        <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }} title="Test the pool to read its egress address">
+        <span className="text-badge text-text-tertiary" title="Test the pool to read its egress address">
           not probed
         </span>
       )}
       {(isSpeedTesting || speedResult) && (
-        <div style={{ marginTop: "3px" }}>
+        <div className="mt-1.5">
           <Badge
             tone={isSpeedTesting ? "default" : speedResult?.status === "ok" ? "ok" : "err"}
             title={
@@ -899,16 +899,10 @@ function PoolUsageBars({
     <>
       <div
         title={`${view.inflight}/${pool.maxInflight} inflight`}
-        style={{ display: "flex", alignItems: "center", gap: "6px" }}
+        className="flex items-center gap-3"
       >
         <div
-          style={{
-            flex: 1,
-            height: "6px",
-            borderRadius: "3px",
-            background: "var(--surface-3)",
-            overflow: "hidden",
-          }}
+          className="flex-1 h-3 rounded-micro overflow-hidden"
         >
           <div
             style={{
@@ -919,11 +913,7 @@ function PoolUsageBars({
             }}
           />
         </div>
-        <span
-          className="font-mono tabular-nums" style={{ fontSize: "10.5px",
-            color: "var(--text-secondary)",
-            whiteSpace: "nowrap" }}
-        >
+        <span className="font-mono tabular-nums text-micro text-text-secondary whitespace-nowrap">
           {view.inflight}/{pool.maxInflight}
         </span>
       </div>
@@ -933,16 +923,10 @@ function PoolUsageBars({
             ? `${formatBytes(view.used)} of ${formatBytes(quota)} used · ${formatBytes(view.metered)} metered lifetime`
             : `${formatBytes(view.used)} carried (no quota set) · ${formatBytes(view.session)} this session`
         }
-        style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}
+        className="flex items-center gap-3 mt-2"
       >
         <div
-          style={{
-            flex: 1,
-            height: "6px",
-            borderRadius: "3px",
-            background: "var(--surface-3)",
-            overflow: "hidden",
-          }}
+          className="flex-1 h-3 rounded-micro overflow-hidden"
         >
           <div
             style={{
@@ -1058,7 +1042,7 @@ function PoolActionButtons({
       <Switch
         // Pushed to the far right so the on/off control sits apart from
         // the destructive Delete button beside it.
-        style={{ marginLeft: "6px" }}
+        className="ml-3"
         checked={view.isEnabled}
         disabled={updatePool.isPending}
         onChange={(next) =>
@@ -1117,7 +1101,7 @@ const PoolRow = memo(function PoolRow({
   const view = derivePoolView(pool, checkResult, isTesting, usage ?? null);
   return (
     <tr style={{ opacity: view.isEnabled ? 1 : 0.6 }}>
-      <td style={{ width: "26px" }}>
+      <td className="w-13">
         <input
           type="checkbox"
           checked={isSelected}
@@ -1125,22 +1109,22 @@ const PoolRow = memo(function PoolRow({
           aria-label={`Select ${view.poolLabel}`}
         />
       </td>
-      <td style={{ minWidth: 0, maxWidth: "300px" }}>
+      <td className="min-w-0 max-w-150">
         <PoolTitleBlock pool={pool} view={view} maskValues={maskValues} />
       </td>
-      <td style={{ minWidth: 0, maxWidth: "180px" }}>
+      <td className="min-w-0 max-w-90">
         {pool.family ? (
           <span
-            className="truncate text-sm font-semibold text-text-secondary"
+            className="truncate text-caption font-semibold text-text-secondary"
             title={pool.family}
           >
             {pool.family}
           </span>
         ) : (
-          <span className="text-xs text-text-tertiary">—</span>
+          <span className="text-badge text-text-tertiary">—</span>
         )}
       </td>
-      <td style={{ maxWidth: "220px" }}>
+      <td className="max-w-110">
         <PoolAddressBlock
           pool={pool}
           view={view}
@@ -1149,7 +1133,7 @@ const PoolRow = memo(function PoolRow({
           maskIp={maskIp}
         />
       </td>
-      <td style={{ minWidth: "110px" }}>
+      <td className="min-w-55">
         <PoolUsageBars pool={pool} view={view} />
       </td>
       <td className="whitespace-nowrap pl-36 text-right">
@@ -1200,16 +1184,9 @@ function PoolHealthDialog({
             background: "var(--surface-2)",
           }}
         >
-          <div style={{ minWidth: 0 }}>
+          <div className="min-w-0">
             <div
-              style={{
-                marginBottom: "5px",
-                color: "var(--text-tertiary)",
-                fontSize: "10px",
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-              }}
+              className="mb-2.5 text-text-tertiary text-micro font-bold tracking-label uppercase"
             >
               Proxy health
             </div>
@@ -1217,13 +1194,7 @@ function PoolHealthDialog({
               {disabledForProxyResponse ? "Proxy reachable" : `Proxy ${pool.status}`}
             </div>
             <p
-              style={{
-                margin: "6px 0 0",
-                color: "var(--text-secondary)",
-                fontSize: "12px",
-                lineHeight: 1.5,
-                overflowWrap: "anywhere",
-              }}
+              className="mt-3 mx-0 mb-0 text-text-secondary text-caption leading-normal wrap-anywhere"
             >
               {disabledForProxyResponse
                 ? `${proxyFailureLabel} · disabled from routing`
@@ -1235,7 +1206,7 @@ function PoolHealthDialog({
           </Badge>
         </div>
         {(pool.status === "cooldown") && (
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div className="flex justify-end">
             <Button
               size="sm"
               variant="secondary"
@@ -1254,13 +1225,7 @@ function PoolHealthDialog({
         ) : null}
         {events.length > 0 ? (
           <div
-            style={{
-              display: "grid",
-              gap: "8px",
-              maxHeight: "380px",
-              overflowY: "auto",
-              paddingRight: "2px",
-            }}
+            className="grid gap-4 max-h-190 overflow-y-auto pr-1"
           >
             {events.map((event) => (
               <div
@@ -1273,13 +1238,7 @@ function PoolHealthDialog({
                 }}
               >
                 <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                  }}
+                  className="flex flex-wrap items-center justify-between gap-4"
                 >
                   <Inline gap="6px">
                     <Badge
@@ -1300,23 +1259,13 @@ function PoolHealthDialog({
                     ) : null}
                   </Inline>
                   <time
-                    style={{
-                      color: "var(--text-tertiary)",
-                      fontSize: "11px",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
+                    className="text-text-tertiary text-badge tabular-nums"
                   >
                     {new Date(event.createdAt).toLocaleString()}
                   </time>
                 </div>
                 <p
-                  style={{
-                    margin: "8px 0 0",
-                    color: "var(--text-secondary)",
-                    fontSize: "12px",
-                    lineHeight: 1.5,
-                    overflowWrap: "anywhere",
-                  }}
+                  className="mt-4 mx-0 mb-0 text-text-secondary text-caption leading-normal wrap-anywhere"
                 >
                   {event.reason ?? "No additional details"}
                 </p>
@@ -1632,16 +1581,10 @@ export default function Proxy(): ReactNode {
 
           {/* Selection & Batch Toolbar (Image 2 style) */}
           {pools.length > 0 && (
-            <div className="nested-panel flex flex-wrap items-center justify-start overflow-x-auto rounded-card border border-inner-border bg-surface-2 p-4 text-xs">
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
+            <div className="nested-panel flex flex-wrap items-center justify-start overflow-x-auto rounded-card border border-inner-border bg-surface-2 p-4 text-badge">
+              <div className="flex flex-wrap items-center gap-5">
                 <label
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    cursor: "pointer",
-                    color: "var(--text-secondary)",
-                  }}
+                  className="flex items-center gap-3 cursor-pointer text-text-secondary"
                 >
                   <input
                     type="checkbox"
@@ -1651,12 +1594,12 @@ export default function Proxy(): ReactNode {
                   />
                   Select all
                   {selectedIds.size > 0 && (
-                    <span style={{ color: "var(--text-tertiary)" }}>({selectedIds.size})</span>
+                    <span className="text-text-tertiary">({selectedIds.size})</span>
                   )}
                 </label>
                 {testedCount > 0 && (
                   <Inline gap="6px">
-                    <span style={{ color: "var(--text-tertiary)" }}>
+                    <span className="text-text-tertiary">
                       Tested {testedCount}/{pools.length}
                     </span>
                     {successCount > 0 && <Badge tone="ok">{successCount} success</Badge>}
@@ -1664,7 +1607,7 @@ export default function Proxy(): ReactNode {
                   </Inline>
                 )}
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px" }}>
+              <div className="flex flex-wrap items-center gap-3">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1703,11 +1646,7 @@ export default function Proxy(): ReactNode {
                     payload. Kept as two elements in one bordered shell so it
                     reads as a single control without a bespoke component. */}
                 <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "stretch",
-                    height: "30px",
-                  }}
+                  className="inline-flex items-stretch h-15"
                 >
                   <Button
                     variant="secondary"

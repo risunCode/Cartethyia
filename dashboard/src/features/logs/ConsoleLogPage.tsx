@@ -90,7 +90,7 @@ export default function ConsoleLogPage(): ReactNode {
   const isPlatformAdmin = sessionQuery.data?.isPlatformAdmin ?? false;
   const activeTab = tab === "audit" && !isPlatformAdmin ? "logs" : tab;
   const tabAction = (
-    <div style={{ display: "flex", gap: "8px" }}>
+    <div className="flex gap-4">
       <Button
         variant={activeTab === "logs" ? "primary" : "secondary"}
         size="sm"
@@ -298,7 +298,7 @@ function LiveLogsPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
   };
 
   return (
-    <Card style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+    <Card className="flex-1 min-h-0 flex flex-col">
       <CardHeader
         title="Console Log"
         subtitle={`${visible.length} of ${lines.length} lines`}
@@ -338,7 +338,7 @@ function LiveLogsPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
           </button>
         </div>
       </CardBody>
-      <CardBody style={{ padding: 0, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <CardBody className="p-0 flex-1 min-h-0 flex flex-col">
         <div ref={scrollRef} onScroll={onScroll} className="console-log-scroll">
           {visible.length === 0 ? (
             <EmptyState
@@ -381,7 +381,7 @@ function LiveLogsPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
         danger
       />
       {clearError ? (
-        <span style={{ fontSize: "11px", color: "var(--red)", padding: "0 16px 8px" }}>{clearError}</span>
+        <span className="text-badge text-red pt-0 px-8 pb-4">{clearError}</span>
       ) : null}
     </Card>
   );
@@ -429,13 +429,13 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
     setCursorStack([]);
   };
   return (
-    <Card className="console-log-page" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+    <Card className="console-log-page flex-1 min-h-0 flex flex-col">
       <CardHeader
         title="Admin Audit Trail"
         subtitle="Every privileged console mutation, retained on its own lifecycle"
         icon={<ShieldCheck size={16} />}
         action={
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div className="flex gap-4 items-center">
             {tabAction}
             <Button
               variant="secondary"
@@ -449,14 +449,7 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
           </div>
         }
       />
-      <CardBody
-        className="console-log-toolbar"
-        style={{
-          padding: "10px 16px",
-          gap: "12px",
-          alignItems: "flex-end",
-        }}
-      >
+      <CardBody className="console-log-toolbar py-5 px-8 gap-6 items-end">
         <Input
           label="Action"
           placeholder="e.g. provider updated"
@@ -475,7 +468,7 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
             resetFilters();
           }}
         />
-        <div style={{ marginLeft: "auto", display: "flex", gap: "8px" }}>
+        <div className="ml-auto flex gap-4">
           <Button size="sm" variant="secondary" onClick={back} disabled={cursorStack.length === 0}>
             ← Newer
           </Button>
@@ -484,8 +477,8 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
           </Button>
         </div>
       </CardBody>
-      <CardBody style={{ padding: 0, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        <div className="console-log-scroll" style={{ background: "transparent", color: "inherit" }}>
+      <CardBody className="p-0 flex-1 min-h-0 flex flex-col">
+        <div className="console-log-scroll bg-transparent text-inherit">
           {query.isPending && entries.length === 0 ? (
             <LoadingState label="Loading audit trail…" />
           ) : query.isError && entries.length === 0 ? (
@@ -515,17 +508,14 @@ function AuditPanel({ tabAction }: { tabAction: ReactNode }): ReactNode {
 function AuditRow({ entry }: { entry: AuditEntry }): ReactNode {
   return (
     <tr>
-      <td style={{ fontSize: "11.5px", color: "var(--text-tertiary)", whiteSpace: "nowrap" }}>
+      <td className="text-badge text-text-tertiary whitespace-nowrap">
         {new Date(entry.createdAt).toLocaleString()}
       </td>
-      <td style={{ maxWidth: "200px" }}>
-        <div style={{ fontSize: "12.5px", fontWeight: 600 }}>{entry.actorName ?? entry.actor}</div>
+      <td className="max-w-100">
+        <div className="text-caption font-semibold">{entry.actorName ?? entry.actor}</div>
         {entry.actorName ? (
-          <div
-            className="truncate font-mono tabular-nums"
-            title={entry.actor}
-             style={{ fontSize: "10.5px", color: "var(--text-tertiary)" }}
-          >
+          <div title={entry.actor}
+           className="truncate font-mono tabular-nums text-micro text-text-tertiary">
             {entry.actor}
           </div>
         ) : null}
@@ -538,11 +528,7 @@ function AuditRow({ entry }: { entry: AuditEntry }): ReactNode {
           {auditActionLabel(entry.action)}
         </Badge>
       </td>
-      <td
-        className="truncate font-mono tabular-nums"
-        title={entry.target}
-         style={{ fontSize: "11.5px", maxWidth: "220px" }}
-      >
+      <td title={entry.target} className="truncate font-mono tabular-nums text-badge max-w-110">
         {entry.target}
       </td>
       <td

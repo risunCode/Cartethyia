@@ -13,7 +13,7 @@ export function Toolbar({ children, meta, className = "" }: ToolbarProps): React
     <div className={cn("flex items-center justify-between gap-4 flex-wrap", className)}>
       <div className="flex items-center gap-4 flex-wrap min-w-0">{children}</div>
       {meta ? (
-        <div className="ml-auto text-text-tertiary text-xs">{meta}</div>
+        <div className="ml-auto text-text-tertiary text-badge">{meta}</div>
       ) : null}
     </div>
   );

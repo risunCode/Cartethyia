@@ -61,7 +61,7 @@ export default function CliToolDetail(): ReactNode {
   if (!tool) {
     return (
       <Stack gap="12px">
-        <Link to="/cli-tools" style={{ fontSize: "12px", color: "var(--accent)" }}>
+        <Link to="/cli-tools" className="text-caption text-accent">
           ← Back to CLI Tools
         </Link>
         <ErrorState title="Tool not found" message="Unknown CLI tool id." />
@@ -296,24 +296,18 @@ function CliToolDetailBody({
     <Stack gap="16px">
       <Link
         to="/cli-tools"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "6px",
-          fontSize: "12px",
-          color: "var(--accent)",
-        }}
+        className="inline-flex items-center gap-3 text-caption text-accent"
       >
         <ArrowLeft size={14} />
         Back to CLI Tools
       </Link>
 
       <Card>
-        <CardBody style={{ display: "flex", gap: "14px", alignItems: "flex-start" }}>
+        <CardBody className="flex gap-7 items-start">
           <ToolIcon toolId={tool.id} name={tool.name} color={tool.color} size={46} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Inline gap="8px" style={{ flexWrap: "wrap" }}>
-              <h1 style={{ fontSize: "18px", fontWeight: 700 }}>{tool.name}</h1>
+          <div className="flex-1 min-w-0">
+            <Inline gap="8px" className="flex-wrap">
+              <h1 className="text-title font-bold">{tool.name}</h1>
               {installed ? (
                 <Badge tone="ok">Installed</Badge>
               ) : (
@@ -322,7 +316,7 @@ function CliToolDetailBody({
               {configured ? <Badge tone="accent">Configured</Badge> : null}
               {tool.configType === "guide" ? <Badge tone="info">Guide</Badge> : null}
             </Inline>
-            <p style={{ marginTop: "6px", fontSize: "12.5px", color: "var(--text-secondary)" }}>
+            <p className="mt-3 text-caption text-text-secondary">
               {tool.description}
             </p>
             {tool.docsUrl ? (
@@ -330,12 +324,7 @@ function CliToolDetailBody({
                 href={tool.docsUrl}
                 target="_blank"
                 rel="noreferrer"
-                style={{
-                  display: "inline-block",
-                  marginTop: "6px",
-                  fontSize: "12px",
-                  color: "var(--accent)",
-                }}
+                className="inline-block mt-3 text-caption text-accent"
               >
                 Official documentation →
               </a>
@@ -390,7 +379,7 @@ function CliToolDetailBody({
                 gap: "12px",
               }}
             >
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div className="flex flex-col gap-3">
                 <Select
                   label="Apikey Name"
                   id="api-key-select"
@@ -404,7 +393,7 @@ function CliToolDetailBody({
                     })),
                   ]}
                 />
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                <div className="flex items-center gap-3 flex-wrap">
                   {selectedKey === undefined ? (
                     <span className="form-section-caption">
                       Choose the Apikey Name whose routes this CLI session should use.
@@ -454,7 +443,7 @@ function CliToolDetailBody({
           }
           action={
             tool.mappingSupported ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <div className="flex items-center gap-5">
                 <Switch
                 checked={mappingEnabled}
                 disabled={!selectedKeyId}
@@ -524,7 +513,7 @@ function CliToolDetailBody({
         />
         <CardBody>
           {!selectedKeyId ? (
-            <p style={{ fontSize: "11.5px", color: "var(--text-tertiary)", marginBottom: "10px" }}>
+            <p className="text-badge text-text-tertiary mb-5">
               Select an API key above to load and save remote routes for that key. You can still set models below to download a config file.
             </p>
           ) : null}
@@ -544,9 +533,9 @@ function CliToolDetailBody({
                 color: "var(--text-tertiary)",
               }}
             >
-              <span style={{ flex: 1 }}>CLI asks for</span>
-              <span style={{ width: "18px", textAlign: "center" }}>→</span>
-              <span style={{ flex: 1 }}>Cartethyia routes to</span>
+              <span className="flex-1">CLI asks for</span>
+              <span className="w-9 text-center">→</span>
+              <span className="flex-1">Cartethyia routes to</span>
             </div>
           ) : null}
 
@@ -565,7 +554,7 @@ function CliToolDetailBody({
                     alignItems: "center",
                   }}
                 >
-                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 }}>
+                  <div className="flex flex-col gap-1 min-w-0">
                     <button
                       type="button"
                       onClick={() => {
@@ -590,15 +579,15 @@ function CliToolDetailBody({
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {slotValue}
                       </span>
-                      <Search size={12} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
+                      <Search size={12} className="text-text-tertiary shrink-0" />
                     </button>
-                    <span style={{ fontSize: "10px", color: "var(--text-tertiary)", paddingLeft: "2px" }}>
+                    <span className="text-micro text-text-tertiary pl-1">
                       {model.roleLabel ?? model.name}
                     </span>
                   </div>
 
                   {tool.mappingSupported ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 }}>
+                    <div className="flex flex-col gap-1 min-w-0">
                       <button
                         type="button"
                         onClick={() => {
@@ -626,7 +615,7 @@ function CliToolDetailBody({
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {targetValue.length > 0 ? targetValue : "Not routed"}
                         </span>
-                        <Search size={12} style={{ color: "var(--text-tertiary)", flexShrink: 0 }} />
+                        <Search size={12} className="text-text-tertiary shrink-0" />
                       </button>
                       <span
                         style={{
@@ -710,14 +699,14 @@ function CliToolDetailBody({
           />
           <CardBody>
             <ol
-              style={{ display: "flex", flexDirection: "column", gap: "12px", paddingLeft: "18px" }}
+              className="flex flex-col gap-6 pl-9"
             >
               {tool.guideSteps.map((step) => (
                 <li key={step.step}>
-                  <strong style={{ fontSize: "13px" }}>{step.title}</strong>
+                  <strong className="text-body">{step.title}</strong>
                   {step.desc ? (
                     <p
-                      style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}
+                      className="text-caption text-text-secondary mt-2"
                     >
                       {step.desc}
                     </p>
@@ -750,8 +739,8 @@ function CliToolDetailBody({
           subtitle="Download the config file for this CLI tool. The selected API key secret is decrypted automatically into the download."
           icon={<FileCode2 size={16} />}
         />
-        <CardBody style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <CardBody className="flex flex-col gap-6">
+          <div className="flex gap-4 flex-wrap justify-end">
             <Button
               variant="primary"
               icon={<Download size={14} />}
@@ -778,7 +767,7 @@ function CliToolDetailBody({
             </Button>
           </div>
           {!canAct ? (
-            <p style={{ fontSize: "11.5px", color: "var(--text-tertiary)", textAlign: "right" }}>
+            <p className="text-badge text-text-tertiary text-right">
               {selectedKey?.keyMode === "share"
                 ? "A share template has no secret to write into a config. Select a personal key to download the config file."
                 : "Select an Apikey Name above to enable downloading the config file."}

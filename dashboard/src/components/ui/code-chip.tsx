@@ -41,7 +41,7 @@ export function CodeChip({
   return (
     <span
       className={cn(
-        "code-chip inline-flex items-center gap-3 min-w-0 max-w-full font-mono text-sm tabular-nums",
+        "code-chip inline-flex items-center gap-3 min-w-0 max-w-full font-mono text-caption tabular-nums",
         toneClass[tone],
         className,
       )}

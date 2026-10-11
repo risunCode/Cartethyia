@@ -180,7 +180,7 @@ function ThemeToggle() {
       className="topbar-icon-button"
       title={dark ? "Switch to light mode" : "Switch to dark mode"}
     >
-      <span key={dark ? "sun" : "moon"} style={{ display: "grid", placeItems: "center" }}>
+      <span key={dark ? "sun" : "moon"} className="grid place-items-center">
         {dark ? <Sun size={17} /> : <Moon size={17} />}
       </span>
     </button>
@@ -217,7 +217,7 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
   }, [open]);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div className="relative">
       <button
         ref={triggerRef}
         type="button"
@@ -250,32 +250,13 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
               }}
             >
               <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: "12px",
-                }}
+                className="flex items-center justify-between mb-6"
               >
                 <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontWeight: 700,
-                    fontSize: "14px",
-                  }}
+                  className="flex items-center gap-4 font-bold text-body-lg"
                 >
                   <span
-                    style={{
-                      width: "26px",
-                      height: "26px",
-                      borderRadius: "999px",
-                      background: "var(--accent-soft)",
-                      color: "var(--accent)",
-                      display: "grid",
-                      placeItems: "center",
-                    }}
+                    className="w-13 h-13 rounded-pill bg-accent-soft text-accent grid place-items-center"
                   >
                     <Bell size={13} />
                   </span>
@@ -290,7 +271,7 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
                   <X size={14} />
                 </button>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div className="flex flex-col gap-5">
                 <div
                   style={{
                     padding: "12px",
@@ -303,34 +284,26 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
                   }}
                 >
                   <div>
-                    <p style={{ fontWeight: 600, fontSize: "12.5px" }}>
+                    <p className="font-semibold text-caption">
                       {isHealthy ? "All systems operational" : "Gateway degraded"}
                     </p>
-                    <p style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                    <p className="text-badge text-text-secondary mt-1">
                       {isHealthy ? "Postgres & Redis admission connected." : "Check connection logs."}
                     </p>
                   </div>
                 </div>
                 <div
-                  style={{
-                    padding: "12px",
-                    borderRadius: "14px",
-                    border: "1px solid var(--accent-soft)",
-                    background: "var(--accent-soft)",
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: "10px",
-                  }}
+                  className="p-6 rounded-card border border-accent-soft bg-accent-soft flex items-start gap-5"
                 >
                   <Rocket
                     size={16}
-                    style={{ color: "var(--accent)", marginTop: "2px", flexShrink: 0 }}
+                    className="text-accent mt-1 shrink-0"
                   />
                   <div>
-                    <p style={{ fontWeight: 600, fontSize: "12.5px", color: "var(--accent)" }}>
+                    <p className="font-semibold text-caption text-accent">
                       {DASHBOARD_RELEASE_LABEL}
                     </p>
-                    <p style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                    <p className="text-badge text-text-secondary mt-1">
                       High-performance AI Gateway & Protocol Orchestrator.
                     </p>
                   </div>
@@ -434,7 +407,7 @@ function CommandPalette({ open, close }: { readonly open: boolean; readonly clos
             borderBottom: "1px solid var(--inner-border)",
           }}
         >
-          <Search size={16} style={{ color: "var(--text-tertiary)" }} />
+          <Search size={16} className="text-text-tertiary" />
           <h2
             id="palette-title"
             style={{
@@ -490,7 +463,7 @@ function CommandPalette({ open, close }: { readonly open: boolean; readonly clos
           id="command-palette-listbox"
           role="listbox"
           aria-label="Pages"
-          style={{ maxHeight: "320px", overflowY: "auto", padding: "8px" }}
+          className="max-h-160 overflow-y-auto p-4"
         >
           {filtered.map((item, index) => (
             <button
@@ -517,19 +490,14 @@ function CommandPalette({ open, close }: { readonly open: boolean; readonly clos
                 backgroundColor: index === clampedIndex ? "var(--hover)" : "transparent",
               }}
             >
-              <item.icon size={16} style={{ color: "var(--text-secondary)" }} />
-              <span style={{ flex: 1 }}>{item.label}</span>
-              <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>↵</span>
+              <item.icon size={16} className="text-text-secondary" />
+              <span className="flex-1">{item.label}</span>
+              <span className="text-badge text-text-tertiary">↵</span>
             </button>
           ))}
           {filtered.length === 0 ? (
             <p
-              style={{
-                padding: "16px",
-                textAlign: "center",
-                fontSize: "12.5px",
-                color: "var(--text-tertiary)",
-              }}
+              className="p-8 text-center text-caption text-text-tertiary"
             >
               No matching pages found.
             </p>
@@ -707,7 +675,7 @@ export function DashboardShell({
           aria-label="Dashboard navigation"
         >
           <div className="brand-header">
-            <div className="brand-icon" aria-hidden="true" style={{ overflow: "hidden", padding: 0 }}>
+            <div aria-hidden="true" className="brand-icon overflow-hidden p-0">
               <img
                 src={logoUrl}
                 alt="Cartethyia"
@@ -744,7 +712,7 @@ export function DashboardShell({
             </div>
           </div>
 
-          <nav style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
+          <nav className="flex-1 overflow-y-auto py-2 px-0">
             {navigationGroups.map((group) => (
               <SidebarNavGroup
                 key={group.label}

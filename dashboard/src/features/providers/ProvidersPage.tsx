@@ -29,7 +29,7 @@ const CARD_SHELL = cn(
 
 const CARD_LINK = cn("block flex-1 p-6 no-underline text-inherit");
 
-const CARD_NAME = cn("text-base font-semibold overflow-hidden text-ellipsis whitespace-nowrap");
+const CARD_NAME = cn("text-body font-semibold overflow-hidden text-ellipsis whitespace-nowrap");
 
 import type {
   CreateProviderRequest,
@@ -215,7 +215,7 @@ function AddCompatibleModal({
       }
     >
       <form id="add-compatible-provider" onSubmit={submit} className="flex flex-col gap-6">
-        {error ? <div className="text-red text-sm">{error}</div> : null}
+        {error ? <div className="text-red text-caption">{error}</div> : null}
         <Input
           label="Display Name"
           hint="Required. A friendly label for this node."
@@ -299,7 +299,7 @@ function AddCompatibleModal({
           {testResult ? (
             <div
               className={cn(
-                "mt-3 text-sm leading-[1.4] break-words",
+                "mt-3 text-caption leading-[1.4] break-words",
                 testResult.ok ? "text-green" : "text-red",
               )}
             >
@@ -310,7 +310,7 @@ function AddCompatibleModal({
         </div>
         <ListRow className="justify-between">
           <div>
-            <div className="text-base font-semibold">Auto-fetch models</div>
+            <div className="text-body font-semibold">Auto-fetch models</div>
             <div className="form-section-caption">
               Discover this provider's model list automatically after creation
             </div>
@@ -319,7 +319,7 @@ function AddCompatibleModal({
         </ListRow>
         <ListRow className="justify-between">
           <div>
-            <div className="text-base font-semibold">
+            <div className="text-body font-semibold">
               {isAnthropic ? "Send request as Claude CLI" : "Send request as Codex CLI"}
             </div>
             <div className="form-section-caption">
@@ -403,7 +403,7 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
             className="flex flex-col items-end gap-1.5 shrink-0"
           >
             <span
-              className="font-mono tabular-nums text-2xs font-semibold bg-kbd-bg px-2.5 py-0.5 rounded-chip text-text-secondary"
+              className="font-mono tabular-nums text-micro font-semibold bg-kbd-bg px-2.5 py-0.5 rounded-chip text-text-secondary"
             >
               {customProvider.providerId}/
             </span>
@@ -441,14 +441,14 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
       />
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} title="Delete Custom Provider">
         <Stack gap="12px">
-          <p className="text-base text-text-secondary">
+          <p className="text-body text-text-secondary">
             Are you sure you want to delete custom provider{" "}
             <strong>{customProvider.label || customProvider.providerId}</strong>? Its models,
             accounts, and routing preferences are deleted together, and requests to this
             provider will no longer route.
           </p>
           {deleteMutation.isError ? (
-            <p className="text-sm text-red">
+            <p className="text-caption text-red">
               {getErrorMessage(deleteMutation.error, "Delete failed")}
             </p>
           ) : null}
@@ -516,7 +516,7 @@ function CustomProvidersSection({
           title={hidden ? "Show custom providers" : "Hide custom providers"}
           className="inline-flex items-center gap-3 bg-transparent border-none p-0 cursor-pointer text-inherit"
         >
-          <h2 className="text-md font-bold tracking-[-0.01em]">
+          <h2 className="text-body-lg font-bold tracking-[-0.01em]">
             Custom Providers{customProviders.length > 0 ? ` (${customProviders.length})` : ""}
           </h2>
           <ChevronDown
@@ -559,10 +559,10 @@ function CustomProvidersSection({
           <CardBody
             className="text-center px-7 py-10 border border-dashed border-inner-border rounded-card"
           >
-            <p className="text-base font-semibold text-text-primary">
+            <p className="text-body font-semibold text-text-primary">
               No custom providers yet
             </p>
-            <p className="text-xs text-text-tertiary mt-1">
+            <p className="text-badge text-text-tertiary mt-1">
               Add an OpenAI- or Anthropic-compatible endpoint with the buttons above.
             </p>
           </CardBody>
@@ -750,7 +750,7 @@ const ProviderCard = memo(function ProviderCard({
           <span
             className={cn(
               "absolute top-[18px] right-[-22px] w-38 py-1 rotate-45 bg-accent-soft",
-              "text-accent text-2xs font-extrabold tracking-[0.04em] leading-[1.05]",
+              "text-accent text-micro font-extrabold tracking-[0.04em] leading-[1.05]",
               "text-center uppercase shadow-[0_1px_3px_rgba(0,0,0,0.12)]",
             )}
           >
@@ -804,7 +804,7 @@ const ProviderCard = memo(function ProviderCard({
             className="flex flex-col items-end gap-1.5 shrink-0"
           >
             <span
-              className="font-mono tabular-nums text-2xs font-semibold bg-kbd-bg px-2.5 py-0.5 rounded-chip text-text-secondary"
+              className="font-mono tabular-nums text-micro font-semibold bg-kbd-bg px-2.5 py-0.5 rounded-chip text-text-secondary"
             >
               {provider.providerId}/
             </span>
@@ -848,7 +848,7 @@ function ForceSearchProvidersToggle(): ReactNode {
   const update = useUpdateRuntimeSettings();
   return (
     <div className="ml-auto flex items-center gap-4">
-      <span className="text-2xs font-semibold text-text-tertiary">FORCE ALL SEARCH PROVIDERS</span>
+      <span className="text-micro font-semibold text-text-tertiary">FORCE ALL SEARCH PROVIDERS</span>
       <Switch
         checked={settings.data?.forceSearchProviders === true}
         disabled={settings.isPending || update.isPending}
@@ -1020,7 +1020,7 @@ export default function Providers(): ReactNode {
               key={t}
               onClick={() => setTab(t)}
               className={cn(
-                "px-6 py-3 rounded-inset text-sm font-semibold border cursor-pointer",
+                "px-6 py-3 rounded-inset text-caption font-semibold border cursor-pointer",
                 tab === t
                   ? "border-accent bg-accent-soft text-accent"
                   : "border-inner-border bg-surface-1 text-text-secondary",
@@ -1036,7 +1036,7 @@ export default function Providers(): ReactNode {
           ))}
         </div>
         {tab === "search" ? <ForceSearchProvidersToggle /> : (
-          <span className="ml-auto text-2xs text-text-tertiary">
+          <span className="ml-auto text-micro text-text-tertiary">
             {tab === "media" ? "Image and video generation" : "Connected pinned first · A–Z"}
           </span>
         )}
@@ -1074,7 +1074,7 @@ export default function Providers(): ReactNode {
             >
               <ChevronDown size={15} className={cn("mt-1 shrink-0 transition-transform", collapsed && "-rotate-90")} />
               <Stack gap="1px">
-                <h2 className="text-base font-bold tracking-[-0.01em]">
+                <h2 className="text-body font-bold tracking-[-0.01em]">
                   {section.title} ({section.providers.length}){collapsed ? " (Hidden)" : ""}
                 </h2>
                 {!collapsed && section.subtitle ? (

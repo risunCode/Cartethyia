@@ -107,32 +107,14 @@ function QuotaAccountResetModal({
       size="lg"
       title={`Saved Rate-Limit Resets — ${account.name}`}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "12px",
-            padding: "12px 16px",
-            borderRadius: "10px",
-            background: "var(--surface-2)",
-            border: "1px solid var(--inner-border)",
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <Zap size={14} style={{ color: "var(--status-success)" }} />
-              <span style={{ fontSize: "13px", fontWeight: 600 }}>Available resets</span>
+      <div className="flex flex-col gap-7">
+        <div className="flex items-center justify-between gap-6 rounded-control border border-inner-border bg-surface-2 px-8 py-6">
+          <div className="min-w-0">
+            <div className="flex items-center gap-4">
+              <Zap size={14} className="text-status-success" />
+              <span className="text-body font-semibold">Available resets</span>
             </div>
-            <p
-              style={{
-                fontSize: "11.5px",
-                color: "var(--text-tertiary)",
-                marginTop: "4px",
-                lineHeight: 1.5,
-              }}
-            >
+            <p className="mt-2 text-text-tertiary text-badge leading-normal">
               Each credit lifts a spent rate-limit window before its natural reset.
             </p>
           </div>
@@ -153,21 +135,14 @@ function QuotaAccountResetModal({
             icon={<Zap size={20} />}
           />
         ) : (
-          <div
-            style={{
-              maxHeight: "340px",
-              overflowY: "auto",
-              border: "1px solid var(--inner-border)",
-              borderRadius: "10px",
-            }}
-          >
+          <div className="max-h-170 overflow-y-auto rounded-control border border-inner-border">
             <DataTable headers={["Status", "Title", "Granted", "Expires", ""]}>
               {credits.map((credit) => {
                 const available = (credit.status ?? "available") === "available";
                 const remaining = remainingLabel(credit.expiresAt);
                 return (
                   <tr key={credit.id}>
-                    <td style={{ whiteSpace: "nowrap", verticalAlign: "middle" }}>
+                    <td className="whitespace-nowrap align-middle">
                       <Badge
                         tone={available ? "ok" : credit.status === "expired" ? "disabled" : "warn"}
                       >
@@ -175,44 +150,26 @@ function QuotaAccountResetModal({
                       </Badge>
                     </td>
                     <td
-                      style={{
-                        fontSize: "12px",
-                        color: "var(--text-primary)",
-                        fontWeight: 500,
-                        whiteSpace: "nowrap",
-                        verticalAlign: "middle",
-                      }}
+                      className="text-caption font-medium whitespace-nowrap align-middle text-text-primary"
                     >
                       {credit.title ?? "Rate-limit reset"}
                     </td>
                     <td
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--text-secondary)",
-                        whiteSpace: "nowrap",
-                        fontVariantNumeric: "tabular-nums",
-                        verticalAlign: "middle",
-                      }}
+                      className="text-badge whitespace-nowrap tabular-nums align-middle text-text-secondary"
                     >
                       {grantedLabel(credit.grantedAt)}
                     </td>
                     <td
-                      style={{
-                        fontSize: "11px",
-                        color: "var(--text-secondary)",
-                        whiteSpace: "nowrap",
-                        fontVariantNumeric: "tabular-nums",
-                        verticalAlign: "middle",
-                      }}
+                      className="text-badge whitespace-nowrap tabular-nums align-middle text-text-secondary"
                     >
                       {expiryLabel(credit.expiresAt)}
                       {remaining && (
-                        <span style={{ color: "var(--text-tertiary)", marginLeft: "6px" }}>
+                        <span className="ml-3 text-text-tertiary">
                           ({remaining})
                         </span>
                       )}
                     </td>
-                    <td style={{ whiteSpace: "nowrap", textAlign: "right", verticalAlign: "middle" }}>
+                    <td className="whitespace-nowrap text-right align-middle">
                       <Button
                         size="sm"
                         variant={available ? "primary" : "secondary"}
@@ -335,44 +292,15 @@ function QuotaCard({
   return (
     <Card className="overflow-hidden" aria-busy={busy}>
       {/* Header: icon + provider name + plan + account hint + actions */}
-      <div
-        className="flex flex-wrap items-center gap-4 px-6 py-3.5"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "10px",
-          padding: "8px 14px",
-          flexWrap: "wrap",
-        }}
-      >
+      <div className="flex flex-wrap items-center gap-5 px-7 py-4">
         <ProviderIcon icon={account.providerIcon} name={account.providerName} size={32} />
-        <div className="min-w-0 flex-1" style={{ minWidth: "160px", flex: "1 1 160px" }}>
-          <div
-            className="flex min-w-0 items-center gap-3.5"
-            style={{ display: "flex", alignItems: "center", gap: "8px" }}
-          >
-            <div
-              className="truncate text-sm font-bold"
-              style={{
-                fontSize: "13.5px",
-                fontWeight: 700,
-                color: "var(--text-primary)",
-              }}
-            >
+        <div className="min-w-80 flex-1" style={{ flex: "1 1 160px" }}>
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="truncate text-caption font-bold text-text-primary text-body">
               {account.providerName}
             </div>
             {quota?.plan && (
-              <span
-                className="shrink-0 rounded-full bg-accent-soft px-3.5 py-1 text-2xs font-semibold text-accent"
-                style={{
-                  padding: "2px 8px",
-                  borderRadius: "9999px",
-                  fontSize: "10px",
-                  fontWeight: 600,
-                  background: "var(--accent-soft)",
-                  color: "var(--accent)",
-                }}
-              >
+              <span className="shrink-0 rounded-full bg-accent-soft px-4 py-1 text-micro font-semibold text-accent">
                 {quota.plan}
               </span>
             )}
@@ -393,38 +321,22 @@ function QuotaCard({
               </Badge>
             ) : null}
           </div>
-          <div
-            className="truncate text-xs text-text-secondary"
-            style={{ fontSize: "11px", color: "var(--text-secondary)" }}
-          >
+          <div className="truncate text-badge text-text-secondary">
             {identity.primary}
           </div>
           {identity.secondary !== null && (
-            <div
-              className="truncate text-2xs text-text-tertiary"
-              style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
-            >
+            <div className="truncate text-micro text-text-tertiary">
               {identity.secondary}
             </div>
           )}
           {quota && (
-            <div
-              className="truncate text-2xs text-text-tertiary"
-              style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
-            >
+            <div className="truncate text-micro text-text-tertiary">
               {formatQuotaRefresh(quota.lastSuccessAt ?? quota.fetchedAt)}
             </div>
           )}
           {canReset && (
             <div
-              className="truncate text-2xs"
-              style={{
-                fontSize: "10px",
-                color: "var(--text-tertiary)",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
+              className="truncate text-micro flex items-center gap-2 text-text-tertiary"
               title="Saved rate-limit reset credits available on this account"
             >
               {resets.isPending ? (
@@ -433,7 +345,7 @@ function QuotaCard({
                 <>
                   <Zap
                     size={10}
-                    style={{ color: "var(--status-success)", flexShrink: 0 }}
+                    className="text-status-success shrink-0"
                     aria-hidden="true"
                   />
                   <span className="reset-credit-live">
@@ -448,33 +360,19 @@ function QuotaCard({
           )}
           {canCheckin && (
             <>
-              <div
-                className="truncate text-2xs text-text-tertiary"
-                style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
-                title="Daily growth state: manual pass result, else the sweep ledger for today"
-              >
+              <div title="Daily growth state: manual pass result, else the sweep ledger for today"
+               className="truncate text-micro text-text-tertiary">
                 {growth.isPending ? "Running growth pass…" : statusHint}
               </div>
               {quotaWindows.some((window) => typeof window.limit === "number" && Number.isFinite(window.limit)) && (
-                <div
-                  className="truncate text-2xs text-text-tertiary"
-                  style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
-                >
+                <div className="truncate text-micro text-text-tertiary">
                   Total credits: {totalCredits.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </div>
               )}
             </>
           )}
         </div>
-        <div
-          className="flex items-center gap-1.75"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "6px",
-            marginLeft: "auto",
-          }}
-        >
+        <div className="flex items-center gap-1.75 gap-3 ml-auto">
           {canReset && (
             <Button
               variant="ghost"
@@ -576,7 +474,7 @@ function QuotaCard({
 
       {cardError && (
         <div
-          className="flex items-center justify-center gap-3.5 border-t border-inner-border px-7 py-5.25 text-center text-xs text-red"
+          className="flex items-center justify-center gap-3.5 border-t border-inner-border px-7 py-5.25 text-center text-badge text-red"
           style={{
             display: "flex",
             alignItems: "center",
@@ -606,15 +504,7 @@ function QuotaCard({
             padding: "9px 14px",
           }}
         >
-          <div
-            className="quota-window-section-label"
-            style={{
-              fontSize: "10px",
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              color: "var(--text-tertiary)",
-            }}
-          >
+          <div className="quota-window-section-label text-micro font-bold tracking-label text-text-tertiary">
             QUOTA WINDOWS
           </div>
           {pagination.items.map((window, index) => {
@@ -643,10 +533,7 @@ function QuotaCard({
                 key={`${window.kind ?? window.label}:${window.resetsAt ?? "none"}:${index}`}
               >
                 <div className="quota-window-heading">
-                  <span
-                    className="text-xs font-semibold text-text-primary"
-                    style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}
-                  >
+                  <span className="text-badge font-semibold text-text-primary">
                     {label}
                   </span>
                 </div>
@@ -677,7 +564,7 @@ function QuotaCard({
                   />
                 </div>
                 <span
-                  className="quota-window-remaining text-xs font-bold tabular-nums"
+                  className="quota-window-remaining text-badge font-bold tabular-nums"
                   style={{
                     fontSize: "11px",
                     fontWeight: 700,
@@ -688,19 +575,13 @@ function QuotaCard({
                   {remaining === null ? "—" : `${formatPercent(remaining)}%`}
                 </span>
                 <div className="quota-window-details">
-                  <span
-                    className="quota-window-usage"
-                    style={{ fontVariantNumeric: "tabular-nums" }}
-                  >
+                  <span className="quota-window-usage tabular-nums">
                     {usedCredits !== null && limit !== null
                       ? `${formatAmount(usedCredits)} / ${formatAmount(limit)} Credits`
                       : "Quota only"}
                   </span>
                   {window.resetsAt && (
-                    <span
-                      className="quota-window-reset"
-                      style={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}
-                    >
+                    <span className="quota-window-reset tabular-nums text-right">
                       {formatResetDistance(window.resetsAt, window.recurring)}
                     </span>
                   )}
@@ -723,11 +604,11 @@ function QuotaCard({
             >
               <span
                 aria-live="polite"
-                style={{ fontSize: "10px", color: "var(--text-tertiary)" }}
+                className="text-micro text-text-tertiary"
               >
                 Showing {pagination.startIndex + 1}–{pagination.startIndex + pagination.items.length} of {quotaWindows.length}
               </span>
-              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -756,7 +637,7 @@ function QuotaCard({
         </div>
       ) : !cardError ? (
         <div
-          className="border-t border-inner-border py-7 text-center text-xs text-text-tertiary"
+          className="border-t border-inner-border py-7 text-center text-badge text-text-tertiary"
           style={{
             borderTop: "1px solid var(--inner-border)",
             padding: "18px 14px",
@@ -865,7 +746,7 @@ export default function QuotaPage(): ReactNode {
   const emptyCount = accounts.filter(isEmpty).length;
 
   return (
-    <Stack gap="16px" className="dashboard-page" style={{ minHeight: 0, flex: 1 }}>
+    <Stack gap="16px" className="dashboard-page min-h-0 flex-1">
       <Card>
         <CardHeader title="Quota" subtitle="Provider account limits and what is left of them" icon={<SlidersHorizontal size={16} />} />
       </Card>
@@ -877,7 +758,7 @@ export default function QuotaPage(): ReactNode {
             aria-label="Filter quota by provider"
             value={providerFilter}
             onValueChange={setProviderFilter}
-            style={{ width: "160px", height: "32px" }}
+            className="w-80 h-16"
             options={[
               { value: "all", label: "All Providers" },
               ...providers.map((provider) => ({ value: provider.id, label: provider.name })),
@@ -887,7 +768,7 @@ export default function QuotaPage(): ReactNode {
             aria-label="Filter quota by account"
             value={accountFilter}
             onValueChange={setAccountFilter}
-            style={{ width: "135px", height: "32px" }}
+            className="w-67.5 h-16"
             options={[
               { value: "all", label: "With quota" },
               { value: "active", label: "Active" },
@@ -929,11 +810,11 @@ export default function QuotaPage(): ReactNode {
         </div>
       </div>
       <div className="flex items-center justify-between gap-4 border-t border-inner-border pt-5">
-        <span className="text-xs text-text-tertiary">
+        <span className="text-badge text-text-tertiary">
           {filteredAccounts.length} shown
           {emptyCount > 0 ? ` · ${emptyCount} empty` : ""}
         </span>
-        <span className="flex items-center gap-5 text-xs text-text-tertiary">
+        <span className="flex items-center gap-5 text-badge text-text-tertiary">
           {refreshingCount > 0
             ? `Refreshing ${refreshingCount} account${refreshingCount === 1 ? "" : "s"}…`
             : `Auto-refresh 60s · ${lastUpdated}`}

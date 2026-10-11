@@ -17,18 +17,10 @@ function RouteLoadingShell(): ReactNode {
     <div
       role="status"
       aria-label="Loading console"
-      style={{
-        minHeight: "100dvh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "12px",
-        color: "var(--text-tertiary)",
-      }}
+      className="min-h-dvh flex flex-col items-center justify-center gap-6 text-text-tertiary"
     >
       <Loader2 size={22} className="animate-spin" aria-hidden="true" />
-      <p style={{ fontSize: "12.5px" }}>Loading console…</p>
+      <p className="text-caption">Loading console…</p>
     </div>
   );
 }

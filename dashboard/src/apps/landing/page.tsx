@@ -330,11 +330,11 @@ export function LandingPage(): ReactElement {
         <main className="mx-auto w-[min(100%-2rem,1280px)] pb-17.5 pt-44 sm:w-[min(100%-3rem,1280px)]">
           <div className="mb-10.5 flex flex-wrap items-end justify-between gap-5.25">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/50">All chapters · 7 stories</p>
-              <h2 className="mt-3.5 font-serif text-3xl font-normal leading-none tracking-tight text-white">Everything at a glance</h2>
-              <p className="mt-3.5 max-w-[60ch] text-base leading-5 text-white/65">Hover a card to lift it — click to jump to its story. All 7 visuals, captions and signals visible without scrolling forever.</p>
+              <p className="text-badge font-bold uppercase tracking-[0.18em] text-white/50">All chapters · 7 stories</p>
+              <h2 className="mt-3.5 font-serif text-hero font-normal leading-none tracking-tight text-white">Everything at a glance</h2>
+              <p className="mt-3.5 max-w-[60ch] text-body leading-5 text-white/65">Hover a card to lift it — click to jump to its story. All 7 visuals, captions and signals visible without scrolling forever.</p>
             </div>
-            <div className="flex items-center gap-3.5 text-xs text-white/50">
+            <div className="flex items-center gap-3.5 text-badge text-white/50">
               <span className="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]" aria-hidden={true} /> Stylish overview
             </div>
           </div>
@@ -346,7 +346,7 @@ export function LandingPage(): ReactElement {
                   setShowAll(false);
                   requestAnimationFrame(() => scrollToChapter(idx));
                 }}
-                className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-9 border bg-story-surface text-left transition hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 story-theme-${entry.theme}`}
+                className={`group relative flex cursor-pointer flex-col overflow-hidden rounded-hero border bg-story-surface text-left transition hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(0,0,0,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 story-theme-${entry.theme}`}
                 tabIndex={0}
                 role="button"
                 aria-label={`Open ${entry.label}`}
@@ -362,22 +362,22 @@ export function LandingPage(): ReactElement {
                   <img src={entry.image} alt={entry.imageAlt} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]" loading="lazy" decoding="async" />
                   <div className="absolute inset-0 bg-gradient-to-t from-story-deep/85 via-story-deep/10 to-transparent" />
                   <div className="absolute left-3 top-3 flex items-center gap-3">
-                    <span className="rounded-full bg-white px-3 py-1 font-mono text-2xs font-bold tracking-label text-story-deep">{entry.number}</span>
-                    <span className="rounded-full border border-white/20 bg-black/25 px-3.5 py-1 text-2xs font-bold uppercase tracking-[0.12em] text-white backdrop-blur">{entry.theme}</span>
+                    <span className="rounded-full bg-white px-3 py-1 font-mono text-micro font-bold tracking-label text-story-deep">{entry.number}</span>
+                    <span className="rounded-full border border-white/20 bg-black/25 px-3.5 py-1 text-micro font-bold uppercase tracking-[0.12em] text-white backdrop-blur">{entry.theme}</span>
                   </div>
-                  <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-2xs font-bold uppercase tracking-[0.14em] text-white/75">
+                  <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-micro font-bold uppercase tracking-[0.14em] text-white/75">
                     <span className="truncate">{entry.location}</span>
                     <ArrowUpRight size={12} aria-hidden={true} className="opacity-60 group-hover:opacity-100" />
                   </div>
                 </div>
                 <div className="flex flex-1 flex-col gap-3.5 p-7">
-                  <h3 className="font-serif text-xl font-normal leading-tight tracking-tight text-white">{entry.title}</h3>
-                  <p className="line-clamp-2 text-sm leading-5 text-white/65">{entry.description}</p>
+                  <h3 className="font-serif text-title font-normal leading-tight tracking-tight text-white">{entry.title}</h3>
+                  <p className="line-clamp-2 text-caption leading-5 text-white/65">{entry.description}</p>
                   <div className="mt-1.75 flex flex-wrap gap-3">
                     {entry.signals.map((s) => {
                       const Icon = signalIcons[s.icon];
                       return (
-                        <span key={`${entry.id}-${s.label}`} className="inline-flex items-center gap-1.75 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.75 text-2xs font-semibold uppercase tracking-label text-white/75">
+                        <span key={`${entry.id}-${s.label}`} className="inline-flex items-center gap-1.75 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.75 text-micro font-semibold uppercase tracking-label text-white/75">
                           <Icon size={11} aria-hidden={true} className="text-[var(--story-accent)]" />
                           {s.label}
                           <strong className="font-bold text-white">{s.value}</strong>

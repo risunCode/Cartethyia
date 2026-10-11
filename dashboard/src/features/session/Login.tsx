@@ -110,7 +110,7 @@ export default function Login(): ReactNode {
           <p className="auth-desc">Sign in to manage AI Gateway routing and providers</p>
         </div>
 
-        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        <form onSubmit={submit} className="flex flex-col gap-7">
           <Input
             label="Username"
             id="login-username"
@@ -133,14 +133,7 @@ export default function Login(): ReactNode {
 
           {error ? (
             <div
-              style={{
-                padding: "10px 14px",
-                borderRadius: "10px",
-                background: "var(--red-soft)",
-                color: "var(--red)",
-                fontSize: "12.5px",
-                fontWeight: 500,
-              }}
+              className="py-5 px-7 rounded-control bg-red-soft text-red text-caption font-medium"
               role="alert"
             >
               {error}
@@ -151,7 +144,7 @@ export default function Login(): ReactNode {
             variant="primary"
             type="submit"
             disabled={pending}
-            style={{ width: "100%", marginTop: "6px", height: "40px" }}
+            className="w-full mt-3 h-20"
             icon={<LogIn size={15} />}
           >
             {pending ? "Authenticating…" : "Sign In"}

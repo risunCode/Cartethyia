@@ -182,7 +182,7 @@ export default function Settings(): ReactNode {
       />
       <CardBody className="flex flex-col gap-10">
         <section className="flex flex-col gap-5">
-          <h2 className="text-xs font-bold uppercase tracking-label text-text-tertiary">Account</h2>
+          <h2 className="text-badge font-bold uppercase tracking-label text-text-tertiary">Account</h2>
           <div className="two-column-grid">
             <Card className="h-full">
               <CardHeader title="Security" subtitle="Change the password used to sign in to this console" icon={<Shield size={16} />} />
@@ -194,7 +194,7 @@ export default function Settings(): ReactNode {
           </div>
         </section>
         <section className="flex flex-col gap-5">
-          <h2 className="text-xs font-bold uppercase tracking-label text-text-tertiary">Data</h2>
+          <h2 className="text-badge font-bold uppercase tracking-label text-text-tertiary">Data</h2>
           <BackupPanel />
         </section>
       </CardBody>

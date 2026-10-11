@@ -23,7 +23,7 @@ export function SectionHeading({
       {hasText ? (
         <div className="section-header-text">
           {eyebrow ? (
-            <p className="text-xs font-bold uppercase tracking-label text-text-tertiary mb-1">
+            <p className="text-badge font-bold uppercase tracking-label text-text-tertiary mb-1">
               {eyebrow}
             </p>
           ) : null}
@@ -76,7 +76,7 @@ export function StatCard({
       <div
         className={cn(
           "flex items-center justify-between gap-4 font-bold uppercase tracking-label",
-          size === "roomy" ? "text-sm" : "text-2xs",
+          size === "roomy" ? "text-caption" : "text-micro",
           toneColor,
         )}
       >
@@ -87,12 +87,12 @@ export function StatCard({
         {action ? <span className="shrink-0">{action}</span> : null}
       </div>
       <p
-        className={cn("font-mono tabular-nums font-bold leading-[1.15] mb-0", size === "roomy" ? "text-3xl mt-4" : "text-2xl mt-1")}
+        className={cn("font-mono tabular-nums font-bold leading-[1.15] mb-0", size === "roomy" ? "text-hero mt-4" : "text-display mt-1")}
         style={valueColor ? { color: valueColor } : undefined}
       >
         {value}
       </p>
-      <span className={cn("stat-card-detail text-text-secondary", size === "roomy" ? "mt-2 block text-base" : "text-xs")}>{detail}</span>
+      <span className={cn("stat-card-detail text-text-secondary", size === "roomy" ? "mt-2 block text-body" : "text-badge")}>{detail}</span>
     </div>
   );
 }
@@ -150,7 +150,7 @@ export function DataTable({
                       className="inline-flex items-center gap-2 cursor-pointer"
                     >
                       <span>{label}</span>
-                      <span aria-hidden="true" className={cn("text-2xs", active ? "opacity-100" : "opacity-[0.35]")}>
+                      <span aria-hidden="true" className={cn("text-micro", active ? "opacity-100" : "opacity-[0.35]")}>
                         {active ? (sortDirection === "asc" ? "▲" : "▼") : "△"}
                       </span>
                     </button>

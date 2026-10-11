@@ -120,8 +120,8 @@ export function RelayDeployModal({
       size="md"
     >
       <Stack gap="12px">
-        <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: 0, display: "flex", gap: "6px" }}>
-          <Server size={13} style={{ flexShrink: 0, marginTop: "1px" }} />
+        <p className="text-badge text-text-tertiary m-0 flex gap-3">
+          <Server size={13} className="shrink-0 mt-0.5" />
           <span>
             Deploys a small relay worker to your own {meta.label} account and registers its URL
             (<code>{meta.host}</code>) as an active HTTP pool. Your API token is used only for the
@@ -169,13 +169,13 @@ export function RelayDeployModal({
           />
         ) : null}
         {meta.hasRegion ? (
-          <p style={{ fontSize: "11px", color: "var(--text-tertiary)", margin: 0 }}>
+          <p className="text-badge text-text-tertiary m-0">
             Sets the region on the Vercel project, which is what decides the country
             outbound traffic leaves from. A region sent on the deployment alone is
             accepted but does not move the Function.
           </p>
         ) : null}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div className="flex items-center gap-5">
           <Button variant="primary" size="sm" onClick={submit} disabled={!canSubmit || deploy.isPending}>
             {deploy.isPending ? "Deploying…" : "Deploy relay"}
           </Button>
@@ -186,8 +186,8 @@ export function RelayDeployModal({
           ) : null}
         </div>
         {deploy.isError ? (
-          <p style={{ fontSize: "11px", color: "var(--red)", margin: 0, display: "flex", gap: "6px" }}>
-            <TriangleAlert size={13} style={{ flexShrink: 0, marginTop: "1px" }} />
+          <p className="text-badge text-red m-0 flex gap-3">
+            <TriangleAlert size={13} className="shrink-0 mt-0.5" />
             <span>{getErrorMessage(deploy.error, "Relay deploy failed.")}</span>
           </p>
         ) : null}

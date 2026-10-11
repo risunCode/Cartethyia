@@ -38,7 +38,7 @@ export function CredentialNotice({
   return (
     <Card density="compact">
       <CardBody>
-        <Inline gap="12px" style={{ alignItems: "center", flexWrap: "wrap" }}>
+        <Inline gap="12px" className="items-center flex-wrap">
           <span style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: "var(--text-secondary)" }}>
             {guidance}
             {notice ? <><br />{notice}</> : null}
@@ -47,14 +47,7 @@ export function CredentialNotice({
             // A real anchor rather than a button with a click handler: the
             // external page opens without a popup blocker, and middle-click,
             // keyboard activation, and "open in new tab" all keep working.
-            <a
-              className="btn btn-secondary btn-sm"
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              title={url}
-              style={{ flexShrink: 0, textDecoration: "none" }}
-            >
+            <a href={url} target="_blank" rel="noreferrer" title={url} className="btn btn-secondary btn-sm shrink-0 no-underline">
               <span className="btn-icon-wrapper" aria-hidden="true">
                 <ExternalLink size={13} />
               </span>

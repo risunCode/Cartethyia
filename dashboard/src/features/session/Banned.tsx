@@ -4,9 +4,14 @@ import type { ReactNode } from "react";
 export default function Banned(): ReactNode {
   return (
     <main className="auth-viewport">
-      <div className="card-solid auth-window" style={{ border: "1px solid var(--red-soft)" }}>
+      <div className="card-solid auth-window border border-red-soft">
         <div className="auth-header">
-          <div className="auth-logo" style={{ background: "var(--red)" }} aria-hidden="true">
+          {/*
+            `.auth-logo` paints the favicon through the `background` shorthand, so
+            `bg-red` alone would only swap the colour and leave the image showing.
+            `bg-none` restores what the shorthand used to reset.
+          */}
+          <div aria-hidden="true" className="auth-logo bg-red bg-none">
             <ShieldAlert size={24} />
           </div>
           <h1 className="auth-title">Access Restricted</h1>
@@ -24,7 +29,7 @@ export default function Banned(): ReactNode {
             lineHeight: 1.5,
           }}
         >
-          <strong style={{ display: "block", color: "var(--text-primary)", marginBottom: "4px" }}>
+          <strong className="block text-text-primary mb-2">
             HTTP 403 Forbidden
           </strong>
           This client IP has been temporarily locked out due to repeated invalid credential attempts

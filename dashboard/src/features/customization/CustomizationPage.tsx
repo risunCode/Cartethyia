@@ -146,7 +146,7 @@ export default function CustomizationPage(): ReactNode {
           <Stack gap="14px">
             <BackgroundPreview settings={settings} onBytes={setMediaBytes} bytes={mediaBytes} />
             <div className="flex flex-wrap items-center gap-4">
-              <label className="btn btn-primary inline-flex items-center justify-center gap-3.5 rounded-control font-semibold text-sm px-7 py-2 cursor-pointer bg-accent text-accent-foreground">
+              <label className="btn btn-primary inline-flex items-center justify-center gap-3.5 rounded-control font-semibold text-caption px-7 py-2 cursor-pointer bg-accent text-accent-foreground">
                 {busy ? "Working…" : settings.backgroundSet ? "Replace" : "Upload image or video"}
                 <input
                   type="file"
@@ -161,7 +161,7 @@ export default function CustomizationPage(): ReactNode {
                   Remove
                 </Button>
               ) : null}
-              <span className="text-xs text-text-tertiary">
+              <span className="text-badge text-text-tertiary">
                 Images are resized to 2560px. Videos play on desktop and show their first frame on mobile.
               </span>
             </div>
@@ -221,8 +221,8 @@ export default function CustomizationPage(): ReactNode {
             className="flex w-full items-center justify-between gap-6 rounded-card border border-inner-border bg-surface-2 px-7 py-6 text-left"
           >
             <span className="flex min-w-0 flex-col">
-              <span className="text-sm font-semibold text-text-primary">Dashed border</span>
-              <span className="text-xs text-text-tertiary">Off leaves the empty state sitting on the card.</span>
+              <span className="text-caption font-semibold text-text-primary">Dashed border</span>
+              <span className="text-badge text-text-tertiary">Off leaves the empty state sitting on the card.</span>
             </span>
             <span
               aria-hidden="true"
@@ -289,7 +289,7 @@ function BackgroundPreview({
 
   if (!url) {
     return (
-      <div className="flex h-60 items-center justify-center rounded-card border border-dashed border-inner-border bg-surface-2 text-sm text-text-tertiary">
+      <div className="flex h-60 items-center justify-center rounded-card border border-dashed border-inner-border bg-surface-2 text-caption text-text-tertiary">
         No background yet. The console uses its plain surface.
       </div>
     );
@@ -308,7 +308,7 @@ function BackgroundPreview({
       ) : (
         <img src={url} alt="" className="size-full" style={frame} />
       )}
-      <span className="absolute bottom-[8px] left-[10px] rounded-control bg-surface-1 px-4 py-1 text-2xs text-text-secondary">
+      <span className="absolute bottom-[8px] left-[10px] rounded-control bg-surface-1 px-4 py-1 text-micro text-text-secondary">
         {kind === "video" ? "Video" : "Image"}
         {bytes !== null ? ` · ${formatBytes(bytes)}` : ""}
         {settings.backgroundEnabled ? "" : " · hidden"}
@@ -326,7 +326,7 @@ function BackgroundControls({
 }): ReactNode {
   return (
     <div className="flex flex-col gap-7">
-      <label className="flex min-h-18 items-center justify-between gap-6 text-base font-semibold text-text-primary">
+      <label className="flex min-h-18 items-center justify-between gap-6 text-body font-semibold text-text-primary">
         <span>Show background</span>
         <Switch checked={settings.backgroundEnabled} onChange={(checked) => setSettings({ backgroundEnabled: checked })} aria-label="Show background" />
       </label>
@@ -359,11 +359,11 @@ function Slider({
   readonly onChange: (value: number) => void;
 }): ReactNode {
   return (
-    <label className="flex flex-col gap-2 text-sm text-text-secondary">
+    <label className="flex flex-col gap-2 text-caption text-text-secondary">
       <span className="flex items-center justify-between">
         {label}
         <span className="flex items-center gap-3">
-          <span className="font-mono tabular-nums text-xs text-text-tertiary">
+          <span className="font-mono tabular-nums text-badge text-text-tertiary">
             {value}
             {unit ?? ""}
           </span>
@@ -418,8 +418,8 @@ function BlurSlider({
           {item.icon}
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="text-base font-semibold text-text-primary">{item.label}</span>
-          <span className="text-2xs text-text-tertiary">{item.description}</span>
+          <span className="text-body font-semibold text-text-primary">{item.label}</span>
+          <span className="text-micro text-text-tertiary">{item.description}</span>
         </span>
         <button
           type="button"
@@ -433,10 +433,10 @@ function BlurSlider({
         </button>
       </div>
       <div className={enabled ? "flex flex-col gap-6" : "flex flex-col gap-6 opacity-40"}>
-        <label className="flex flex-col gap-3 text-sm text-text-secondary">
+        <label className="flex flex-col gap-3 text-caption text-text-secondary">
           <span className="flex items-center justify-between">
             Clarity
-            <span className="font-mono text-xs tabular-nums text-text-tertiary">{clarity}%</span>
+            <span className="font-mono text-badge tabular-nums text-text-tertiary">{clarity}%</span>
           </span>
           <input
             type="range"
@@ -449,15 +449,15 @@ function BlurSlider({
             className="blur-slider w-full"
             style={{ ["--fill" as string]: `${clarity}%` }}
           />
-          <span className="flex justify-between text-xs text-text-tertiary">
+          <span className="flex justify-between text-badge text-text-tertiary">
             <span>See-through</span>
             <span>Solid</span>
           </span>
         </label>
-        <label className="flex flex-col gap-3 text-sm text-text-secondary">
+        <label className="flex flex-col gap-3 text-caption text-text-secondary">
           <span className="flex items-center justify-between">
             Blur
-            <span className="font-mono text-xs tabular-nums text-text-tertiary">{depth}%</span>
+            <span className="font-mono text-badge tabular-nums text-text-tertiary">{depth}%</span>
           </span>
           <input
             type="range"
@@ -470,7 +470,7 @@ function BlurSlider({
             className="blur-slider w-full"
             style={{ ["--fill" as string]: `${depth}%` }}
           />
-          <span className="flex justify-between text-xs text-text-tertiary">
+          <span className="flex justify-between text-badge text-text-tertiary">
             <span>Sharp</span>
             <span>Blurred</span>
           </span>

@@ -64,8 +64,8 @@ export default function CliTools(): ReactNode {
           icon={<Terminal size={16} />}
           action={<Badge tone="accent">{`${tools.length} tools`}</Badge>}
         />
-        <CardBody style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      <section style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        <CardBody className="flex flex-col gap-8">
+      <section className="flex flex-col gap-6">
         <SectionHeading
           title={`File-injected tools (${fileTools.length})`}
           description="Direct config file writing and preset model mappings"
@@ -87,16 +87,11 @@ export default function CliTools(): ReactNode {
               >
                 <Link
                   to={`/cli-tools/${tool.id}`}
-                  style={{
-                    textDecoration: "none",
-                    color: "inherit",
-                    display: "block",
-                    padding: "12px",
-                  }}
+                  className="no-underline text-inherit block p-6"
                 >
                   <Inline gap="10px">
                     <ToolIcon toolId={tool.id} name={tool.name} color={tool.color} size={32} />
-                    <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="min-w-0 flex-1">
                       <div
                         style={{
                           fontSize: "13px",
@@ -108,7 +103,7 @@ export default function CliTools(): ReactNode {
                       >
                         {tool.name}
                       </div>
-                      <div style={{ marginTop: "3px" }}>
+                      <div className="mt-1.5">
                         {status?.configured ? (
                           <Badge tone="ok" dot>
                             Configured
@@ -124,22 +119,9 @@ export default function CliTools(): ReactNode {
                     </div>
 
                     <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-end",
-                        gap: "3px",
-                        flexShrink: 0,
-                      }}
+                      className="flex flex-col items-end gap-1.5 shrink-0"
                     >
-                      <span
-                        className="font-mono tabular-nums" style={{ fontSize: "10px",
-                          fontWeight: 600,
-                          background: "var(--kbd-bg)",
-                          padding: "1px 5px",
-                          borderRadius: "4px",
-                          color: "var(--text-secondary)" }}
-                      >
+                      <span className="font-mono tabular-nums text-micro font-semibold bg-kbd-bg py-0.5 px-2.5 rounded-tiny text-text-secondary">
                         {tool.id}
                       </span>
                       {tool.surface ? <Badge tone="default">{tool.surface}</Badge> : null}
@@ -152,7 +134,7 @@ export default function CliTools(): ReactNode {
         </div>
       </section>
 
-      <section style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+      <section className="flex flex-col gap-6">
         <SectionHeading
           title={`Guide-only tools (${guideTools.length})`}
           description="Manual setup steps and exportable config templates"
@@ -172,16 +154,11 @@ export default function CliTools(): ReactNode {
             >
               <Link
                 to={`/cli-tools/${tool.id}`}
-                style={{
-                  textDecoration: "none",
-                  color: "inherit",
-                  display: "block",
-                  padding: "12px",
-                }}
+                className="no-underline text-inherit block p-6"
               >
                 <Inline gap="10px">
                   <ToolIcon toolId={tool.id} name={tool.name} color={tool.color} size={32} />
-                  <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="min-w-0 flex-1">
                     <div
                       style={{
                         fontSize: "13px",
@@ -193,28 +170,15 @@ export default function CliTools(): ReactNode {
                     >
                       {tool.name}
                     </div>
-                    <div style={{ marginTop: "3px" }}>
+                    <div className="mt-1.5">
                       <Badge tone="info">Guide</Badge>
                     </div>
                   </div>
 
                   <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "flex-end",
-                      gap: "3px",
-                      flexShrink: 0,
-                    }}
+                    className="flex flex-col items-end gap-1.5 shrink-0"
                   >
-                    <span
-                      className="font-mono tabular-nums" style={{ fontSize: "10px",
-                        fontWeight: 600,
-                        background: "var(--kbd-bg)",
-                        padding: "1px 5px",
-                        borderRadius: "4px",
-                        color: "var(--text-secondary)" }}
-                    >
+                    <span className="font-mono tabular-nums text-micro font-semibold bg-kbd-bg py-0.5 px-2.5 rounded-tiny text-text-secondary">
                       {tool.id}
                     </span>
                     {tool.surface ? <Badge tone="default">{tool.surface}</Badge> : null}

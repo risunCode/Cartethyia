@@ -1272,8 +1272,14 @@ html[data-empty-outline="true"] .empty-panel {
  * heading typography below stays: `SectionHeading` renders the `h1`/`h2` and
  * `p` internally, so the component cannot reach them with utilities. */
 
+/* Sole owner of `.section-header-text h1/h2`. `SectionHeading` renders the level
+   as a bare `h1`/`h2`/`h3`, so the component cannot reach them with utilities;
+   `font-family` moved here from base.css's shared heading rule so the selector
+   has exactly one definition. `letter-spacing` stays -0.02em, which is what won
+   when the two sheets both declared it. */
 .section-header-text h1,
 .section-header-text h2 {
+  font-family: var(--font-head);
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;

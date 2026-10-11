@@ -828,13 +828,7 @@ export function AccountsList({
         ))}
       </div>
       <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          fontSize: "11px",
-          color: "var(--text-tertiary)",
-        }}
+        className="flex items-center justify-between text-badge text-text-tertiary"
       >
         <span>
           Showing {filtered.length} account{filtered.length === 1 ? "" : "s"}
@@ -1032,11 +1026,7 @@ export function AddAccountModal({
       </>
     }>
       <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "10px",
-        }}
+        className="flex flex-col gap-5"
       >
         {!isBatch && (
           <Input
@@ -1059,16 +1049,11 @@ export function AddAccountModal({
             { value: "api_key", label: "API key — do not decode as JWT" },
           ]}
         />
-        <Stack gap="6px" style={{ minWidth: 0 }}>
+        <Stack gap="6px" className="min-w-0">
           <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "8px",
-            }}
+            className="flex items-center justify-between gap-4"
           >
-            <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>
+            <label className="text-caption font-semibold text-text-secondary">
               API key, OAuth token, or exported JSON — one or many
             </label>
             {isBatch ? (
@@ -1085,13 +1070,13 @@ export function AddAccountModal({
               </Badge>
             ) : null}
               {singleEntry && detectedKind === "jwt" ? (
-                <p style={{ fontSize: "10.5px", color: "var(--text-tertiary)" }}>
+                <p className="text-micro text-text-tertiary">
                   Static JWT · no refresh token
                   {detectedExpiry ? ` · expires ${new Date(detectedExpiry).toLocaleString()}` : " · no expiry claim"}
                 </p>
               ) : null}
           </div>
-          <Inline gap="8px" align="flex-start" style={{ minWidth: 0 }}>
+          <Inline gap="8px" align="flex-start" className="min-w-0">
             <textarea
               value={secret}
               onChange={(event) => setSecret(event.target.value)}
@@ -1121,15 +1106,12 @@ export function AddAccountModal({
             {/* Same field, same parser — the file only replaces typing. Accepts
                 the JSON export this dialog produces, plus .txt/.jsonl carrying
                 one credential per line. */}
-            <label
-              className="btn btn-secondary"
-              style={{ flexShrink: 0, cursor: "pointer" }}
-            >
+            <label className="btn btn-secondary shrink-0 cursor-pointer">
               <input
                 type="file"
                 accept=".json,.txt,.jsonl,.ndjson,application/json,text/plain"
                 aria-label="Import credentials from a file"
-                style={{ display: "none" }}
+                className="hidden"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   event.target.value = "";
@@ -1158,15 +1140,9 @@ export function AddAccountModal({
               // eslint-disable-next-line react/no-array-index-key
               <div
                 key={index}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: "8px",
-                  fontSize: "11.5px",
-                }}
+                className="flex items-center justify-between gap-4 text-badge"
               >
-                <span className="truncate" style={{ minWidth: 0 }}>
+                <span className="truncate min-w-0">
                   {batchNames[index]}
                 </span>
                 <Badge tone={entry.kind === "oauth" ? "accent" : "default"}>

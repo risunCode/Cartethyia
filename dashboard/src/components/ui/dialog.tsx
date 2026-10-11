@@ -134,20 +134,10 @@ export function Dialog({
         {minimized ? null : <div className="modal-body">{children}</div>}
         {minimized || footer === undefined ? null : <div className="modal-footer">{footer}</div>}
         {description ? (
-          <p
-            id={descriptionId}
-            style={{
-              position: "absolute",
-              width: "1px",
-              height: "1px",
-              padding: 0,
-              margin: "-1px",
-              overflow: "hidden",
-              clip: "rect(0, 0, 0, 0)",
-              whiteSpace: "nowrap",
-              border: 0,
-            }}
-          >
+          // `sr-only` is exactly the visually-hidden pattern that was inlined here
+          // (1px box, clipped, no border) — the description stays available to a
+          // screen reader without taking part in layout.
+          <p id={descriptionId} className="sr-only">
             {description}
           </p>
         ) : null}

@@ -190,11 +190,8 @@ export function OAuthBrowserDialog({
     >
       <Stack gap="14px">
         <div className="oauth-status">
-          <Loader2
-            size={16}
-            className="animate-spin"
-            style={{ color: "var(--accent)", flexShrink: 0 }}
-          />
+          <Loader2 size={16}
+           className="animate-spin text-accent shrink-0"/>
           <span className="oauth-status-text">Waiting for popup authorization…</span>
         </div>
 
@@ -464,21 +461,15 @@ export function DeviceCodeDialog({
       <Stack gap="14px">
         {!session ? (
           <div className="oauth-status">
-            <Loader2
-              size={16}
-              className="animate-spin"
-              style={{ color: "var(--accent)", flexShrink: 0 }}
-            />
+            <Loader2 size={16}
+             className="animate-spin text-accent shrink-0"/>
             <span className="oauth-status-text">Starting device authorization…</span>
           </div>
         ) : (
           <>
             <div className="oauth-status">
-              <Loader2
-                size={16}
-                className="animate-spin"
-                style={{ color: "var(--accent)", flexShrink: 0 }}
-              />
+              <Loader2 size={16}
+               className="animate-spin text-accent shrink-0"/>
               <span className="oauth-status-text">Waiting for authorization…</span>
             </div>
 

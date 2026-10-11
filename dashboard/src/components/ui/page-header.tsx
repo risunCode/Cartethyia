@@ -21,7 +21,7 @@ export function BackLink({ to, label }: BackLinkProps): ReactNode {
         if (window.history.length > 1) navigate(-1);
         else navigate(to);
       }}
-      className="inline-flex items-center gap-3 text-accent text-sm bg-transparent border-0 p-0 cursor-pointer"
+      className="inline-flex items-center gap-3 text-accent text-caption bg-transparent border-0 p-0 cursor-pointer"
     >
       <ArrowLeft size={14} aria-hidden="true" />
       {label}
@@ -55,11 +55,11 @@ export function PageHeader({
           {icon ? <div className="card-header-icon">{icon}</div> : null}
           <div className="min-w-0">
             <div className="flex items-center gap-4 flex-wrap">
-              <h1 className="text-lg font-bold">{title}</h1>
+              <h1 className="text-lead font-bold">{title}</h1>
               {badges}
             </div>
             {description ? (
-              <p className="mt-1 text-xs text-text-tertiary">{description}</p>
+              <p className="mt-1 text-badge text-text-tertiary">{description}</p>
             ) : null}
           </div>
         </div>

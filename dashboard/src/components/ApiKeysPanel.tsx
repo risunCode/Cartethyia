@@ -80,7 +80,7 @@ export function ApiKeysPanel(): ReactNode {
         subtitle="Manage tenant API keys, model access, budgets, and sharing."
         icon={<KeyRound size={16} />}
         action={
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div className="flex items-center gap-4">
             {isPlatformAdmin ? (
               <Button
                 variant="secondary"
@@ -119,7 +119,7 @@ export function ApiKeysPanel(): ReactNode {
         ) : (
           // The key list is the tallest thing on the page; bounding it keeps the
           // page chrome in place and scrolls only the rows, like the sidebar.
-          <div className="scroll-region" style={{ maxHeight: "560px", paddingRight: "2px" }}>
+          <div className="scroll-region max-h-280 pr-1">
           <SortableList
             items={keys}
             label="API credentials"
@@ -132,11 +132,11 @@ export function ApiKeysPanel(): ReactNode {
             }
             renderItem={(key) => (
               <div className="api-key-card">
-                <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="min-w-0 flex-1">
                   <div
-                    style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}
+                    className="flex items-center gap-4 flex-wrap"
                   >
-                    <strong style={{ fontSize: "13px" }}>
+                    <strong className="text-body">
                       {key.label || "Unnamed credential"}
                     </strong>
                     <Badge tone={key.revokedAt ? "err" : key.enabled ? "ok" : "warn"}>
@@ -190,7 +190,7 @@ export function ApiKeysPanel(): ReactNode {
                     </span>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: "6px", flexShrink: 0, flexWrap: "wrap" }}>
+                <div className="flex gap-3 shrink-0 flex-wrap">
                   {!key.revokedAt ? (
                     <Switch
                       checked={key.enabled}

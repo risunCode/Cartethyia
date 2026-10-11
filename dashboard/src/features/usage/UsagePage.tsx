@@ -358,7 +358,7 @@ function StatusCodeWithExplainer({
       {open ? (
         <span
           role="status"
-          className="absolute z-30 top-[calc(100%+6px)] left-0 whitespace-normal min-w-110 max-w-140 border border-inner-border rounded-control bg-popover-bg shadow-[0_12px_32px_rgba(0,0,0,0.16)] px-5 py-4 font-sans font-normal text-xs leading-[1.5] text-text-secondary"
+          className="absolute z-30 top-[calc(100%+6px)] left-0 whitespace-normal min-w-110 max-w-140 border border-inner-border rounded-control bg-popover-bg shadow-[0_12px_32px_rgba(0,0,0,0.16)] px-5 py-4 font-sans font-normal text-badge leading-[1.5] text-text-secondary"
         >
           {explainer}
         </span>
@@ -812,18 +812,18 @@ function BreakdownSnapshot({
                     className="relative flex items-center justify-between gap-4 px-6 py-5"
                   >
                     <span
-                      className="truncate font-mono tabular-nums min-w-0 flex-1 text-xs font-semibold"
+                      className="truncate font-mono tabular-nums min-w-0 flex-1 text-badge font-semibold"
                     >
                       {displayName}
                     </span>                    <span
-                      className="font-mono tabular-nums shrink-0 text-2xs text-text-secondary"
+                      className="font-mono tabular-nums shrink-0 text-micro text-text-secondary"
                     >
                       {formatNumber(row.requests)} hit · {formatNumber(okCount)} ok
                     </span>
-                    <span className="shrink-0 text-xs font-bold text-orange">
+                    <span className="shrink-0 text-badge font-bold text-orange">
                       {formatUsd(row.costUsd)}
                     </span>
-                    <span className="shrink-0 text-xs font-bold text-purple">
+                    <span className="shrink-0 text-badge font-bold text-purple">
                       {formatTokens(row.total)}
                     </span>
                   </div>
@@ -871,9 +871,9 @@ function FlowNode({
         )}
       </div>
       <div className="min-w-0 flex-1" style={{ paddingBottom: last ? 0 : "12px" }}>
-        <div className="text-sm font-bold">{title}</div>
+        <div className="text-caption font-bold">{title}</div>
         <div
-          className="select-text mt-1 whitespace-pre-line text-xs text-text-secondary [overflow-wrap:anywhere] break-words"
+          className="select-text mt-1 whitespace-pre-line text-badge text-text-secondary [overflow-wrap:anywhere] break-words"
         >
           {meta}
         </div>
@@ -946,7 +946,7 @@ function RequestDetailDrawer({
         <Stack gap="12px">
           <div className="flex items-center gap-4 rounded-control border border-inner-border bg-surface-2 px-6 py-4 min-w-0">
             <span
-              className="select-text font-mono tabular-nums min-w-0 flex-1 [overflow-wrap:anywhere] break-words text-xs"
+              className="select-text font-mono tabular-nums min-w-0 flex-1 [overflow-wrap:anywhere] break-words text-badge"
               title={detail.requestId}
             >
               request_id {detail.requestId}
@@ -965,16 +965,16 @@ function RequestDetailDrawer({
 
           {detail.errorKind ? (
             <div role="alert" className="status-callout flex flex-col gap-2 [overflow-wrap:anywhere] break-words" data-tone="err">
-              <strong className="text-sm">
+              <strong className="text-caption">
                 {errorLabel(detail.status, detail.errorKind, detail.errorOrigin, detail.httpStatus)}
               </strong>
-              <span className="font-mono tabular-nums text-text-tertiary text-2xs [overflow-wrap:anywhere]">
+              <span className="font-mono tabular-nums text-text-tertiary text-micro [overflow-wrap:anywhere]">
                 {detail.errorKind}
               </span>
             </div>
           ) : null}
           <section className="border border-inner-border rounded-control overflow-hidden">
-            <div className="border-b border-inner-border px-6 py-5 text-sm font-bold">
+            <div className="border-b border-inner-border px-6 py-5 text-caption font-bold">
               Flow and Detail
             </div>
             <div className="flex flex-col p-6">
@@ -1020,7 +1020,7 @@ function RequestDetailDrawer({
                     className="flex items-center gap-3.5 min-w-0 text-text-secondary"
                   >
                     <Icon size={14} aria-hidden="true" className="shrink-0 text-accent" />
-                    <span className="min-w-0 [overflow-wrap:anywhere] text-xs">
+                    <span className="min-w-0 [overflow-wrap:anywhere] text-badge">
                       {label}: <strong className="text-text-primary">{value}</strong>
                     </span>
                   </div>
@@ -1043,13 +1043,13 @@ function RequestDetailDrawer({
               className="rounded-control border border-inner-border bg-surface-2 overflow-hidden"
             >
               <summary
-                className="flex items-center justify-between gap-4 cursor-pointer px-6 py-5 text-sm font-bold"
+                className="flex items-center justify-between gap-4 cursor-pointer px-6 py-5 text-caption font-bold"
               >
                 <span className="inline-flex items-center gap-3.5 min-w-0">
                   <Icon size={14} className={cn("shrink-0", kind === "request" ? "text-accent" : "text-green")} />
                   <span className="[overflow-wrap:anywhere] break-words">{label}</span>
                 </span>
-                <span className="font-mono tabular-nums shrink-0 text-text-tertiary text-2xs font-medium">
+                <span className="font-mono tabular-nums shrink-0 text-text-tertiary text-micro font-medium">
                   {formatBytes(payloadView(kind).bytes)}
                 </span>
               </summary>
@@ -1059,8 +1059,8 @@ function RequestDetailDrawer({
                 >
                   <Database size={15} className="shrink-0 text-text-tertiary mt-0.5" />
                   <div className="min-w-0 flex flex-col gap-1.5">
-                    <strong className="text-sm text-text-secondary">No payload captured</strong>
-                    <span className="text-xs text-text-tertiary [overflow-wrap:anywhere] break-words">
+                    <strong className="text-caption text-text-secondary">No payload captured</strong>
+                    <span className="text-badge text-text-tertiary [overflow-wrap:anywhere] break-words">
                       {label} is unavailable for this request.
                     </span>
                   </div>
@@ -1079,7 +1079,7 @@ function RequestDetailDrawer({
                     />
                   </div>
                   <pre
-                    className="select-text font-mono tabular-nums max-h-128 overflow-auto whitespace-pre-wrap [overflow-wrap:break-word] break-words m-0 border-t border-inner-border pt-4 px-6 pb-6 text-2xs text-text-secondary"
+                    className="select-text font-mono tabular-nums max-h-128 overflow-auto whitespace-pre-wrap [overflow-wrap:break-word] break-words m-0 border-t border-inner-border pt-4 px-6 pb-6 text-micro text-text-secondary"
                   >
                     {payloadView(kind).text}
                   </pre>
@@ -1120,7 +1120,7 @@ function InFlightPill({
           ? `${active} ${requestWord} executing right now from ${ips} unique client ${ipWord} — all clients combined, not a summary of the table below`
           : "Live feed disconnected — last seen value"
       }
-      className="inline-flex items-center gap-3 text-xs text-text-secondary whitespace-nowrap"
+      className="inline-flex items-center gap-3 text-badge text-text-secondary whitespace-nowrap"
     >
       <span
         aria-hidden="true"
@@ -1235,7 +1235,7 @@ function TokenScaleSwitch({
       aria-label={`${label}: currently ${currentName}, switch to ${nextName}`}
       title={`Show ${nextName}`}
       onClick={() => onChange(next)}
-      className="font-mono tabular-nums inline-flex items-center gap-2 px-3.5 py-1.5 border border-inner-border rounded-pill bg-surface-2 text-text-secondary cursor-pointer text-2xs font-bold tracking-[0.04em] leading-[1]"
+      className="font-mono tabular-nums inline-flex items-center gap-2 px-3.5 py-1.5 border border-inner-border rounded-pill bg-surface-2 text-text-secondary cursor-pointer text-micro font-bold tracking-[0.04em] leading-[1]"
     >
       <Scaling size={11} aria-hidden="true" />
       {currentName}
@@ -1608,7 +1608,7 @@ export default function Usage(): ReactNode {
                 icon={hideProviderName ? <EyeOff size={13} /> : <Eye size={13} />}
                 onClick={toggleHideProviderName}
                 title={hideProviderName ? "Show real provider names" : "Mask provider names as Mysterious"}
-                className="text-xs h-13 px-4 py-0 text-text-secondary"
+                className="text-badge h-13 px-4 py-0 text-text-secondary"
               >
                 {hideProviderName ? "Provider masked" : "Mask provider"}
               </Button>
@@ -1668,14 +1668,14 @@ export default function Usage(): ReactNode {
                         background: isNew ? "color-mix(in srgb, var(--accent) 14%, transparent)" : undefined,
                       }}
                     >
-                    <td className="text-xs text-text-tertiary whitespace-nowrap">
+                    <td className="text-badge text-text-tertiary whitespace-nowrap">
                       <div>{formatTime(row.startedAt)}</div>
-                      <div className="text-2xs mt-0.5">{formatAgo(row.startedAt)}</div>
+                      <div className="text-micro mt-0.5">{formatAgo(row.startedAt)}</div>
                     </td>
                     <td className="max-w-105">
                       <div className="flex items-center gap-3 min-w-0">
                         <span
-                          className="truncate text-sm font-semibold"
+                          className="truncate text-caption font-semibold"
                           title={rowProviderId ?? "—"}
                         >
                           {hideProviderName ? "Mysterious" : rowProviderId ? (providerNames.get(rowProviderId) ?? rowProviderId) : "—"}
@@ -1689,7 +1689,7 @@ export default function Usage(): ReactNode {
                     </td>
                     <td className="max-w-70">
                       <div
-                        className="truncate text-sm font-semibold"
+                        className="truncate text-caption font-semibold"
                         title={usageApiKeyLabel(row)}
                       >
                         {usageApiKeyLabel(row)}
@@ -1698,7 +1698,7 @@ export default function Usage(): ReactNode {
                         {usageClientLabel(row)}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap text-xs">
+                    <td className="whitespace-nowrap text-badge">
                       <div>
                         <span
                           className="font-mono tabular-nums inline-block min-w-[13ch] text-text-secondary"
@@ -1752,7 +1752,7 @@ export default function Usage(): ReactNode {
                       <div>{formatDuration(row.ttfbMs)}</div>
                       {row.resolveMs !== undefined ? (
                         <div
-                          className="text-2xs mt-0.5 text-text-tertiary"
+                          className="text-micro mt-0.5 text-text-tertiary"
                           title="Gateway-side time before the upstream dispatch began"
                         >
                           ({formatDuration(row.resolveMs)})

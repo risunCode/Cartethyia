@@ -57,12 +57,12 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onClose={onClose} title={title} description={message}>
-      <div style={{ display: "flex", flexDirection: "column", gap: "16px", padding: "4px 0" }}>
-        <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+      <div className="flex flex-col gap-8 py-2 px-0">
+        <p className="text-body text-text-secondary leading-normal">
           {message}
         </p>
         {error ? (
-          <p role="alert" style={{ fontSize: "12px", color: "var(--red)" }}>
+          <p role="alert" className="text-caption text-red">
             {error}
           </p>
         ) : null}

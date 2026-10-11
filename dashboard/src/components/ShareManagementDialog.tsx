@@ -577,7 +577,7 @@ export function ShareManagementContent({
                         </tr>
                         {open ? (
                           <tr>
-                            <td colSpan={7} style={{ padding: 0 }}>
+                            <td colSpan={7} className="p-0">
                               <ChildDetail parentId={parent.id} childId={child.id} />
                             </td>
                           </tr>

@@ -144,7 +144,7 @@ function ModelCard({
             size="sm"
             icon={
               result?.ok ? (
-                <span style={{ display: "inline-flex", color: "var(--green)" }}>
+                <span className="inline-flex text-green">
                   <CheckCircle2 size={13} />
                 </span>
               ) : (

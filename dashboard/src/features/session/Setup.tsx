@@ -280,10 +280,10 @@ export default function Setup(): ReactNode {
               Sign in with the account that was created.
             </p>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div className="flex flex-col gap-7">
             <SetupError message="Setup is already finished. Creating a second administrator is not possible from here." />
-            <Link to="/login" style={{ textDecoration: "none" }}>
-              <Button variant="primary" type="button" style={{ width: "100%", height: "40px" }}>
+            <Link to="/login" className="no-underline">
+              <Button variant="primary" type="button" className="w-full h-20">
                 Go to sign in
               </Button>
             </Link>
@@ -306,7 +306,7 @@ export default function Setup(): ReactNode {
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", marginBottom: "14px" }}>
+        <div className="flex gap-4 mb-7">
           <Button type="button" variant={mode === "create" ? "primary" : "secondary"} onClick={() => setMode("create")}>
             New account
           </Button>
@@ -316,7 +316,7 @@ export default function Setup(): ReactNode {
         </div>
 
         {mode === "restore" ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          <div className="flex flex-col gap-7">
             <div className="setup-restore-row">
               <Button
                 type="button"
@@ -349,7 +349,7 @@ export default function Setup(): ReactNode {
               type="file"
               accept="application/json,.json"
               disabled={pending}
-              style={{ display: "none" }}
+              className="hidden"
               onChange={(event) => {
                 const file = event.target.files?.[0] ?? null;
                 pickFile(file);
@@ -410,7 +410,7 @@ export default function Setup(): ReactNode {
             {error ? <SetupError message={error} /> : null}
           </div>
         ) : (
-        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        <form onSubmit={submit} className="flex flex-col gap-7">
           <Input
             label="Administrator Username"
             id="setup-username"
@@ -460,7 +460,7 @@ export default function Setup(): ReactNode {
             variant="primary"
             type="submit"
             disabled={pending || open === null}
-            style={{ width: "100%", marginTop: "6px", height: "40px" }}
+            className="w-full mt-3 h-20"
             icon={<UserPlus size={15} />}
           >
             {pending ? "Initializing…" : "Complete Setup"}
@@ -540,14 +540,7 @@ function BackupSummary({ preview }: { readonly preview: BackupPreview }): ReactN
 function SetupError({ message }: { readonly message: string }): ReactNode {
   return (
     <div
-      style={{
-        padding: "10px 14px",
-        borderRadius: "10px",
-        background: "var(--red-soft)",
-        color: "var(--red)",
-        fontSize: "12.5px",
-        fontWeight: 500,
-      }}
+      className="py-5 px-7 rounded-control bg-red-soft text-red text-caption font-medium"
       role="alert"
     >
       {message}
