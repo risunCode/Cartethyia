@@ -68,7 +68,7 @@
     "arbitrary": 0
   },
   "src/components/ui/badge.tsx": {
-    "staticInline": 1,
+    "staticInline": 0,
     "arbitrary": 5
   },
   "src/components/ui/button.tsx": {
@@ -80,7 +80,7 @@
     "arbitrary": 8
   },
   "src/components/ui/dialog-actions.tsx": {
-    "staticInline": 1,
+    "staticInline": 0,
     "arbitrary": 0
   },
   "src/components/ui/dialog.tsx": {
@@ -104,7 +104,7 @@
     "arbitrary": 10
   },
   "src/components/ui/select.tsx": {
-    "staticInline": 1,
+    "staticInline": 0,
     "arbitrary": 0
   },
   "src/components/ui/state.tsx": {

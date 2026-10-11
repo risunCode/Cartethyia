@@ -61,11 +61,10 @@ export function Badge({
       {...props}
     >
       {dot ? (
-        <span
-          className="status-indicator-dot"
-          aria-hidden="true"
-          style={{ background: "currentColor" }}
-        />
+        // `bg-current` carries the inherited text colour, which is what the inline
+        // `background: "currentColor"` used to do — the dot follows the badge's
+        // tone instead of the fixed dot-state colours in the sheet.
+        <span className="status-indicator-dot bg-current" aria-hidden="true" />
       ) : null}
       {children}
     </span>

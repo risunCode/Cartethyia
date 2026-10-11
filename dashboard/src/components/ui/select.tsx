@@ -2,6 +2,8 @@ import * as RadixSelect from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
 import { type CSSProperties, type ReactNode } from "react";
 
+import { FormField } from "../patterns/form-field";
+
 export interface SelectOption {
   readonly value: string;
   readonly label: string;
@@ -23,10 +25,17 @@ export interface SelectProps {
   readonly error?: string;
 }
 
-const SIZE_HEIGHT: Record<NonNullable<SelectProps["size"]>, number> = {
-  sm: 30,
-  md: 36,
-  lg: 44,
+/**
+ * Height is a static prop, so it is a utility rather than an inline style. The
+ * sheet already sets 36px on `.radix-select-trigger`; the map re-expresses the
+ * three sizes on the `--spacing: 2px` scale (`h-15` = 30px, `h-18` = 36px,
+ * `h-22` = 44px). A caller-supplied `style.height` still wins, because an inline
+ * declaration outranks a class.
+ */
+const SIZE_HEIGHT_CLASS: Record<NonNullable<SelectProps["size"]>, string> = {
+  sm: "h-15",
+  md: "h-18",
+  lg: "h-22",
 };
 
 export function Select({
@@ -52,10 +61,13 @@ export function Select({
       <RadixSelect.Trigger
         id={id}
         aria-label={ariaLabelProp ?? label}
-        className={`radix-select-trigger ${className}`.trim()}
+        className={`radix-select-trigger ${SIZE_HEIGHT_CLASS[size]} ${className}`.trim()}
         style={{
           ...style,
-          height: style?.height ?? `${SIZE_HEIGHT[size]}px`,
+          // Runtime-computed (depends on `disabled`), so they stay inline: the
+          // sheet's `[aria-disabled]` rule cannot outrank an inline declaration,
+          // and these deliberately differ from it (0.6 vs 0.72, not-allowed vs
+          // default). Moving them to classes would silently change the render.
           opacity: disabled ? 0.6 : 1,
           cursor: disabled ? "not-allowed" : "pointer",
         }}
@@ -97,15 +109,5 @@ export function Select({
 
   if (!label) return trigger;
 
-  return (
-    <div className="form-group" style={style}>
-      <label className="form-label" htmlFor={id}>
-        {label}
-      </label>
-      {trigger}
-      {error ? (
-        <span style={{ fontSize: "11px", color: "var(--status-danger)" }}>{error}</span>
-      ) : null}
-    </div>
-  );
+  return <FormField label={label} error={error} htmlFor={id}>{trigger}</FormField>;
 }

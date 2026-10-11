@@ -1,9 +1,13 @@
 import type { CSSProperties, ReactNode } from "react";
 import { cn } from "../../lib/cn";
+import { resolveGap } from "../../lib/spacing";
 
 export interface InlineProps {
   readonly children: ReactNode;
+  /** Scale units (`--spacing: 2px`, so `4` is 8px), or a `px` string. */
   readonly gap?: number | string;
+  /** Escape hatch for a gap off the 2px step; see `StackProps.gapRaw`. */
+  readonly gapRaw?: string;
   readonly align?: CSSProperties["alignItems"];
   readonly justify?: CSSProperties["justifyContent"];
   readonly wrap?: boolean;
@@ -44,7 +48,8 @@ const JUSTIFY: Record<string, string> = {
  */
 export function CardActions({
   children,
-  gap = "6px",
+  gap = 3,
+  gapRaw,
   align = "center",
   justify,
   wrap = true,
@@ -52,7 +57,7 @@ export function CardActions({
   className = "",
 }: InlineProps): ReactNode {
   return (
-    <Inline gap={gap} align={align} justify={justify} wrap={wrap} style={style} className={className}>
+    <Inline gap={gap} gapRaw={gapRaw} align={align} justify={justify} wrap={wrap} style={style} className={className}>
       {children}
     </Inline>
   );
@@ -60,13 +65,15 @@ export function CardActions({
 
 export function Inline({
   children,
-  gap = "8px",
+  gap = 4,
+  gapRaw,
   align = "center",
   justify,
   wrap = false,
   style,
   className = "",
 }: InlineProps): ReactNode {
+  const gapClass = resolveGap(gap, 4);
   return (
     <div
       className={cn(
@@ -74,9 +81,10 @@ export function Inline({
         ALIGN[align ?? ""] ?? "",
         JUSTIFY[justify ?? ""] ?? "",
         wrap && "flex-wrap",
+        gapRaw !== undefined ? null : gapClass,
         className,
       )}
-      style={{ gap, ...style }}
+      style={gapRaw !== undefined ? { gap: gapRaw, ...style } : style}
     >
       {children}
     </div>

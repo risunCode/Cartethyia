@@ -1,12 +1,21 @@
 import type { CSSProperties, ReactNode } from "react";
 import { cn } from "../../lib/cn";
+import { resolveGap } from "../../lib/spacing";
 
 type StackDirection = "row" | "column";
 
 export interface StackProps {
   readonly children: ReactNode;
   readonly direction?: StackDirection;
+  /** Scale units (`--spacing: 2px`, so `4` is 8px), or a `px` string. */
   readonly gap?: number | string;
+  /**
+   * Escape hatch for a gap that is genuinely off the 2px step (a `calc()`, a
+   * percentage). Reaches the DOM as an inline style, so it is exempt from the
+   * style guard by being named — unlike an off-scale value dropped into `gap`,
+   * which would silently become an arbitrary utility.
+   */
+  readonly gapRaw?: string;
   readonly align?: CSSProperties["alignItems"];
   readonly justify?: CSSProperties["justifyContent"];
   readonly wrap?: boolean;
@@ -39,13 +48,15 @@ const JUSTIFY: Record<string, string> = {
 export function Stack({
   children,
   direction = "column",
-  gap = "12px",
+  gap = 6,
+  gapRaw,
   align,
   justify,
   wrap = false,
   style,
   className = "",
 }: StackProps): ReactNode {
+  const gapClass = resolveGap(gap, 6);
   return (
     <div
       className={cn(
@@ -54,9 +65,11 @@ export function Stack({
         ALIGN[align ?? ""] ?? "",
         JUSTIFY[justify ?? ""] ?? "",
         wrap && "flex-wrap",
+        // An off-scale gap has no utility; the escape hatch carries it instead.
+        gapRaw !== undefined ? null : gapClass,
         className,
       )}
-      style={{ gap, ...style }}
+      style={gapRaw !== undefined ? { gap: gapRaw, ...style } : style}
     >
       {children}
     </div>
