@@ -31,8 +31,44 @@ export interface StyleAudit {
   readonly arbitrary: number;
 }
 
-/** A bracketed value carrying a pixel or hex literal — the two clearest token candidates. */
-const ARBITRARY_LITERAL = /\[[^\]\n]*(?:\d+(?:\.\d+)?px|#[0-9a-fA-F]{3,8})[^\]\n]*\]/g;
+/**
+ * A bracketed class value carrying a literal — the clearest token candidates.
+ *
+ * The shape that counts is `utility-[literal]` at a class boundary, with any
+ * leading variants (`hover:`, `max-medium:`, `[&_svg]:`, `min-[640px]:`)
+ * attached. A bare structural variant, a bare arbitrary property, and a
+ * responsive prefix in front of a *named* utility all carry no value here, so
+ * none of them matches — that is what keeps `overflow-wrap:anywhere` and
+ * `min-[640px]:inline-flex` out of the count.
+ */
+const ARBITRARY_LITERAL =
+  /(?:^|(?<=[\s"'`]))(?:(?:min|max)-\[[^\]\n]*\]:|[a-z][a-z0-9_-]*:(?=[a-z[])|\[[^\]\n]*\]:)*[a-z][a-z0-9-]*-\[[^\]\n]*[\d#][^\]\n]*\]/g;
+
+/**
+ * A breakpoint in front of a *named* utility carries no value: `min-[640px]` is
+ * the variant and `grid-cols-2` is the scale. Only the bracket prefix itself
+ * matches `ARBITRARY_LITERAL` (as `utility-[literal]`), so those bare
+ * `min-[…]`/`max-[…]` matches are dropped here.
+ */
+const BREAKPOINT_ONLY = /^(?:min|max)-\[[^\]\n]*\]$/;
+
+/**
+ * The one other exemption: Tailwind's `flex` shorthand. `flex-[1_1_160px]`
+ * spells three longhand `flex-*` utilities in a single bracket (underscores
+ * become spaces), so the pixel there is scale input, not an arbitrary value.
+ */
+const FLEX_SHORTHAND = /flex-\[[^\]\n]*\]/;
+
+/** How many bracketed literals the sources still carry. */
+function countArbitraryUtilities(src: string): number {
+  let count = 0;
+  for (const value of src.match(ARBITRARY_LITERAL) ?? []) {
+    if (BREAKPOINT_ONLY.test(value)) continue;
+    if (FLEX_SHORTHAND.test(value)) continue;
+    count++;
+  }
+  return count;
+}
 
 /** Every `style={ … }` JSX expression's inner text, brace-matched. */
 function jsxStyleExpressions(src: string): string[] {
@@ -121,8 +157,7 @@ export function auditSource(src: string): { staticInline: number; arbitrary: num
   for (const expression of jsxStyleExpressions(src)) {
     if (isStaticStyleExpression(expression)) staticInline++;
   }
-  const arbitrary = (src.match(ARBITRARY_LITERAL) ?? []).length;
-  return { staticInline, arbitrary };
+  return { staticInline, arbitrary: countArbitraryUtilities(src) };
 }
 
 /** Walks a directory tree and audits every `.tsx` file under it. */

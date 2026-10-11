@@ -705,6 +705,178 @@ html[data-app="landing"] #root {
   from { opacity: 0; transform: translate3d(0, 8px, 0); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Shared motion. Route entry moves top only: opacity/transform/filter would
+   create a grouping layer and prevent cards from sampling the backdrop. */
+@keyframes motion-route-in {
+  from { top: 6px; }
+  to { top: 0; }
+}
+@keyframes popout-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes dialog-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dialog-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes dialog-panel-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes dialog-panel-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+@keyframes drawer-panel-in {
+  from { transform: translateX(105%); }
+  to { transform: translateX(0); }
+}
+@keyframes drawer-panel-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(105%); }
+}
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@keyframes message-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+@keyframes reset-credit-sheen {
+  0% { background-position: -160% 0; }
+  100% { background-position: 260% 0; }
+}
+@keyframes reset-credit-glow {
+  0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+  50% { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--status-success) 55%, transparent)); }
+}
+.reset-credit-live {
+  display: inline-block;
+  background: linear-gradient(100deg, var(--text-tertiary) 32%, var(--status-success) 50%, var(--text-tertiary) 68%);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: reset-credit-sheen 2.4s linear infinite, reset-credit-glow 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reset-credit-live {
+    animation: none;
+    color: var(--status-success);
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+.route-enter {
+  position: relative;
+  animation: motion-route-in var(--dur-macro) var(--ease-spring) both;
+}
+.popout-enter {
+  animation: popout-in var(--dur-micro) var(--ease-spring) both;
+  transform-origin: top right;
+}
+
+/* Presence animations and viewport limits use runtime width/safe-area values.
+   Overlay and panel chrome is owned by utilities in ui/dialog and ui/drawer. */
+.dialog-overlay {
+  animation: dialog-overlay-in var(--dur-macro) var(--ease-spring) both;
+}
+.dialog-overlay.closing {
+  animation: dialog-overlay-out var(--dur-micro) var(--ease-spring) both;
+}
+.dialog-panel {
+  width: min(var(--dialog-width, 520px), calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  animation: dialog-panel-in var(--dur-macro) var(--ease-spring) both;
+}
+.dialog-panel.expanded {
+  width: min(1160px, calc(100vw - 32px));
+}
+.dialog-panel.closing {
+  animation: dialog-panel-out var(--dur-micro) var(--ease-spring) both;
+}
+@media (max-width: 640px) {
+  .dialog-overlay {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+  .dialog-panel {
+    max-height: calc(100dvh - 24px);
+  }
+  .dialog-panel.expanded {
+    width: min(1160px, calc(100vw - 24px));
+  }
+}
+.drawer-overlay {
+  animation: dialog-overlay-in 180ms var(--ease-spring) both;
+}
+.drawer-overlay.closing,
+.drawer-overlay[data-state="closing"] {
+  animation: dialog-overlay-out var(--dur-micro) var(--ease-spring) both;
+}
+.drawer-panel {
+  animation: drawer-panel-in 220ms var(--ease-spring) both;
+}
+.drawer-panel.closing,
+.drawer-panel[data-state="closing"] {
+  animation: drawer-panel-out 220ms var(--ease-spring) both;
+}
+
+/* Runtime clarity/depth arithmetic cannot be expressed by a fixed utility. */
+.composer-glass {
+  background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-cards, 30) * 0.55%), transparent);
+  backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
+  -webkit-backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
+}
+
+/* Browser-native range thumbs and a track painted from the runtime fill. */
+.blur-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  background: linear-gradient(to right, var(--text-primary) var(--fill, 0%), var(--surface-active) var(--fill, 0%));
+}
+.blur-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--surface-1);
+  border-radius: var(--radius-pill);
+  background: white;
+  box-shadow: 0 0 0 1px var(--inner-border);
+}
+.blur-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 3px solid var(--surface-1);
+  border-radius: var(--radius-pill);
+  background: white;
+  box-shadow: 0 0 0 1px var(--inner-border);
+}
+
+/* The chip inherits the parent's complete mono shorthand, not UA code sizing. */
+.code-chip-value { font: inherit; }
+
+/* Auto-fit grids follow available card width, not viewport breakpoints. */
+.metric-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+}
+.provider-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+}
+.quota-account-grid {
+  display: grid;
+  grid-template-columns: var(--grid-template-columns-quota-account);
+}
 }
 
 /* Preserve the account row layout at narrow widths; container sizing belongs to

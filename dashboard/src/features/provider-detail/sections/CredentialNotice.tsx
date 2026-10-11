@@ -39,7 +39,7 @@ export function CredentialNotice({
     <Card density="compact">
       <CardBody>
         <Inline gap="12px" className="items-center flex-wrap">
-          <span style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: "var(--text-secondary)" }}>
+          <span className="min-w-110 flex-1 text-caption text-text-secondary">
             {guidance}
             {notice ? <><br />{notice}</> : null}
           </span>

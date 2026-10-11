@@ -22,7 +22,7 @@ const STYLES = join(DASHBOARD_ROOT, "src", "styles");
 const ENTRIES = join(DASHBOARD_ROOT, "src", "apps");
 
 /** Apps whose per-app sheet has been deleted. Grows as each app is migrated. */
-const MIGRATED = ["landing", "share"] as const;
+const MIGRATED = ["landing", "share", "console"] as const;
 
 /** Legacy sheet file names, per app id. */
 const SHEET_BY_APP: Record<string, string> = {

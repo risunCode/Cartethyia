@@ -703,7 +703,7 @@ function ProviderVersionBadge({
   if (!clientVersion) return null;
   return (
     <Badge
-      className="provider-version-badge"
+      className="provider-version-badge absolute -top-4.5 left-5 right-auto z-chip max-w-[calc(100%-var(--spacing)*10)] truncate px-3 py-1 text-micro leading-[1.15] shadow-card max-small:left-4 max-small:max-w-[calc(100%-var(--spacing)*8)]"
       tone={clientVersion.source === "latest" ? "teal" : "default"}
       title={
         clientVersion.source === "latest"
@@ -750,8 +750,8 @@ const ProviderCard = memo(function ProviderCard({
           <span
             className={cn(
               "absolute top-9 -right-11 w-38 py-1 rotate-45 bg-accent-soft",
-              "text-accent text-micro font-extrabold tracking-[0.04em] leading-[1.05]",
-              "text-center uppercase shadow-[0_1px_3px_rgba(0,0,0,0.12)]",
+              "text-accent text-micro font-extrabold tracking-tight leading-[1.05]",
+              "text-center uppercase shadow-ribbon",
             )}
           >
             Friend

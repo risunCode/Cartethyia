@@ -3,6 +3,10 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePresence } from "../../hooks/use-presence";
 import { useModalFocus } from "../../hooks/use-modal-focus";
+import { cn } from "../../lib/cn";
+
+const TRAFFIC_LIGHT =
+  "traffic-light grid size-7 cursor-pointer place-items-center rounded-pill border-none p-0 transition-transform duration-(--dur-micro) ease-standard hover:scale-112 focus-visible:outline-2 focus-visible:outline-current focus-visible:outline-offset-2";
 
 /** Named panel size. One of the four scale steps; arbitrary px is legacy. */
 export type DialogSize = "sm" | "md" | "lg" | "xl";
@@ -60,7 +64,10 @@ export function Dialog({
 
   return createPortal(
     <div
-      className={`dialog-overlay${closing ? " closing" : ""}`}
+      className={cn(
+        "dialog-overlay fixed inset-0 z-drawer box-border flex items-center justify-center overflow-y-auto bg-overlay p-8 backdrop-blur-dialog max-small:p-6",
+        closing && "closing pointer-events-none",
+      )}
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -69,7 +76,11 @@ export function Dialog({
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`dialog-panel modal-window${closing ? " closing" : ""}${expanded ? " expanded" : ""}`}
+        className={cn(
+          "dialog-panel modal-window m-auto box-border flex flex-col overflow-hidden rounded-sidebar border border-border-strong bg-surface-1 shadow-window",
+          closing && "closing",
+          expanded && "expanded",
+        )}
         style={
           expanded
             ? undefined
@@ -97,7 +108,7 @@ export function Dialog({
           <div className="window-traffic-lights flex shrink-0 items-center gap-4" role="group" aria-label="Window controls">
             <button
               type="button"
-              className="traffic-light traffic-light-close"
+              className={cn(TRAFFIC_LIGHT, "traffic-light-close bg-window-close text-window-close-ink")}
               onClick={onClose}
               aria-label="Close dialog"
               title="Close"
@@ -106,7 +117,7 @@ export function Dialog({
             </button>
             <button
               type="button"
-              className="traffic-light traffic-light-minimize"
+              className={cn(TRAFFIC_LIGHT, "traffic-light-minimize bg-window-minimize text-window-minimize-ink")}
               onClick={() => setMinimized((v) => !v)}
               aria-label={minimized ? "Restore dialog" : "Minimize dialog"}
               title={minimized ? "Restore" : "Minimize"}
@@ -115,7 +126,7 @@ export function Dialog({
             </button>
             <button
               type="button"
-              className="traffic-light traffic-light-expand"
+              className={cn(TRAFFIC_LIGHT, "traffic-light-expand bg-window-expand text-window-expand-ink")}
               onClick={() => {
                 setExpanded((v) => !v);
                 setMinimized(false);

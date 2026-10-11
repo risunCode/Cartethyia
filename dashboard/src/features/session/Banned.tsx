@@ -18,17 +18,8 @@ export default function Banned(): ReactNode {
           <p className="auth-desc">Security policy lockout or untrusted origin address</p>
         </div>
 
-        <div
-          style={{
-            padding: "14px",
-            borderRadius: "12px",
-            background: "var(--surface-2)",
-            border: "1px solid var(--inner-border)",
-            fontSize: "12.5px",
-            color: "var(--text-secondary)",
-            lineHeight: 1.5,
-          }}
-        >
+        {/* Same panel the error boundary raises: radius, surface, border, body type. */}
+        <div className="rounded-panel border border-inner-border bg-surface-2 p-7 text-caption leading-relaxed text-text-secondary">
           <strong className="block text-text-primary mb-2">
             HTTP 403 Forbidden
           </strong>

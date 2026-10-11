@@ -143,11 +143,8 @@ export function ModelPickerModal({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title={title} footer={<Button variant="secondary" onClick={onClose}>Done</Button>}>
-      <div
-        className="flex max-w-full flex-col gap-6"
-        style={{ width: "min(720px, 90vw)" }}
-      >
+    <Dialog open={open} onClose={onClose} title={title} size="lg" footer={<Button variant="secondary" onClick={onClose}>Done</Button>}>
+      <div className="flex max-w-full flex-col gap-6">
         <div className="relative">
           <Search
             size={14}
@@ -225,12 +222,9 @@ export function ModelPickerModal({
                   {groupKey}
                   <Badge tone="default">{entries.length}</Badge>
                 </div>
-                <div
-                  className="grid min-w-0 gap-4"
-                  style={{
-                    gridTemplateColumns: "repeat(auto-fill, minmax(min(180px, 100%), 1fr))",
-                  }}
-                >
+                {/* Auto-fill so a group of two models does not stretch across the
+                    whole panel; the 180px track is what a chip's model id needs. */}
+                <div className="chip-grid grid min-w-0 gap-4">
                   {entries.map((e) => {
                     const sel = isSelected(e.qualified);
                     return (
@@ -238,20 +232,7 @@ export function ModelPickerModal({
                         key={e.qualified}
                         type="button"
                         onClick={() => handlePick(e.qualified)}
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "4px",
-                          padding: "10px 12px",
-                          borderRadius: "10px",
-                          border: sel ? "1px solid var(--accent)" : "1px solid var(--inner-border)",
-                          background: sel ? "var(--accent-soft)" : "var(--surface-2)",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          position: "relative",
-                          minWidth: 0,
-                          overflow: "hidden",
-                        }}
+                        className={`relative flex w-full min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-control px-6 py-5 text-left ${sel ? "border border-accent bg-accent-soft" : "border border-inner-border bg-surface-2"}`}
                       >
                         {sel && (
                           <Check
@@ -261,14 +242,7 @@ export function ModelPickerModal({
                         )}
                         <span
                           title={e.qualified}
-                          className="font-mono tabular-nums" style={{ fontSize: "11px",
-                            fontWeight: 600,
-                            color: sel ? "var(--accent)" : "var(--text-primary)",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            paddingRight: sel ? "16px" : 0,
-                            width: "100%" }}
+                          className={`font-mono tabular-nums w-full overflow-hidden text-ellipsis whitespace-nowrap text-badge font-semibold ${sel ? "pr-8 text-accent" : "text-text-primary"}`}
                         >
                           {e.modelId}
                           {/* A non-chat service (System One) is not served on
@@ -278,8 +252,7 @@ export function ModelPickerModal({
                           {e.kind === "model" && e.entry.serviceKind !== "llm" && (
                             <span
                               title={NATIVE_SERVICE_TOOLTIP(e.entry.serviceKind)}
-                              className="ml-3 cursor-help rounded-tiny border border-orange px-2.5 font-bold tracking-[0.04em] text-orange uppercase"
-                              style={{ fontSize: "9px" }}
+                              className="ml-3 inline-block cursor-help rounded-tiny border border-orange px-2.5 align-middle font-bold tracking-[0.04em] text-micro text-orange uppercase"
                             >
                               {e.entry.serviceKind}
                             </span>

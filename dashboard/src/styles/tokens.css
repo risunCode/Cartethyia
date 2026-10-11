@@ -62,41 +62,61 @@
    * tree. Collapsing them onto nine steps is the one place the rebuild
    * intentionally moves pixels: a label at 10.5px becomes 10px, a caption at
    * 12.5px becomes 12px. The steps are monotonic and every step is a real
-   * difference, so a writer picks by role (2xs = micro-label, xs = badge,
-   * sm = caption, base = body) instead of by remembering a number.
-   *
-   * These names shadow Tailwind's own defaults with a tighter scale. That is
-   * deliberate and safe here: the tree contained exactly one use of a default
-   * `text-*` utility before this, so nothing else moves.
+   * difference, so a writer picks by role instead of remembering a number.
+   * Role names emit font-size alone: overriding Tailwind's xs/sm/etc sizes
+   * would retain their bundled line-height ratios and silently change leading.
    */
-  --text-2xs: 10px;
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-base: 13px;
-  --text-md: 14px;
-  --text-lg: 16px;
-  --text-xl: 18px;
-  --text-2xl: 21px;
-  --text-3xl: 28px;
+  --text-micro: 10px;
+  --text-badge: 11px;
+  --text-caption: 12px;
+  --text-body: 13px;
+  --text-body-lg: 14px;
+  --text-lead: 16px;
+  --text-title: 18px;
+  --text-display: 21px;
+  --text-hero: 28px;
 
   /** The uppercase-eyebrow letter-spacing the section headers and stat labels use. */
   --tracking-label: 0.08em;
+  --tracking-code: 0.18em;
+  --ease-standard: ease;
+  --color-green-soft: var(--green-soft);
+  --color-overlay: rgb(0 0 0 / 0.4);
+  --blur-dialog: 6px;
+  --color-window-close: #ff5f57;
+  --color-window-close-ink: #7a1c17;
+  --color-window-minimize: #febc2e;
+  --color-window-minimize-ink: #6d4b00;
+  --color-window-expand: #28c840;
+  --color-window-expand-ink: #0b5a22;
 
-  /* Sub-control radii. `rounded-control` (10px) is the field/chip radius; these
-     two name the smaller steps that `text-[…]`-style literals had been filling. */
-  --radius-chip: 6px;
-  --radius-inset: 8px;
-
+  /* Radius steps use their own namespace, not the spacing multiplier. */
+  --radius-micro: var(--radius-micro);
+  --radius-tiny: var(--radius-tiny);
+  --radius-chip: var(--radius-chip);
+  --radius-narrow: var(--radius-narrow);
+  --radius-inset: var(--radius-inset);
   --radius-control: var(--radius-control);
+  --radius-panel: var(--radius-panel);
   --radius-card: var(--radius-card);
+  --radius-hero: var(--radius-hero);
   --radius-sidebar: var(--radius-sidebar);
+  --radius-composer: 22px;
   --radius-pill: var(--radius-pill);
 
-  /* Landing-page colours. They live in `landing.css`'s `.story` block, next to
-     the accent each `.story-theme-*` re-declares, and are surfaced here so the
-     gradients and the chapter card use `from-story-deep` instead of a hex. */
+  /* Landing's chapter palette is supplied by the page's runtime theme. */
   --color-story-deep: var(--story-deep);
   --color-story-surface: var(--story-surface);
+  --color-story-ink: var(--story-ink);
+  --color-story-muted: var(--story-muted);
+  --color-story-accent: var(--story-accent);
+  --color-story-night: #9deaff;
+  --color-story-core: #7db6ff;
+  --color-story-blossom: #ffafd0;
+  --color-story-voices: #d6c2ff;
+  --color-story-red: #ff9b9b;
+  --color-story-denial: #ffd18f;
+  --color-story-shore: #a8ffe0;
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
@@ -104,6 +124,11 @@
 
   --shadow-card: var(--shadow-card);
   --shadow-popout: var(--shadow-popout);
+  --shadow-window: 0 24px 70px -15px rgb(0 0 0 / 0.65), 0 0 0 1px var(--inner-border);
+  --shadow-composer: 0 8px 28px -18px rgb(0 0 0 / 0.55);
+  --shadow-ribbon: 0 1px 3px rgb(0 0 0 / 0.12);
+  --shadow-focus: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+  --shadow-glow-success: 0 0 8px rgb(52 211 153 / 0.7);
 
   --ease-spring: var(--ease-spring);
 
@@ -113,20 +138,20 @@
    * the one it replaces, so nothing moves; what changes is that the reader can
    * see which overlay is meant to beat which.
    */
-  --z-behind: -1;
-  --z-card: 2;
-  --z-chip: 4;
-  --z-sticky: 10;
-  --z-rail: 20;
-  --z-floating: 30;
-  --z-header: 40;
-  --z-mobile-overlay: 45;
-  --z-mobile-panel: 46;
-  --z-popover: 50;
-  --z-tooltip: 80;
-  --z-drawer: 1000;
-  --z-modal: 1100;
-  --z-toast: 9999;
+  --z-index-behind: -1;
+  --z-index-card: 2;
+  --z-index-chip: 4;
+  --z-index-sticky: 10;
+  --z-index-rail: 20;
+  --z-index-floating: 30;
+  --z-index-header: 40;
+  --z-index-mobile-overlay: 45;
+  --z-index-mobile-panel: 46;
+  --z-index-popover: 50;
+  --z-index-tooltip: 80;
+  --z-index-drawer: 1000;
+  --z-index-modal: 1100;
+  --z-index-toast: 9999;
 
   /*
    * Spacing is pinned in the plain `@theme` block below, not here: `inline`
@@ -142,12 +167,37 @@
  * renumbered in the same change: `apps/landing/page.tsx` and
  * `features/quota/QuotaPage.tsx` (each `N` became `N × 1.75`).
  */
+/*
+ * Named viewport steps, so `max-medium:` and `min-desktop:` read as intent
+ * instead of a magic px. They are descending widths, the same direction as
+ * Tailwind's own `max-*` variants.
+ */
+@theme {
+  --breakpoint-wide: 1180px;
+  --breakpoint-desktop: 1024px;
+  --breakpoint-medium: 820px;
+  --breakpoint-compact: 700px;
+  --breakpoint-small: 640px;
+}
+
 @theme {
   --spacing: 2px;
+  --animate-message-in: message-in 150ms ease-out both;
+  --animate-typing-bounce: typing-bounce 1.2s ease-in-out infinite;
+  --height-route: calc(100dvh - 104px);
+  --grid-template-columns-quota-window: minmax(120px, auto) minmax(0, 1fr) auto;
+  --grid-template-columns-quota-account: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
 }
 
 /* Shared Tailwind layer, theme tokens, resets, and base elements. */
 :root {
+  /* The landing story is a fixed dark document: it sets `color-scheme: dark` on
+     the html element and never follows the console theme preference. */
+  --story-accent: #9deaff;
+  --story-ink: #f5faff;
+  --story-muted: rgb(225 237 246 / 0.7);
+  --story-deep: #05070d;
+  --story-surface: #0b1220;
   --page-bg: #f7f3ed;
   --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
   --dur-micro: 150ms;
@@ -157,8 +207,15 @@
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --font-head: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --radius-micro: 3px;
+  --radius-tiny: 4px;
+  --radius-chip: 6px;
+  --radius-narrow: 7px;
+  --radius-inset: 8px;
   --radius-control: 10px;
+  --radius-panel: 12px;
   --radius-card: 14px;
+  --radius-hero: 18px;
   --radius-sidebar: 20px;
   --radius-pill: 9999px;
   /* App topbar height (38px control + 8px padding ×2 + 1px border ×2). Pages

@@ -144,11 +144,12 @@ export function HealthEventsModal({
           ) : events.length === 0 ? (
             <EmptyState title="No health events recorded" message={summary.emptyMessage} icon={<Activity size={20} />} />
           ) : (
-            <div
-              className="overflow-auto rounded-inset border border-inner-border"
-              style={{ maxHeight: "min(55dvh, 480px)" }}
-            >
-              <DataTable headers={["Timestamp", "From → To", "Model", "Category", "Reason / Details"]}>
+            <div className="rounded-inset border border-inner-border">
+              <DataTable
+                maxHeight={480}
+                scrollRegion
+                headers={["Timestamp", "From → To", "Model", "Category", "Reason / Details"]}
+              >
                 {events.map((ev) => (
                   <tr key={ev.id}>
                     <td className="text-badge text-text-tertiary whitespace-nowrap">

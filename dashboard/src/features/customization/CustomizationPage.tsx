@@ -386,7 +386,7 @@ function Slider({
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
         aria-label={label}
-        className="blur-slider w-full"
+        className="blur-slider w-full h-11 m-0 border-0 rounded-pill cursor-pointer"
         style={{ ["--fill" as string]: `${((value - min) / (max - min)) * 100}%` }}
       />
     </label>
@@ -446,7 +446,7 @@ function BlurSlider({
             disabled={!enabled}
             onChange={(event) => onClarity(Number(event.target.value))}
             aria-label={`${item.label} clarity. How see-through the surface is.`}
-            className="blur-slider w-full"
+            className="blur-slider w-full h-11 m-0 border-0 rounded-pill cursor-pointer"
             style={{ ["--fill" as string]: `${clarity}%` }}
           />
           <span className="flex justify-between text-badge text-text-tertiary">
@@ -467,7 +467,7 @@ function BlurSlider({
             disabled={!enabled}
             onChange={(event) => onDepth(Number(event.target.value))}
             aria-label={`${item.label} blur. How blurred whatever is behind it looks.`}
-            className="blur-slider w-full"
+            className="blur-slider w-full h-11 m-0 border-0 rounded-pill cursor-pointer"
             style={{ ["--fill" as string]: `${depth}%` }}
           />
           <span className="flex justify-between text-badge text-text-tertiary">

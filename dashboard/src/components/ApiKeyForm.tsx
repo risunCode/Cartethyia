@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+import { FileInput, Input } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { ModelPickerModal } from "./ModelPicker";
 import { useResetToolMappings, useSaveToolMappings, useToolMappings, useToolRegistry } from "../hooks/cli-tools";
@@ -665,10 +665,8 @@ export function ApiKeyForm({ mode, record, busy, onDone, onClose, actionsRef }: 
                   <span>No image</span>
                 </div>
               )}
-              <input
+              <FileInput
                 id="share-popup-image"
-                className="form-file-input"
-                type="file"
                 accept={SHARE_POPUP_IMAGE_MIMES.join(",")}
                 aria-label="Popup image"
                 disabled={busy}

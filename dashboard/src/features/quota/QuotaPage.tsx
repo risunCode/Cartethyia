@@ -294,7 +294,7 @@ function QuotaCard({
       {/* Header: icon + provider name + plan + account hint + actions */}
       <div className="flex flex-wrap items-center gap-5 px-7 py-4">
         <ProviderIcon icon={account.providerIcon} name={account.providerName} size={32} />
-        <div className="min-w-80 flex-1" style={{ flex: "1 1 160px" }}>
+        <div className="flex-[1_1_160px]">
           <div className="flex min-w-0 items-center gap-4">
             <div className="truncate text-caption font-bold text-text-primary text-body">
               {account.providerName}
@@ -510,16 +510,16 @@ function QuotaCard({
             const label = formatQuotaWindowLabel(window.label);
             return (
               <div
-                className="quota-window-row"
+                className="quota-window-row grid grid-cols-quota-window min-w-0 items-center gap-x-6 gap-y-2 max-small:grid-cols-[minmax(0,1fr)_auto] max-small:gap-x-4 max-small:gap-y-2.5"
                 key={`${window.kind ?? window.label}:${window.resetsAt ?? "none"}:${index}`}
               >
-                <div className="quota-window-heading">
+                <div className="quota-window-heading min-w-0 max-small:col-start-1">
                   <span className="text-badge font-semibold text-text-primary">
                     {label}
                   </span>
                 </div>
                 <div
-                  className="quota-bar-track quota-window-bar h-5 rounded-tiny bg-inner-border overflow-hidden"
+                  className="quota-bar-track quota-window-bar min-w-0 w-full h-5 rounded-tiny bg-inner-border overflow-hidden max-small:col-span-full max-small:row-start-2"
                   role="progressbar"
                   aria-label={`${label} remaining quota`}
                   aria-valuemin={0}
@@ -528,35 +528,24 @@ function QuotaCard({
                   aria-valuetext={remaining === null ? "Quota only" : `${formatPercent(remaining)}% remaining`}
                 >
                   <div
-                    className="quota-bar-fill"
-                    style={{
-                      width: `${quotaFillPct}%`,
-                      height: "100%",
-                      borderRadius: "3px",
-                      background: colors.bar,
-                      transition: "width var(--dur-macro) var(--ease-spring)",
-                    }}
+                    className="quota-bar-fill h-full rounded-tiny transition-[width] duration-(--dur-macro) ease-spring"
+                    style={{ width: `${quotaFillPct}%`, background: colors.bar }}
                   />
                 </div>
                 <span
-                  className="quota-window-remaining text-badge font-bold tabular-nums"
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: 700,
-                    color: colors.text,
-                    fontVariantNumeric: "tabular-nums",
-                  }}
+                  className="quota-window-remaining whitespace-nowrap text-badge font-bold tabular-nums max-small:col-start-2 max-small:row-start-1"
+                  style={{ color: colors.text }}
                 >
                   {remaining === null ? "—" : `${formatPercent(remaining)}%`}
                 </span>
-                <div className="quota-window-details">
-                  <span className="quota-window-usage tabular-nums">
+                <div className="quota-window-details col-span-full flex min-w-0 items-center justify-end gap-6 text-micro text-text-tertiary max-small:row-start-3 max-small:flex-wrap max-small:justify-between max-small:gap-4">
+                  <span className="quota-window-usage mr-auto tabular-nums max-small:min-w-0">
                     {usedCredits !== null && limit !== null
                       ? `${formatAmount(usedCredits)} / ${formatAmount(limit)} Credits`
                       : "Quota only"}
                   </span>
                   {window.resetsAt && (
-                    <span className="quota-window-reset tabular-nums text-right">
+                    <span className="quota-window-reset whitespace-nowrap tabular-nums text-right max-small:ml-auto">
                       {formatResetDistance(window.resetsAt, window.recurring)}
                     </span>
                   )}
@@ -567,7 +556,7 @@ function QuotaCard({
           {pagination.pageCount > 1 && (
             <nav
               aria-label={`Quota windows for ${account.name}`}
-              className="quota-window-pagination flex items-center justify-between gap-4 border-t border-inner-border pt-4"
+              className="quota-window-pagination flex items-center justify-between gap-4 border-t border-inner-border pt-4 max-small:flex-wrap"
             >
               <span
                 aria-live="polite"
@@ -841,15 +830,7 @@ export default function QuotaPage(): ReactNode {
         </div>
       ) : (
         <div
-          className="scroll-region"
-          style={{
-            minHeight: 0,
-            flex: 1,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(min(420px, 100%), 1fr))",
-            gap: "12px",
-            alignContent: "start",
-          }}
+          className="quota-account-grid scroll-region min-h-0 flex-1 gap-6 [align-content:start]"
         >
           {filteredAccounts.map((account) => (
             <QuotaCard

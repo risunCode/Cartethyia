@@ -100,10 +100,7 @@ export function RoutingStrategyCard({
                   <Repeat
                     size={15}
                     aria-hidden="true"
-                    style={{
-                      color: routing.roundRobinEnabled ? "var(--accent)" : "var(--text-tertiary)",
-                      flexShrink: 0,
-                    }}
+                    className={`shrink-0 ${routing.roundRobinEnabled ? "text-accent" : "text-text-tertiary"}`}
                   />
                   Round robin
                 </Inline>
@@ -166,10 +163,7 @@ export function RoutingStrategyCard({
                   <Cable
                     size={15}
                     aria-hidden="true"
-                    style={{
-                      color: routing.skipProxy ? "var(--accent)" : "var(--text-tertiary)",
-                      flexShrink: 0,
-                    }}
+                    className={`shrink-0 ${routing.skipProxy ? "text-accent" : "text-text-tertiary"}`}
                   />
                   Always direct
                 </Inline>
@@ -180,14 +174,10 @@ export function RoutingStrategyCard({
             </div>
           </Row>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "10px",
-              minWidth: 0,
-            }}
-          >
+          {/* Two panels side by side while there is room; the auto-fit track is a
+              card-width question, so it stays in CSS rather than an arbitrary
+              utility. */}
+          <div className="provider-grid grid gap-5 min-w-0">
             <div
               className="px-6 py-5 rounded-control border border-inner-border min-w-0"
             >
@@ -273,14 +263,7 @@ export function RoutingStrategyCard({
                     if (Number.isFinite(value) && value >= 1)
                       routing.setMaxInflight(Math.min(MANUAL_MAX, Math.round(value)));
                   }}
-                  className="form-input"
-                  style={{
-                    width: "52px",
-                    flexShrink: 0,
-                    textAlign: "center",
-                    padding: "6px 4px",
-                    color: unlimited ? "var(--status-success)" : undefined,
-                  }}
+                  className={`form-input w-26 shrink-0 px-2 py-3 text-center text-body ${unlimited ? "text-status-success" : ""}`}
                 />
               </Inline>
             </div>

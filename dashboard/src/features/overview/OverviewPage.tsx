@@ -74,7 +74,7 @@ function SystemHealthCard(): ReactNode {
         {query.isPending ? <LoadingState label="Loading system health…" /> : null}
         {query.isError ? <ErrorState message={getErrorMessage(query.error, "Failed to load system health")} onRetry={() => void query.refetch()} /> : null}
         {health ? (
-          <div className="grid grid-cols-1 gap-4 min-[820px]:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 min-medium:grid-cols-2">
             <section className="nested-panel rounded-card border border-inner-border bg-surface-2 p-4.5">
               <div className="flex items-center gap-3.5">
                 <span className="grid size-11 place-items-center rounded-inset bg-purple text-white"><MemoryStick size={12} /></span>

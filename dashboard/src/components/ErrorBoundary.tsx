@@ -44,10 +44,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
             <p className="auth-desc">This view could not be rendered.</p>
           </div>
 
-          <div
-            className="rounded-panel border border-inner-border bg-surface-2 p-7 leading-normal text-text-secondary"
-            style={{ fontSize: "12.5px" }}
-          >
+          <div className="rounded-panel border border-inner-border bg-surface-2 p-7 leading-normal text-caption text-text-secondary">
             <strong className="block text-text-primary mb-2">
               Rendering error
             </strong>

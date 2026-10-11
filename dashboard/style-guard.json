@@ -1,74 +1,86 @@
 {
   "src/apps/landing/page.tsx": {
     "staticInline": 0,
+    "arbitrary": 5
+  },
+  "src/apps/share/page.tsx": {
+    "staticInline": 0,
+    "arbitrary": 13
+  },
+  "src/apps/share/stats.tsx": {
+    "staticInline": 0,
+    "arbitrary": 4
+  },
+  "src/components/BackupPanel.tsx": {
+    "staticInline": 0,
     "arbitrary": 2
   },
-  "src/components/ErrorBoundary.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
-  },
-  "src/components/HealthEventsModal.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
-  },
-  "src/components/ModelBansDialog.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
-  },
   "src/components/ModelPicker.tsx": {
-    "staticInline": 3,
-    "arbitrary": 0
+    "staticInline": 0,
+    "arbitrary": 2
   },
-  "src/components/Shell.tsx": {
-    "staticInline": 2,
-    "arbitrary": 0
-  },
-  "src/components/ui/input.tsx": {
+  "src/components/ShareManagementDialog.tsx": {
     "staticInline": 0,
     "arbitrary": 1
   },
-  "src/features/cli-tools/CliToolDetailPage.tsx": {
-    "staticInline": 5,
-    "arbitrary": 0
+  "src/components/Shell.tsx": {
+    "staticInline": 0,
+    "arbitrary": 2
+  },
+  "src/components/ui/button.tsx": {
+    "staticInline": 0,
+    "arbitrary": 1
+  },
+  "src/components/ui/card.tsx": {
+    "staticInline": 0,
+    "arbitrary": 1
+  },
+  "src/components/ui/drawer.tsx": {
+    "staticInline": 0,
+    "arbitrary": 1
+  },
+  "src/components/ui/layout.tsx": {
+    "staticInline": 0,
+    "arbitrary": 3
   },
   "src/features/overview/OverviewPage.tsx": {
     "staticInline": 0,
     "arbitrary": 1
   },
-  "src/features/provider-detail/sections/CredentialNotice.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
-  },
-  "src/features/provider-detail/sections/Models.tsx": {
-    "staticInline": 3,
-    "arbitrary": 0
-  },
-  "src/features/provider-detail/sections/RoutingStrategyCard.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
-  },
-  "src/features/providers/ProvidersPage.tsx": {
+  "src/features/provider-detail/sections/Accounts.tsx": {
     "staticInline": 0,
     "arbitrary": 1
   },
+  "src/features/provider-detail/sections/Models.tsx": {
+    "staticInline": 0,
+    "arbitrary": 8
+  },
+  "src/features/providers/ProvidersPage.tsx": {
+    "staticInline": 0,
+    "arbitrary": 7
+  },
   "src/features/proxy/ProxyPage.tsx": {
-    "staticInline": 4,
-    "arbitrary": 0
+    "staticInline": 0,
+    "arbitrary": 3
   },
   "src/features/quota/QuotaPage.tsx": {
-    "staticInline": 2,
-    "arbitrary": 0
+    "staticInline": 0,
+    "arbitrary": 1
   },
-  "src/features/routing/CombosPage.tsx": {
-    "staticInline": 2,
-    "arbitrary": 0
+  "src/features/session/Setup.tsx": {
+    "staticInline": 0,
+    "arbitrary": 5
   },
-  "src/features/session/Banned.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
+  "src/features/settings/SettingsPage.tsx": {
+    "staticInline": 0,
+    "arbitrary": 2
+  },
+  "src/features/studio/ChatBubble.tsx": {
+    "staticInline": 0,
+    "arbitrary": 8
   },
   "src/features/usage/UsagePage.tsx": {
     "staticInline": 0,
-    "arbitrary": 5
+    "arbitrary": 8
   }
 }

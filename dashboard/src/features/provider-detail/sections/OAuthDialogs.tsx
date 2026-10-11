@@ -477,7 +477,7 @@ export function DeviceCodeDialog({
                 <div className="text-body font-semibold text-text-primary">Step 1: Enter this code</div>
                 <div className="rounded-card border border-inner-border bg-surface-2 p-3.5 flex flex-col gap-1.5 items-center text-center">
                   <div className="text-micro font-bold uppercase tracking-label text-text-tertiary">Device code</div>
-                  <div className="font-mono text-2xl font-bold tracking-[0.18em] text-text-primary">{session.userCode}</div>
+                  <div className="font-mono text-display font-bold tracking-code text-text-primary">{session.userCode}</div>
                   <Button
                     variant="secondary"
                     size="sm"

@@ -40,10 +40,35 @@ const MARKERS: Record<string, true> = {
   "code-chip-action": true,
   "state-viewport": true, "state-viewport-compact": true, "state-box": true,
   "state-box-icon": true, "state-box-icon-danger": true, "state-box-label": true,
+  "dialog-actions": true, "radix-select-item": true, "radix-select-indicator": true,
+  "group": true,
+  // Overlay chrome. Each of these is a semantic hook that used to carry a rule
+  // in `console.css`; the appearance now comes from the utilities beside it, so
+  // the class itself only has to stay findable from JS and tests.
+  "dialog-overlay": true, "dialog-panel": true, "closing": true, "expanded": true,
+  "modal-window": true, "modal-header": true, "modal-title": true,
+  "modal-body": true, "modal-footer": true,
+  "window-traffic-lights": true, "window-traffic-lights-spacer": true,
+  "traffic-light": true, "traffic-light-close": true,
+  "traffic-light-minimize": true, "traffic-light-expand": true,
+  "drawer-overlay": true, "drawer-backdrop": true, "drawer-panel": true,
+  "drawer-header": true, "drawer-title": true, "drawer-close": true, "drawer-body": true,
+  "section-header": true, "section-header-text": true, "section-header-action": true,
+  "stat-card": true, "stat-card-detail": true,
+  "form-group": true, "form-label": true, "form-hint": true, "form-error": true,
+  "form-file-input": true, "form-textarea": true,
+  "list-panel": true, "quota-window-row": true, "quota-window-heading": true,
+  "quota-window-bar": true, "quota-window-remaining": true, "quota-window-details": true,
+  "quota-window-usage": true, "quota-window-reset": true, "quota-window-list": true,
+  "quota-window-section-label": true, "quota-window-pagination": true, "quota-bar-track": true,
+  "provider-version-badge": true, "mlab-turn": true, "mlab-composer": true,
+  "mlab-page": true, "mlab-msg-in": true, "metric-grid": true, "provider-grid": true,
+  "signal-grid": true, "route-enter": true, "popout-enter": true, "blur-slider": true,
+  "code-chip-value": true, "reset-credit-live": true, "composer-glass": true,
 };
 /** Escapes a utility the way Tailwind escapes it in a selector. */
 function selectorOf(utility: string): string {
-  return "." + utility.replace(/[.[\]()%#,:/&]/g, (c) => "\\" + c);
+  return "." + utility.replace(/[^a-zA-Z0-9_-]/g, (c) => "\\" + c);
 }
 
 /** Strips a variant prefix (`hover:`, `@container/x:`) to get the base utility. */

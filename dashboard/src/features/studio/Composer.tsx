@@ -101,7 +101,7 @@ export function Composer({
 
   return (
     <form
-      className="mlab-composer"
+      className="composer-glass flex flex-col gap-4 px-7 pt-7 pb-5 border border-inner-border rounded-composer shadow-composer outline-none transition-none"
       onSubmit={(event) => {
         event.preventDefault();
         if (canSend) onSend();
@@ -126,7 +126,7 @@ export function Composer({
       ) : null}
       <textarea
         ref={fieldRef}
-        className="w-full min-h-14 max-h-80 resize-none border-0 outline-none bg-transparent text-text-primary font-inherit text-lead leading-normal px-2 py-1 placeholder:text-text-tertiary"
+        className="w-full min-h-14 max-h-80 resize-none border-0 outline-none bg-transparent text-text-primary font-sans text-lead leading-normal px-2 py-1 placeholder:text-text-tertiary"
         rows={1}
         value={value}
         placeholder={model.length > 0 ? `Message ${model}...` : "Message..."}

@@ -222,9 +222,6 @@ function PoolEditForm({
     onClose();
   };
 
-  const inputStyle = { width: "100%" };
-
-
   useEffect(() => {
     actionsRef?.(
       <>
@@ -240,7 +237,6 @@ function PoolEditForm({
           label="Name"
           value={label}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLabel(e.target.value)}
-          style={inputStyle}
         />
       </div>
       <div>
@@ -249,7 +245,6 @@ function PoolEditForm({
           value={family}
           placeholder="e.g. residential-id"
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFamily(e.target.value)}
-          style={inputStyle}
         />
       </div>
       <div>
@@ -257,7 +252,7 @@ function PoolEditForm({
           label="Endpoint"
           value={endpoint}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEndpoint(e.target.value)}
-          className="font-mono tabular-nums" style={{ ...inputStyle }}
+          className="font-mono tabular-nums"
         />
       </div>
       <div className="grid grid-cols-2 gap-5">
@@ -268,7 +263,6 @@ function PoolEditForm({
             min={1}
             value={cap}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCap(e.target.value)}
-            style={inputStyle}
           />
         </div>
         <div>
@@ -278,7 +272,6 @@ function PoolEditForm({
             min={1}
             value={weight}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setWeight(e.target.value)}
-            style={inputStyle}
           />
         </div>
       </div>
@@ -290,7 +283,6 @@ function PoolEditForm({
           step="0.1"
           value={quotaGb}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuotaGb(e.target.value)}
-          style={inputStyle}
         />
         <div className="text-micro text-text-tertiary mt-2">
           {quotaValue === null
@@ -300,14 +292,9 @@ function PoolEditForm({
       </div>
       {testResult && (
         <div
-          style={{
-            padding: "8px 12px",
-            borderRadius: "8px",
-            fontSize: "11px",
-            fontWeight: 600,
-            background: testResult.ok ? "var(--green-soft)" : "var(--red-soft)",
-            color: testResult.ok ? "var(--green)" : "var(--red)",
-          }}
+          // The connection outcome is read from the test result, so its fill
+          // and ink are chosen at render time.
+          className={`rounded-inset px-6 py-4 text-badge font-semibold ${testResult.ok ? "bg-green-soft text-green" : "bg-red-soft text-red"}`}
         >
           {testResult.message}
         </div>
@@ -436,17 +423,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
           Paste
         </Button>
       </div>
-      <div
-        style={{
-          padding: "10px 12px",
-          borderRadius: "8px",
-          border: "1px solid var(--inner-border)",
-          background: "var(--surface-2)",
-          color: "var(--text-secondary)",
-          fontSize: "11px",
-          lineHeight: 1.55,
-        }}
-      >
+      <div className="rounded-inset border border-inner-border bg-surface-2 px-6 py-5 text-badge leading-[1.55] text-text-secondary">
         <strong className="text-text-primary">How to add proxies</strong>
         <div>One proxy per line. Supported formats: HTTP, HTTPS, and SOCKS5.</div>
         <div>Authentication is optional: <code>https://username:password@host:port</code>.</div>
@@ -457,18 +434,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
         onChange={(e) => setText(e.target.value)}
         placeholder={"http://user:pass@10.0.1.5:8080\nhttps://user:pass@10.0.1.6:8443\nsocks5://user:pass@10.0.1.7:1080"}
         rows={8}
-        style={{
-          width: "100%",
-          minHeight: "160px",
-          padding: "10px",
-          borderRadius: "10px",
-          border: "1px solid var(--inner-border)",
-          background: "var(--surface-1)",
-          color: "var(--text-primary)",
-          fontSize: "12.5px",
-          fontFamily: "ui-monospace, monospace",
-          resize: "vertical",
-        }}
+        className="w-full min-h-160 resize-y rounded-control border border-inner-border bg-surface-1 p-5 font-mono text-caption text-text-primary"
       />
       <div>
         <Input
@@ -490,7 +456,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
           className="w-full"
         />
       </div>
-      <div style={{ fontSize: "11px", color: overCap ? "var(--red)" : "var(--text-tertiary)" }}>
+      <div className={`text-badge ${overCap ? "text-red" : "text-text-tertiary"}`}>
         {lines.length} line(s) detected
         {overCap ? ` · ${MAX_BATCH_PROBE_TARGETS} max per test` : ""}
       </div>
@@ -505,22 +471,9 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
         <div
           role="log"
           aria-label="Proxy test results"
-          style={{
-            // Fixed height with its own scrollbar: a 100-line paste must not
-            // stretch the dialog, it should scroll inside this box.
-            height: "132px",
-            maxHeight: "132px",
-            overflowY: "auto",
-            padding: "8px 10px",
-            borderRadius: "8px",
-            border: "1px solid var(--inner-border)",
-            background: "var(--surface-1)",
-            color: "var(--text-secondary)",
-            fontFamily: "ui-monospace, monospace",
-            fontSize: "11px",
-            lineHeight: 1.6,
-            whiteSpace: "pre",
-          }}
+          // Fixed height with its own scrollbar: a 100-line paste must not
+          // stretch the dialog, it should scroll inside this box.
+          className="scroll-region h-66 max-h-66 whitespace-pre rounded-inset border border-inner-border bg-surface-1 px-5 py-4 font-mono text-badge leading-[1.6] text-text-secondary"
         >
           {log.join("\n")}
         </div>
@@ -609,8 +562,7 @@ function ProxySummaryTiles({ pools }: { readonly pools: readonly NetworkPoolResp
   }, [pools, byId, live]);
   return (
     <div
-      className="metric-grid grid gap-7 w-full min-w-0 mb-7"
-      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}
+      className="signal-grid grid gap-7 w-full min-w-0 mb-7"
     >
       <StatCard
         label="Enabled pool"
@@ -824,11 +776,7 @@ function PoolAddressBlock({
     <>
       {pool.egressIp ? (
         <span
-          className="font-mono tabular-nums" style={{ display: "block",
-            fontSize: "11.5px",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap" }}
+          className="font-mono tabular-nums block overflow-hidden text-ellipsis whitespace-nowrap text-badge"
           title={maskIp ? "IP masked" : `egress ${pool.egressIp} · ${view.display.endpoint}`}
         >
           {maskIp ? "IP masked" : pool.egressIp}
@@ -891,10 +839,9 @@ function PoolUsageBars({
           className="flex-1 h-3 rounded-micro overflow-hidden"
         >
           <div
+            className="h-full rounded-micro"
             style={{
               width: `${Math.round(view.load * 100)}%`,
-              height: "100%",
-              borderRadius: "3px",
               background: view.load >= 0.8 ? "var(--orange)" : "var(--green)",
             }}
           />
@@ -915,18 +862,15 @@ function PoolUsageBars({
           className="flex-1 h-3 rounded-micro overflow-hidden"
         >
           <div
+            className="h-full rounded-micro"
             style={{
               width: `${Math.round(ratio * 100)}%`,
-              height: "100%",
-              borderRadius: "3px",
               background: over ? "var(--red)" : ratio >= 0.8 ? "var(--orange)" : "var(--teal)",
             }}
           />
         </div>
         <span
-          className="font-mono tabular-nums" style={{ fontSize: "10.5px",
-            color: over ? "var(--red)" : "var(--text-secondary)",
-            whiteSpace: "nowrap" }}
+          className={`font-mono tabular-nums whitespace-nowrap text-micro ${over ? "text-red" : "text-text-secondary"}`}
         >
           {formatBytes(view.used)}
           {quota ? ` / ${formatBytes(quota)}` : ""}
@@ -1086,7 +1030,7 @@ const PoolRow = memo(function PoolRow({
   const usage = live.live ? live.byId.get(pool.id) : undefined;
   const view = derivePoolView(pool, checkResult, isTesting, usage ?? null);
   return (
-    <tr style={{ opacity: view.isEnabled ? 1 : 0.6 }}>
+    <tr className={view.isEnabled ? "" : "opacity-60"}>
       <td className="w-13">
         <input
           type="checkbox"
@@ -1158,19 +1102,12 @@ function PoolHealthDialog({
   return (
     <Dialog open onClose={onClose} title={`Health & Activity — ${poolName(pool)}`}>
       <Stack gap="14px">
+        {/* A proxy rejected for payment/auth is a different situation from a
+            plain disable, so its frame says so rather than leaving it to the badge. */}
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) auto",
-            alignItems: "center",
-            gap: "16px",
-            padding: "16px",
-            borderRadius: "12px",
-            border: `1px solid ${disabledForProxyResponse ? "var(--orange)" : "var(--inner-border)"}`,
-            background: "var(--surface-2)",
-          }}
+          className={`flex items-center gap-8 rounded-panel border bg-surface-2 p-8 ${disabledForProxyResponse ? "border-orange" : "border-inner-border"}`}
         >
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div
               className="mb-2.5 text-text-tertiary text-micro font-bold tracking-label uppercase"
             >

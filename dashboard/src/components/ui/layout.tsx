@@ -19,20 +19,23 @@ export function SectionHeading({
   const hasText = Boolean(eyebrow || title || description);
   const Title = level === 1 ? "h1" : level === 3 ? "h3" : "h2";
   return (
-    <div className={cn("section-header", hasText ? undefined : "justify-end")}>
+    <div className={cn(
+      "section-header flex items-center justify-between gap-6 max-small:flex-col max-small:items-start max-small:gap-4",
+      hasText ? undefined : "justify-end",
+    )}>
       {hasText ? (
-        <div className="section-header-text">
+        <div className="section-header-text min-w-0">
           {eyebrow ? (
             <p className="text-badge font-bold uppercase tracking-label text-text-tertiary mb-1">
               {eyebrow}
             </p>
           ) : null}
-          {title ? <Title>{title}</Title> : null}
-          {description ? <p>{description}</p> : null}
+          {title ? <Title className="font-head text-title font-bold tracking-[-0.02em] text-text-primary">{title}</Title> : null}
+          {description ? <p className="mt-1 text-caption text-text-secondary">{description}</p> : null}
         </div>
       ) : null}
-      {icon ? <div className="card-header-icon">{icon}</div> : null}
-      {action ? <div className="section-header-action">{action}</div> : null}
+      {icon ? <div className="card-header-icon grid size-14 shrink-0 place-items-center rounded-pill bg-accent-soft text-accent [&_svg]:size-7.5">{icon}</div> : null}
+      {action ? <div className="section-header-action max-small:w-full max-small:[&_button]:w-full">{action}</div> : null}
     </div>
   );
 }
@@ -92,7 +95,7 @@ export function StatCard({
       >
         {value}
       </p>
-      <span className={cn("stat-card-detail text-text-secondary", size === "roomy" ? "mt-2 block text-body" : "text-badge")}>{detail}</span>
+      <span className={cn("stat-card-detail line-clamp-2 wrap-anywhere text-text-secondary", size === "roomy" ? "mt-2 text-body" : "text-badge")}>{detail}</span>
     </div>
   );
 }

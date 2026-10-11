@@ -448,21 +448,7 @@ function ModelCard({
   return (
     <>
       <div
-        className="model-card"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          flex: "1 1 auto",
-          width: "100%",
-          minWidth: 0,
-          boxSizing: "border-box",
-          gap: "10px",
-          padding: "12px",
-          border: "1px solid var(--inner-border)",
-          borderRadius: "12px",
-          background: model.enabled ? "var(--surface-2)" : "var(--surface-1)",
-          opacity: model.enabled ? 1 : 0.72,
-        }}
+        className={`model-card box-border flex w-full min-w-0 flex-1-auto flex-col gap-5 rounded-panel border border-inner-border p-6 ${model.enabled ? "bg-surface-2" : "bg-surface-1 opacity-72"}`}
       >
         {/* Header: icon tile + name (single-line ellipsis, no mid-token wrap) + copy */}
         <div className="flex items-start gap-4 min-w-0">
@@ -483,47 +469,24 @@ function ModelCard({
             >
               <span
                 title={`${model.wireFamily} · ${model.route ?? providerId}`}
-                style={{
-                  flexShrink: 0,
-                  fontSize: "9px",
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  padding: "1px 6px",
-                  borderRadius: "999px",
-                  ...wireChipStyle(model.wireFamily),
-                }}
+                className="shrink-0 rounded-pill px-3 py-0.5 text-micro font-bold tracking-[0.04em]"
+                // The wire family is a runtime value from the catalog, so its
+                // chip colours stay inline.
+                style={{ ...wireChipStyle(model.wireFamily) }}
               >
                 {wireLabel(model.wireFamily)}
               </span>
               {model.source !== null && model.source !== "builtin" ? (
                 <span
                   title={modelSourceTitle(model.source)}
-                  style={{
-                    flexShrink: 0,
-                    fontSize: "9px",
-                    fontWeight: 700,
-                    letterSpacing: "0.04em",
-                    padding: "1px 6px",
-                    borderRadius: "999px",
-                    color: "var(--teal)",
-                    border: "1px solid color-mix(in srgb, var(--teal) 35%, transparent)",
-                  }}
+                  className="shrink-0 rounded-pill border border-teal-soft px-3 py-0.5 text-micro font-bold tracking-[0.04em] text-teal"
                 >
                   {modelSourceBadge(model.source)}
                 </span>
               ) : null}
               {model.enabled ? null : (
                 <span
-                  style={{
-                    flexShrink: 0,
-                    fontSize: "9px",
-                    fontWeight: 700,
-                    letterSpacing: "0.04em",
-                    padding: "1px 6px",
-                    borderRadius: "999px",
-                    background: "var(--red-soft)",
-                    color: "var(--red)",
-                  }}
+                  className="shrink-0 rounded-pill bg-red-soft px-3 py-0.5 text-micro font-bold tracking-[0.04em] text-red"
                 >
                   Off
                 </span>
@@ -642,11 +605,7 @@ function ModelCard({
             icon={model.enabled ? <PowerOff size={12} /> : <LockOpen size={12} />}
             aria-label={model.enabled ? `Disable ${model.modelId}` : `Enable ${model.modelId}`}
             title={model.enabled ? "Disable model" : "Enable model"}
-            style={{
-              flex: 1,
-              justifyContent: "center",
-              color: model.enabled ? "var(--red)" : "var(--green)",
-            }}
+            className={`flex-1 justify-center ${model.enabled ? "text-red" : "text-green"}`}
           >
             {model.enabled ? "Disable" : "Enable"}
           </Button>
@@ -750,14 +709,7 @@ export function ModelGrid({
                   · {group.hint}
                 </span>
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                  gap: "8px",
-                  alignItems: "stretch",
-                }}
-              >
+              <div className="provider-grid grid gap-4 items-stretch">
                 {group.rows.map(renderCard)}
               </div>
             </section>

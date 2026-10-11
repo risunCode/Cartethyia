@@ -340,14 +340,7 @@ function CliToolDetailBody({
 
             {status?.message ? (
               <div
-                style={{
-                  marginTop: "8px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  fontSize: "11.5px",
-                  color: configured ? "var(--ok)" : "var(--warn)",
-                }}
+                className={`mt-4 flex items-center gap-3 text-badge ${configured ? "text-green" : "text-orange"}`}
               >
                 {configured ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
                 {status.message}
@@ -365,13 +358,7 @@ function CliToolDetailBody({
         />
         <CardBody>
           <Stack gap="12px">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "12px",
-              }}
-            >
+            <div className="provider-grid grid gap-6">
               <div className="flex flex-col gap-3">
                 <Select
                   label="Apikey Name"
@@ -512,20 +499,7 @@ function CliToolDetailBody({
           ) : null}
 
           {tool.mappingSupported ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "6px 10px",
-                marginBottom: "10px",
-                borderRadius: "8px",
-                background: "var(--surface-2)",
-                border: "1px solid var(--inner-border)",
-                fontSize: "10.5px",
-                color: "var(--text-tertiary)",
-              }}
-            >
+            <div className="mb-5 flex items-center gap-4 rounded-inset border border-inner-border bg-surface-2 px-5 py-3 text-micro text-text-tertiary">
               <span className="flex-1">CLI asks for</span>
               <span className="w-9 text-center">→</span>
               <span className="flex-1">Cartethyia routes to</span>
@@ -540,12 +514,7 @@ function CliToolDetailBody({
               return (
                 <div
                   key={model.alias}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: tool.mappingSupported ? "1fr 1fr" : "1fr",
-                    gap: "8px",
-                    alignItems: "center",
-                  }}
+                  className={`grid items-center gap-4 ${tool.mappingSupported ? "grid-cols-2" : "grid-cols-1"}`}
                 >
                   <div className="flex flex-col gap-1 min-w-0">
                     <button
@@ -554,20 +523,7 @@ function CliToolDetailBody({
                         setPickerFor(model.alias);
                         setPickerMode("slot");
                       }}
-                      className="font-mono tabular-nums" style={{ display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: "8px",
-                        padding: "7px 10px",
-                        borderRadius: "8px",
-                        border: "1px solid var(--inner-border)",
-                        background: "var(--surface-2)",
-                        fontSize: "11.5px",
-                        color: "var(--text-primary)",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        width: "100%",
-                        minWidth: 0 }}
+                      className="font-mono tabular-nums flex w-full min-w-0 cursor-pointer items-center justify-between gap-4 rounded-inset border border-inner-border bg-surface-2 px-5 py-3.5 text-left text-badge text-text-primary"
                     >
                       <span className="overflow-hidden truncate whitespace-nowrap">
                         {slotValue}
@@ -587,23 +543,9 @@ function CliToolDetailBody({
                           setPickerFor(model.alias);
                           setPickerMode("target");
                         }}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: "8px",
-                          padding: "7px 10px",
-                          borderRadius: "8px",
-                          border: `1px solid ${sameAsSource ? "var(--inner-border)" : "var(--accent)"}`,
-                          background: sameAsSource ? "var(--surface-2)" : "var(--accent-soft)",
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "11.5px",
-                          color: targetValue.length > 0 ? "var(--text-primary)" : "var(--text-tertiary)",
-                          cursor: "pointer",
-                          textAlign: "left",
-                          width: "100%",
-                          minWidth: 0,
-                        }}
+                        // A target that still points at its own source is inert; one that differs is
+                        // the route this CLI call will take.
+                        className={`font-mono tabular-nums flex w-full min-w-0 cursor-pointer items-center justify-between gap-4 rounded-inset border px-5 py-3.5 text-left text-badge ${sameAsSource ? "border-inner-border bg-surface-2 text-text-tertiary" : "border-accent bg-accent-soft text-text-primary"}`}
                       >
                         <span className="overflow-hidden truncate whitespace-nowrap">
                           {targetValue.length > 0 ? targetValue : "Not routed"}
@@ -611,11 +553,7 @@ function CliToolDetailBody({
                         <Search size={12} className="text-text-tertiary shrink-0" />
                       </button>
                       <span
-                        style={{
-                          fontSize: "10px",
-                          paddingLeft: "2px",
-                          color: targetValue.length === 0 ? "var(--text-tertiary)" : "var(--accent)",
-                        }}
+                        className={`pl-1 text-micro ${targetValue.length === 0 ? "text-text-tertiary" : "text-accent"}`}
                       >
                         {targetValue.length === 0 ? "not routed" : "rerouted"}
                         {targetValue.length > 0 ? (
@@ -632,14 +570,7 @@ function CliToolDetailBody({
                       </span>
                       {blockedMappings.has(model.alias) ? (
                         <span
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "6px",
-                            marginTop: "2px",
-                            fontSize: "10px",
-                            color: "var(--warn, #d97706)",
-                          }}
+                          className="mt-1 flex items-center gap-3 text-micro text-orange"
                         >
                           <span>
                             {accessMode === "blacklist"
@@ -650,16 +581,7 @@ function CliToolDetailBody({
                             type="button"
                             disabled={updateApiKey.isPending}
                             onClick={() => allowModelForKey(targetValue)}
-                            style={{
-                              border: "none",
-                              background: "none",
-                              padding: 0,
-                              fontSize: "10px",
-                              fontWeight: 600,
-                              color: "var(--accent)",
-                              cursor: updateApiKey.isPending ? "not-allowed" : "pointer",
-                              textDecoration: "underline",
-                            }}
+                            className={`border-none bg-none p-0 text-micro font-semibold text-accent underline ${updateApiKey.isPending ? "cursor-not-allowed" : "cursor-pointer"}`}
                           >
                             {accessMode === "blacklist" ? "Unblock" : "Allow this model"}
                           </button>
@@ -697,15 +619,7 @@ function CliToolDetailBody({
                   ) : null}
                   {step.value ? (
                     <pre
-                      style={{
-                        marginTop: "6px",
-                        padding: "10px",
-                        borderRadius: "10px",
-                        background: "var(--surface-2)",
-                        border: "1px solid var(--inner-border)",
-                        fontSize: "11.5px",
-                        overflowX: "auto",
-                      }}
+                      className="mt-3 overflow-x-auto rounded-control border border-inner-border bg-surface-2 p-5 font-mono text-badge"
                     >
                       {step.value.replace(/\{\{baseUrl\}\}/g, endpoint)}
                     </pre>

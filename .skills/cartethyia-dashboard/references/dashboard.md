@@ -5,8 +5,8 @@ choice. Summary rules live in `../SKILL.md`.
 
 ## Styling migration
 
-The dashboard styling is being rebuilt onto one dialect — token → utility →
-primitive. The end state and the current inventory:
+The dashboard styling uses one dialect — token → utility → primitive.
+The current inventory:
 
 - CSS is three files: `styles/tokens.css` (tokens), `styles/base.css`
   (reset/elements), `styles/app.css` (irreducible + shell frame). The old

@@ -596,34 +596,19 @@ function CombosSection(): ReactNode {
                 Browse models
               </Button>
             </div>
+            {/* The drop zone keeps its dashed outline and minimum height while
+                empty; it only pads once members are inside it. */}
             <div
               role="list"
               aria-label="Combo members"
               data-testid="combo-members-list"
-              style={{
-                minHeight: "44px",
-                border: "1px dashed var(--inner-border)",
-                borderRadius: "10px",
-                padding: members.length === 0 ? 0 : "6px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "4px",
-              }}
+              className={`flex min-h-22 flex-col gap-2 rounded-control border border-dashed border-inner-border ${members.length === 0 ? "p-0" : "p-3"}`}
             >
               {members.length === 0 ? (
                 <button
                   type="button"
                   onClick={() => setPickerOpen(true)}
-                  style={{
-                    flex: "1 1 auto",
-                    minHeight: "44px",
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-tertiary)",
-                    fontSize: "12px",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
+                  className="flex-1 cursor-pointer font-inherit text-caption text-text-tertiary"
                 >
                   Pick models to add
                 </button>
@@ -645,15 +630,7 @@ function CombosSection(): ReactNode {
                           type="button"
                           onClick={() => handlePickerToggle(m.value)}
                           aria-label={`Remove ${m.value}`}
-                          style={{
-                            background: "transparent",
-                            border: "none",
-                            cursor: "pointer",
-                            padding: 0,
-                            color: "var(--text-tertiary)",
-                            display: "flex",
-                            flexShrink: 0,
-                          }}
+                          className="flex shrink-0 cursor-pointer text-text-tertiary"
                         >
                           <X size={12} />
                         </button>

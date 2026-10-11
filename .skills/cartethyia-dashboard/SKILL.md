@@ -29,8 +29,8 @@ the backend.
 - `Dialog` sizes come from `DialogSize` (`sm 420 / md 640 / lg 880 / xl 960`)
   in `dashboard/src/components/ui/dialog.tsx`; `size` wins over `width`, and
   arbitrary `width={...}` px is legacy. `expanded` caps at 1160px
-  (`dashboard/src/styles/console.css`); at `max-width: 640px` panels become
-  near-full-viewport bottom sheets.
+  (`dashboard/src/styles/app.css`); at `max-width: 640px` dialogs stay centered
+  with reduced viewport margins. `Drawer` becomes a full-viewport panel.
 - `localStorage` keys are namespaced `cartethyia:<area>:<name>`. Read
   defensively — `typeof window` guard, vocabulary check, typed fallback — and
   never throw on stored junk.

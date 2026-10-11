@@ -45,8 +45,7 @@ html::-webkit-scrollbar {
 .app-sidebar nav::-webkit-scrollbar,
 .dialog-panel .modal-body::-webkit-scrollbar,
 .drawer-body::-webkit-scrollbar,
-.scroll-region::-webkit-scrollbar,
-.mlab-scroll::-webkit-scrollbar {
+.scroll-region::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
@@ -54,8 +53,7 @@ html::-webkit-scrollbar {
 .app-sidebar nav::-webkit-scrollbar-thumb,
 .dialog-panel .modal-body::-webkit-scrollbar-thumb,
 .drawer-body::-webkit-scrollbar-thumb,
-.scroll-region::-webkit-scrollbar-thumb,
-.mlab-scroll::-webkit-scrollbar-thumb {
+.scroll-region::-webkit-scrollbar-thumb {
   background: var(--inner-border);
   border-radius: var(--radius-pill);
 }
@@ -63,8 +61,7 @@ html::-webkit-scrollbar {
 .app-sidebar nav::-webkit-scrollbar-track,
 .dialog-panel .modal-body::-webkit-scrollbar-track,
 .drawer-body::-webkit-scrollbar-track,
-.scroll-region::-webkit-scrollbar-track,
-.mlab-scroll::-webkit-scrollbar-track {
+.scroll-region::-webkit-scrollbar-track {
   background: transparent;
 }
 
@@ -246,7 +243,7 @@ html[data-blur-cards-on="false"] .card-glass {
 html[data-blur-chrome-on="false"] .app-sidebar,
 html[data-blur-chrome-on="false"] .app-topbar,
 html[data-blur-cards-on="false"] .user-card-content,
-html[data-blur-cards-on="false"] .mlab-page .mlab-composer {
+html[data-blur-cards-on="false"] .composer-glass {
 
   background: var(--surface-1) !important;
   backdrop-filter: none;

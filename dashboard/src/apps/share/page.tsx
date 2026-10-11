@@ -492,7 +492,7 @@ export function SharePage(): ReactElement {
                     aria-haspopup="dialog"
                     aria-label="Open popup"
                   >
-                    <span className="grid size-19 flex-none place-items-center rounded-control bg-orange-soft text-xl text-orange" aria-hidden="true">♡</span>
+                    <span className="grid size-19 flex-none place-items-center rounded-control bg-orange-soft text-title text-orange" aria-hidden="true">♡</span>
                     <span className="grid min-w-0 gap-1.5">
                       <strong className="text-caption">{data.sharePopup.title || "More information"}</strong>
                     </span>

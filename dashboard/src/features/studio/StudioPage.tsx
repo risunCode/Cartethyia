@@ -232,7 +232,7 @@ export function StudioPage(): ReactNode {
   const canSend = (input.trim().length > 0 || images.length > 0) && !sending && draft.model.length > 0 && (keys.data ?? []).some((key) => key.enabled && key.revokedAt === undefined && key.isDefault);
 
   return (
-    <Card className="mlab-page">
+    <Card className="flex-auto min-h-0 h-route max-h-route flex flex-col overflow-hidden overscroll-none">
       <CardBody className="flex-auto min-h-0 p-0 gap-0">
         <div
           ref={scrollerRef}

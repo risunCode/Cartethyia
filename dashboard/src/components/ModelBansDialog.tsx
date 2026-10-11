@@ -69,11 +69,8 @@ export function ModelBansDialog({ onClose }: { readonly onClose: () => void }): 
                 icon={<ShieldOff size={20} />}
               />
             ) : (
-              <div
-                className="overflow-auto rounded-inset border border-inner-border"
-                style={{ maxHeight: "min(55dvh, 480px)" }}
-              >
-                <DataTable headers={["Client IP", "Lapses", ""]}>
+              <div className="rounded-inset border border-inner-border">
+                <DataTable maxHeight={480} scrollRegion headers={["Client IP", "Lapses", ""]}>
                   {bans.map((ban) => (
                     <tr key={ban.ip}>
                       <td className="font-mono tabular-nums text-badge text-text-primary whitespace-nowrap">

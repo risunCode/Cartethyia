@@ -113,6 +113,11 @@ const titlesMap: Record<string, { title: string; sub: string; icon: LucideIcon }
 
 const CONSOLE_FALLBACK = { title: "Console", sub: "Cartethyia AI Gateway Administration", icon: LayoutDashboard };
 
+/** Width cap for the floating panels that widen with the user's own pixel value
+ *  and never exceed the viewport: a bare `width` utility would have to carry the
+ *  `min()` through an arbitrary value. */
+const VIEWPORT_CAPPED_WIDTH = { width: "min(340px, calc(100vw - 32px))" } as const;
+
 /**
  * Resolves the topbar title/subtitle for a pathname.
  *
@@ -235,11 +240,8 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
               ref={contentRef}
               role="dialog"
               aria-label="Notifications"
-              className="popout-enter glass rounded-sidebar border border-inner-border bg-popover-bg p-8 shadow-popout fixed top-32 right-8"
-              style={{
-                zIndex: 60,
-                width: "min(340px, calc(100vw - 32px))",
-              }}
+              className="popout-enter glass rounded-sidebar border border-inner-border bg-popover-bg p-8 shadow-popout fixed top-32 right-8 z-popover"
+              style={{ ...VIEWPORT_CAPPED_WIDTH }}
             >
               <div
                 className="flex items-center justify-between mb-6"
@@ -361,15 +363,15 @@ function CommandPalette({ open, close }: { readonly open: boolean; readonly clos
   };
   return createPortal(
     <div
-      className={`dialog-overlay${closing ? " closing" : ""}`}
+      className={`dialog-overlay fixed inset-0 z-drawer box-border flex items-center justify-center overflow-y-auto bg-overlay p-8 backdrop-blur-dialog max-small:p-6${closing ? " closing" : ""}`}
       role="presentation"
       onMouseDown={close}
     >
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`dialog-panel card-solid rounded-sidebar overflow-hidden shadow-popout border border-inner-border bg-surface-1${closing ? " closing" : ""}`}
-        style={{ width: "min(540px, calc(100vw - 32px))" }}
+        className={`dialog-panel m-auto box-border flex max-h-[calc(100dvh-var(--spacing)*24)] flex-col overflow-hidden rounded-sidebar border border-border-strong bg-surface-1 shadow-window max-small:max-h-[calc(100dvh-var(--spacing)*12)]${closing ? " closing" : ""}`}
+        style={VIEWPORT_CAPPED_WIDTH}
         role="dialog"
         aria-modal="true"
         aria-labelledby="palette-title"
@@ -422,20 +424,7 @@ function CommandPalette({ open, close }: { readonly open: boolean; readonly clos
               tabIndex={-1}
               onClick={() => activate(index)}
               onMouseEnter={() => setActiveIndex(index)}
-              style={{
-                width: "100%",
-                display: "flex",
-                alignItems: "center",
-                gap: "10px",
-                padding: "10px 14px",
-                borderRadius: "10px",
-                fontSize: "13px",
-                fontWeight: 500,
-                color: "var(--text-primary)",
-                textAlign: "left",
-                transition: "background-color var(--dur-micro) var(--ease-spring)",
-                backgroundColor: index === clampedIndex ? "var(--hover)" : "transparent",
-              }}
+              className={`w-full cursor-pointer items-center rounded-control bg-transparent px-7 py-5 text-left font-medium text-body text-text-primary transition-colors duration-(--dur-micro) ease-spring ${index === clampedIndex ? "bg-hover" : ""}`}
             >
               <item.icon size={16} className="text-text-secondary" />
               <span className="flex-1">{item.label}</span>
@@ -736,7 +725,7 @@ export function DashboardShell({
           </header>
 
           {/* Content Outlet */}
-          <main className="route-enter">
+          <main className="route-enter w-full min-w-0">
             {children}
           </main>
 

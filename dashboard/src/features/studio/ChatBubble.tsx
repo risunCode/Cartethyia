@@ -93,7 +93,7 @@ export function ChatBubble({
   };
 
   return (
-    <div className={mine ? "mlab-turn flex flex-col w-full max-w-380 gap-2 items-end ml-auto mlab-msg-in" : "mlab-turn flex flex-col w-full max-w-380 gap-2 items-start mr-auto mlab-msg-in"}>
+    <div className={mine ? "mlab-turn flex flex-col w-full max-w-380 gap-2 items-end ml-auto animate-message-in motion-reduce:animate-none" : "mlab-turn flex flex-col w-full max-w-380 gap-2 items-start mr-auto animate-message-in motion-reduce:animate-none"}>
       {mine ? null : (
         <div className="flex items-center gap-3 min-h-12 text-text-tertiary text-caption">
           <span className="grid place-items-center w-11 h-11 rounded-control border border-inner-border bg-surface-2 text-text-secondary" aria-hidden="true">
@@ -126,9 +126,9 @@ export function ChatBubble({
       >
         {waiting ? (
           <span className="inline-flex items-center gap-2 h-11 px-2" aria-label="Model is writing">
-            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-[mlab-typing-bounce_1.2s_ease-in-out_infinite]" />
-            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-[mlab-typing-bounce_1.2s_ease-in-out_infinite] [animation-delay:0.15s]" />
-            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-[mlab-typing-bounce_1.2s_ease-in-out_infinite] [animation-delay:0.3s]" />
+            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-typing-bounce motion-reduce:animate-none" />
+            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-typing-bounce motion-reduce:animate-none [animation-delay:0.15s]" />
+            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-typing-bounce motion-reduce:animate-none [animation-delay:0.3s]" />
           </span>
         ) : editing ? (
           <form
@@ -139,7 +139,7 @@ export function ChatBubble({
               setEditing(false);
             }}
           >
-            <textarea value={draft} aria-label="Edit message" onChange={(event) => setDraft(event.target.value)} className="w-full min-h-32 border-0 outline-none resize-y bg-transparent text-text-primary caret-text-primary font-inherit" />
+            <textarea value={draft} aria-label="Edit message" onChange={(event) => setDraft(event.target.value)} className="w-full min-h-32 border-0 outline-none resize-y bg-transparent text-text-primary caret-text-primary font-sans" />
             <span className="flex justify-end gap-3">
               <button type="button" onClick={() => setEditing(false)} className="h-13 px-5 border-0 rounded-pill bg-hover text-text-secondary text-caption font-semibold cursor-pointer hover:bg-surface-hover">Cancel</button>
               <button type="submit" className="h-13 px-5 border-0 rounded-pill bg-text-primary text-surface-1 text-caption font-semibold cursor-pointer">Send</button>
