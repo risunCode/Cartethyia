@@ -17,6 +17,33 @@ interface SessionCacheEntry {
 const sessionCache = new Map<string, SessionCacheEntry>();
 const inFlightHandshakes = new Map<string, Promise<string>>();
 
+/**
+ * Bound on both maps.
+ *
+ * Keys are a SHA-256 of `apiBase:passToken`, so the real bound is the number of
+ * distinct MiMo credentials in play. The cap exists because these two maps are
+ * the only caches in the gateway with no eviction at all: `sessionCache` is only
+ * ever cleared wholesale by {@link invalidateMimoSessionCache}, and
+ * `inFlightHandshakes` only by each handshake's own `finally`. A passToken that
+ * rotates — re-pasted, re-issued, or a misconfigured client sending a fresh value
+ * per call — therefore adds one entry per value and never releases any, which is
+ * an unbounded retention on a path that runs per request.
+ *
+ * Evicting the oldest insertion is enough for both: a session entry is
+ * re-acquired on the next miss, and a dropped handshake promise only means the
+ * caller retries the handshake rather than joining a settled one.
+ */
+const MIMO_CACHE_MAX_ENTRIES = 256;
+
+/** Drops the oldest insertion until `map` is within budget. */
+function evictOldest<V>(map: Map<string, V>): void {
+  while (map.size > MIMO_CACHE_MAX_ENTRIES) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) return;
+    map.delete(oldest);
+  }
+}
+
 function signatureClientSign(nonce: string, ssecurity?: string): string {
   let a = `nonce=${nonce}`;
   if (ssecurity && ssecurity.trim()) a += `&${ssecurity}`;
@@ -204,6 +231,7 @@ export async function acquireMimoServiceSession(
         cookie: finalCookie,
         expiresAt: Date.now() + SESSION_TTL_MS,
       });
+      evictOldest(sessionCache);
 
       return finalCookie;
     } finally {
@@ -212,6 +240,7 @@ export async function acquireMimoServiceSession(
   })();
 
   inFlightHandshakes.set(cacheKey, handshakePromise);
+  evictOldest(inFlightHandshakes);
   return handshakePromise;
 }
 
