@@ -476,7 +476,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
           value={family}
           placeholder="e.g. residential-id"
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFamily(e.target.value)}
-          style={{ width: "100%" }}
+          className="w-full"
         />
       </div>
       <div>
@@ -487,7 +487,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
           step="0.1"
           value={quotaGb}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuotaGb(e.target.value)}
-          style={{ width: "100%" }}
+          className="w-full"
         />
       </div>
       <div style={{ fontSize: "11px", color: overCap ? "var(--red)" : "var(--text-tertiary)" }}>
@@ -788,14 +788,7 @@ function PoolTitleBlock({
   return (
     <>
       <span
-        style={{
-          display: "block",
-          fontSize: "12.5px",
-          fontWeight: 600,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}
+        className="block text-caption font-semibold overflow-hidden truncate whitespace-nowrap"
         title={maskValues ? MYSTERIOUS_PROXY : view.poolLabel}
       >
         {maskValues ? MYSTERIOUS_PROXY : view.poolLabel}
@@ -1190,7 +1183,7 @@ function PoolHealthDialog({
             >
               Proxy health
             </div>
-            <div style={{ fontSize: "18px", fontWeight: 700, lineHeight: 1.3 }}>
+            <div className="text-title font-bold leading-[1.3]">
               {disabledForProxyResponse ? "Proxy reachable" : `Proxy ${pool.status}`}
             </div>
             <p
@@ -1651,7 +1644,7 @@ export default function Proxy(): ReactNode {
                   <Button
                     variant="secondary"
                     size="sm"
-                    style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
+                    className="rounded-tr-none rounded-br-none"
                     disabled={
                       selectedIds.size === 0 || speedTestingIds.size > 0 || speedTest.isPending
                     }

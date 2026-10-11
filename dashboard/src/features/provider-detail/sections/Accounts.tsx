@@ -337,7 +337,7 @@ function AccountRow({
             checked={selected}
             onChange={(event) => onToggleSelect(account.id, event.target.checked)}
             aria-label={`Select ${label}`}
-            style={{ cursor: "pointer" }}
+            className="cursor-pointer"
           />
         </div>
 
@@ -354,7 +354,7 @@ function AccountRow({
                 onBlur={saveLabel}
                 autoFocus
                 aria-label="Account label"
-                style={{ fontSize: "12.5px", maxWidth: "240px" }}
+                className="text-body max-w-120"
               />
             ) : (
               <>
@@ -1099,7 +1099,7 @@ export function AddAccountModal({
               variant="secondary"
               size="sm"
               onClick={() => void handlePaste()}
-              style={{ flexShrink: 0 }}
+              className="shrink-0"
             >
               Paste
             </Button>

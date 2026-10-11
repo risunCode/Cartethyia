@@ -15,10 +15,6 @@
     "staticInline": 1,
     "arbitrary": 0
   },
-  "src/components/HeaderPairsEditor.tsx": {
-    "staticInline": 2,
-    "arbitrary": 0
-  },
   "src/components/HealthEventsModal.tsx": {
     "staticInline": 3,
     "arbitrary": 0
@@ -28,11 +24,11 @@
     "arbitrary": 0
   },
   "src/components/ModelPicker.tsx": {
-    "staticInline": 11,
+    "staticInline": 9,
     "arbitrary": 0
   },
   "src/components/Shell.tsx": {
-    "staticInline": 11,
+    "staticInline": 9,
     "arbitrary": 0
   },
   "src/components/ui/input.tsx": {
@@ -40,20 +36,16 @@
     "arbitrary": 1
   },
   "src/features/cli-tools/CliToolDetailPage.tsx": {
-    "staticInline": 9,
+    "staticInline": 7,
     "arbitrary": 0
   },
   "src/features/cli-tools/CliToolsPage.tsx": {
-    "staticInline": 4,
+    "staticInline": 2,
     "arbitrary": 0
   },
   "src/features/customization/CustomizationPage.tsx": {
     "staticInline": 0,
     "arbitrary": 2
-  },
-  "src/features/logs/ConsoleLogPage.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
   },
   "src/features/overview/OverviewPage.tsx": {
     "staticInline": 2,
@@ -64,7 +56,7 @@
     "arbitrary": 0
   },
   "src/features/provider-detail/sections/Accounts.tsx": {
-    "staticInline": 7,
+    "staticInline": 4,
     "arbitrary": 0
   },
   "src/features/provider-detail/sections/CredentialNotice.tsx": {
@@ -72,11 +64,7 @@
     "arbitrary": 0
   },
   "src/features/provider-detail/sections/Models.tsx": {
-    "staticInline": 11,
-    "arbitrary": 0
-  },
-  "src/features/provider-detail/sections/OAuthDialogs.tsx": {
-    "staticInline": 5,
+    "staticInline": 8,
     "arbitrary": 0
   },
   "src/features/provider-detail/sections/RoutingStrategyCard.tsx": {
@@ -88,11 +76,11 @@
     "arbitrary": 5
   },
   "src/features/proxy/ProxyPage.tsx": {
-    "staticInline": 13,
+    "staticInline": 8,
     "arbitrary": 0
   },
   "src/features/quota/QuotaPage.tsx": {
-    "staticInline": 12,
+    "staticInline": 10,
     "arbitrary": 0
   },
   "src/features/routing/CombosPage.tsx": {
@@ -100,10 +88,6 @@
     "arbitrary": 0
   },
   "src/features/session/Banned.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
-  },
-  "src/features/session/Setup.tsx": {
     "staticInline": 1,
     "arbitrary": 0
   },

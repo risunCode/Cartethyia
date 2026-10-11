@@ -576,7 +576,7 @@ function CliToolDetailBody({
                         width: "100%",
                         minWidth: 0 }}
                     >
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span className="overflow-hidden truncate whitespace-nowrap">
                         {slotValue}
                       </span>
                       <Search size={12} className="text-text-tertiary shrink-0" />
@@ -612,7 +612,7 @@ function CliToolDetailBody({
                           minWidth: 0,
                         }}
                       >
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span className="overflow-hidden truncate whitespace-nowrap">
                           {targetValue.length > 0 ? targetValue : "Not routed"}
                         </span>
                         <Search size={12} className="text-text-tertiary shrink-0" />

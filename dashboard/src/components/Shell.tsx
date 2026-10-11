@@ -683,7 +683,7 @@ export function DashboardShell({
                   event.currentTarget.onerror = null;
                   event.currentTarget.src = defaultLogoUrl;
                 }}
-                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                className="w-full h-full object-cover block"
               />
             </div>
             <div className="brand-meta">
@@ -739,8 +739,7 @@ export function DashboardShell({
                 disabled={loggingOut}
                 aria-label="Sign out"
                 title="Sign out"
-                className="topbar-icon-button"
-                style={{ width: "30px", height: "30px", borderRadius: "8px" }}
+                className="topbar-icon-button w-15 h-15 rounded-inset"
               >
                 <LogOut size={14} />
               </button>

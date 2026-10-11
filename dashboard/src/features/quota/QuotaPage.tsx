@@ -377,7 +377,7 @@ function QuotaCard({
             <Button
               variant="ghost"
               size="icon"
-              className="size-14"
+              className="w-16 h-16 p-0"
               title={
                 resets.isPending
                   ? "Checking saved rate-limit resets…"
@@ -388,7 +388,6 @@ function QuotaCard({
               aria-label={`Open saved rate-limit resets for ${account.name}`}
               disabled={busy}
               onClick={() => onShowResets(account)}
-              style={{ width: "32px", height: "32px", padding: 0 }}
             >
               <Zap size={14} />
             </Button>
@@ -397,7 +396,7 @@ function QuotaCard({
             <Button
               variant="ghost"
               size="icon"
-              className="size-14"
+              className="w-16 h-16 p-0"
               title={`Daily growth pass (check-in + activity report) — ${statusHint}`}
               aria-label={`Run daily growth pass for ${account.name}`}
               disabled={busy}
@@ -424,7 +423,6 @@ function QuotaCard({
                   },
                 })
               }
-              style={{ width: "32px", height: "32px", padding: 0 }}
             >
               {growth.isPending ? <Loader2 size={14} className="animate-spin" /> : <CalendarCheck size={14} />}
             </Button>

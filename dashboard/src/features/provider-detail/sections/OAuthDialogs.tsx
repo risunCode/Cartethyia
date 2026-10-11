@@ -216,7 +216,7 @@ export function OAuthBrowserDialog({
                 setCopied(true);
                 scheduleCopyReset(() => setCopied(false), 1500);
               }}
-              style={{ flexShrink: 0 }}
+              className="shrink-0"
             >
               {copied ? "Copied" : "Copy"}
             </Button>
@@ -236,19 +236,18 @@ export function OAuthBrowserDialog({
           </p>
           <Inline gap="8px" align="flex-start">
             <textarea
-              className="oauth-textarea"
               value={callbackValue}
               onChange={(event) => setCallbackValue(event.target.value)}
               placeholder="http://127.0.0.1:59653/callback?code=…&state=…  (or just the code)"
               rows={2}
               spellCheck={false}
-              style={{ flex: 1 }}
+              className="oauth-textarea flex-1"
             />
             <Button
               variant="secondary"
               size="sm"
               onClick={() => void handlePasteCallback()}
-              style={{ flexShrink: 0 }}
+              className="shrink-0"
             >
               Paste
             </Button>
@@ -516,7 +515,7 @@ export function DeviceCodeDialog({
                   size="sm"
                   icon={<ExternalLink size={12} />}
                   onClick={() => window.open(session.verificationUri, "_blank", "noopener")}
-                  style={{ flexShrink: 0 }}
+                  className="shrink-0"
                 >
                   Open
                 </Button>
@@ -529,7 +528,7 @@ export function DeviceCodeDialog({
                     setCopied(true);
                     scheduleCopyReset(() => setCopied(false), 1500);
                   }}
-                  style={{ flexShrink: 0 }}
+                  className="shrink-0"
                 >
                   {copied ? "Copied" : "Copy"}
                 </Button>

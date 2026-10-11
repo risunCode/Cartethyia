@@ -532,10 +532,7 @@ function AuditRow({ entry }: { entry: AuditEntry }): ReactNode {
         {entry.target}
       </td>
       <td
-        className="font-mono tabular-nums" style={{ fontSize: "11px",
-          maxWidth: "320px",
-          overflow: "hidden",
-          textOverflow: "ellipsis" }}
+        className="font-mono tabular-nums text-badge max-w-160 overflow-hidden truncate"
       >
         {entry.detail ? JSON.stringify(entry.detail) : "—"}
       </td>

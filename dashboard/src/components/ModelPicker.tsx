@@ -197,21 +197,14 @@ export function ModelPickerModal({
             {selected.map((s) => (
               <span key={s} className="font-mono tabular-nums inline-flex items-center gap-2 text-badge bg-accent-soft text-accent py-1 px-3 rounded-chip border border-accent max-w-full overflow-hidden break-all">
                 <span
-                  style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  className="overflow-hidden truncate whitespace-nowrap"
                 >
                   {s}
                 </span>
                 <button
                   type="button"
                   onClick={() => onToggle(s)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    padding: 0,
-                    display: "flex",
-                    flexShrink: 0,
-                  }}
+                  className="bg-transparent border-none cursor-pointer p-0 flex shrink-0"
                 >
                   <X size={12} />
                 </button>

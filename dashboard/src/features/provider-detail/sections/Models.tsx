@@ -275,7 +275,7 @@ export function AddModelModal({
             onKeyDown={(event) => {
               if (event.key === "Enter" && normalized.length > 0) runTest();
             }}
-            style={{ flex: 1 }}
+            className="flex-1"
           />
           <Button
             variant="secondary"
@@ -289,7 +289,7 @@ export function AddModelModal({
             }
             disabled={probe.isPending || normalized.length === 0}
             onClick={runTest}
-            style={{ flexShrink: 0 }}
+            className="shrink-0"
           >
             {testState === "testing" ? "Testing..." : "Test"}
           </Button>
@@ -474,13 +474,7 @@ function ModelCard({
           <div className="flex-1 min-w-0 flex flex-col gap-1">
             <div
               title={copyId}
-              className="font-mono tabular-nums" style={{ minWidth: 0,
-                overflow: "hidden",
-                whiteSpace: "nowrap",
-                textOverflow: "ellipsis",
-                fontSize: "12px",
-                fontWeight: 600,
-                lineHeight: 1.35 }}
+              className="font-mono tabular-nums min-w-0 truncate text-caption font-semibold leading-[1.35]"
             >
               {qualifiedId}
             </div>

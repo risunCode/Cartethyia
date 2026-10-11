@@ -93,13 +93,7 @@ export default function CliTools(): ReactNode {
                     <ToolIcon toolId={tool.id} name={tool.name} color={tool.color} size={32} />
                     <div className="min-w-0 flex-1">
                       <div
-                        style={{
-                          fontSize: "13px",
-                          fontWeight: 600,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
+                        className="text-body font-semibold overflow-hidden truncate whitespace-nowrap"
                       >
                         {tool.name}
                       </div>
@@ -160,13 +154,7 @@ export default function CliTools(): ReactNode {
                   <ToolIcon toolId={tool.id} name={tool.name} color={tool.color} size={32} />
                   <div className="min-w-0 flex-1">
                     <div
-                      style={{
-                        fontSize: "13px",
-                        fontWeight: 600,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
+                      className="text-body font-semibold overflow-hidden truncate whitespace-nowrap"
                     >
                       {tool.name}
                     </div>

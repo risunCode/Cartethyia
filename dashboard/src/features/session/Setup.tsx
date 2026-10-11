@@ -400,7 +400,7 @@ export default function Setup(): ReactNode {
                   type="button"
                   disabled={pending || open === null}
                   onClick={() => void restoreWithAdmin()}
-                  style={{ width: "100%", height: "40px" }}
+                  className="w-full h-20"
                 >
                   {pending ? "Restoring…" : "Restore and create administrator"}
                 </Button>
