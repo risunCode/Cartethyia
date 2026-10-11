@@ -1,4 +1,8 @@
 {
+  "src/apps/console/shell.tsx": {
+    "staticInline": 0,
+    "arbitrary": 2
+  },
   "src/apps/landing/page.tsx": {
     "staticInline": 0,
     "arbitrary": 5
@@ -22,10 +26,6 @@
   "src/components/ShareManagementDialog.tsx": {
     "staticInline": 0,
     "arbitrary": 1
-  },
-  "src/components/Shell.tsx": {
-    "staticInline": 0,
-    "arbitrary": 2
   },
   "src/components/ui/button.tsx": {
     "staticInline": 0,
@@ -67,7 +67,7 @@
     "staticInline": 0,
     "arbitrary": 1
   },
-  "src/features/session/Setup.tsx": {
+  "src/features/session/SetupPage.tsx": {
     "staticInline": 0,
     "arbitrary": 2
   },

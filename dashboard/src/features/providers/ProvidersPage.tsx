@@ -1,6 +1,6 @@
 import { ChevronDown, Eye, EyeOff, Plus, Server, Trash2 } from "lucide-react";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   HeaderPairsEditor,
@@ -47,7 +47,7 @@ import {
   useSyncProviderModels,
   useTestByokConnection,
 } from "../../hooks/providers";
-import { getErrorMessage } from "../../lib/helpers";
+import { getErrorMessage } from "../../data/api";
 
 const wireFamilies = ["chat", "responses", "messages"] as const;
 type WireFamily = (typeof wireFamilies)[number];

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Inbox, Loader2, TriangleAlert } from "lucide-react";
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 import { Button } from "./button";
 
 /**

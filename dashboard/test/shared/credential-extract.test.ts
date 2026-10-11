@@ -28,7 +28,7 @@ import {
   extractCredentialFromPaste,
   jwtExpiresAt,
   parseCredentialBatch,
-} from "../../src/shared/credential-extract";
+} from "../../src/lib/credentials";
 
 describe("extractCredentialFromPaste", () => {
   test("a bare token is returned unchanged and marked not extracted", () => {

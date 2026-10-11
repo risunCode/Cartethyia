@@ -1,6 +1,6 @@
 import { isCancelledError, type QueryClient } from "@tanstack/react-query";
 import { consoleRequest } from "./api";
-import { assertSystemHealth, querySignal } from "../lib/api/validators";
+import { assertSystemHealth, querySignal } from "./assert";
 import { DASHBOARD_QUERY_OPTIONS } from "./query-policy";
 import { queryKeys } from "./query-keys";
 

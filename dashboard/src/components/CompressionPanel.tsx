@@ -7,7 +7,7 @@ import { Inline } from "./ui/inline";
 import { Stack } from "./ui/stack";
 import { ErrorState, LoadingState } from "./ui/state";
 import { toast } from "../lib/toast";
-import { getErrorMessage } from "../lib/helpers";
+import { getErrorMessage } from "../data/api";
 import { useRuntimeSettings, useUpdateRuntimeSettings } from "../hooks/settings";
 
 /**

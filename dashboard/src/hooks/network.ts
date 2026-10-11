@@ -1,5 +1,5 @@
 import { consoleRequest } from "../data/api";
-import { getErrorMessage } from "../lib/helpers";
+import { getErrorMessage } from "../data/api";
 import { toast } from "../lib/toast";
 import type { ApiErrorShape } from "../data/api";
 import type {
@@ -14,7 +14,7 @@ import type {
   RelayDeployResult,
 } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
-import { assertNetworkPools, assertPoolStrategy, querySignal } from "../lib/api/validators";
+import { assertNetworkPools, assertPoolStrategy, querySignal } from "../data/assert";
 import { DASHBOARD_QUERY_OPTIONS, POLL } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

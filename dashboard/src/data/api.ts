@@ -328,3 +328,25 @@ export async function fetchSessionUser(): Promise<SessionUser | null> {
     isPlatformAdmin: result.is_platform_admin,
   };
 }
+
+/**
+ * Converts an unknown thrown value into safe user-facing copy.
+ *
+ * A thrown {@link ApiErrorShape} already carries the server's own sentence, so
+ * that sentence wins; anything else falls back to the caller's wording rather
+ * than leaking a stack or a bare `undefined` into a toast.
+ */
+export function getErrorMessage(error: unknown, fallback = "Request failed"): string {
+  if (isApiErrorShape(error) && error.message.trim().length > 0) return error.message;
+  if (error instanceof Error && error.message.trim().length > 0) return error.message;
+  return fallback;
+}
+
+function isApiErrorShape(error: unknown): error is ApiErrorShape {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message: unknown }).message === "string"
+  );
+}

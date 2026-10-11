@@ -14,7 +14,7 @@
 import { RefreshCw, ScrollText, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Badge } from "../../components/ui/badge";
-import { formatDuration } from "../../lib/format";
+import { formatDuration } from "../../lib/format/numbers";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
@@ -25,7 +25,7 @@ import type { AuditEntry } from "../../data/contracts";
 import { useAuditTrail, useSessionUser } from "../../hooks/system";
 import { useConsoleLogStream, type ConsoleLogEntry, type ConsoleLogLevel } from "../../hooks/logs";
 import { auditActionLabel } from "../../features/logs/audit-labels";
-import { getErrorMessage } from "../../lib/helpers";
+import { getErrorMessage } from "../../data/api";
 import { toast } from "../../lib/toast";
 
 type TabKey = "logs" | "audit";

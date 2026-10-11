@@ -2,7 +2,7 @@
  * Single source of truth for the `console-theme` preference.
  *
  * Shared by the pre-bundle bootstrap in `dashboard/index.html` and the
- * topbar `ThemeToggle` in `components/Shell.tsx`. Every read, write, and DOM
+ * topbar `ThemeToggle` in `apps/console/shell.tsx`. Every read, write, and DOM
  * application of the theme value must flow through this module so those
  * callsites cannot drift.
  *

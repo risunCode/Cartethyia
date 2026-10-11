@@ -24,7 +24,7 @@ import {
 } from "../../hooks/cli-tools";
 import type { ApiKeyResponse, ApplyInput, CliMappingInput, ToolRegistryEntry, ToolStatus } from "../../data/contracts";
 import { ToolIcon } from "./icons/ToolIcon";
-import { getErrorMessage } from "../../lib/helpers";
+import { getErrorMessage } from "../../data/api";
 import { isModelAllowed } from "../../../../src/security/model-access-rule";
 import type { ApiKeyModelAccessMode } from "../../../../src/persistence/schema";
 

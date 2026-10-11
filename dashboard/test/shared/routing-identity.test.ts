@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertProviderRouting } from "../../src/lib/api/validators";
+import { assertProviderRouting } from "../../src/data/assert";
 
 const routing = {
   providerId: "inferhub",

@@ -8,7 +8,7 @@ import { Switch } from "./ui/switch";
 import { toast } from "../lib/toast";
 import { downloadBytes, downloadTextFile } from "../lib/download";
 import { readBackupFile } from "../lib/backup-file";
-import { getErrorMessage } from "../lib/helpers";
+import { getErrorMessage } from "../data/api";
 import { useDeleteAllBackup, useExportBackup, useRestoreBackup } from "../hooks/backup";
 import { Dialog } from "./ui/dialog";
 import type { BackupImportReport } from "../data/contracts";

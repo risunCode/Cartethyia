@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
 import { DialogActions } from "./ui/dialog-actions";
-import { getErrorMessage } from "../lib/helpers";
+import { getErrorMessage } from "../data/api";
 
 /**
  * Shared destructive-confirmation contract.

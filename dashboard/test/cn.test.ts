@@ -8,7 +8,7 @@
  * typecheck, test, or build error to notice. These cases pin the two axes.
  */
 import { describe, expect, test } from "bun:test";
-import { cn } from "../src/lib/cn";
+import { cn } from "../src/lib/classnames";
 
 /** The emitted class string, split into tokens for readable assertions. */
 const tokens = (...inputs: string[]): string[] => cn(...inputs).split(" ").filter(Boolean);

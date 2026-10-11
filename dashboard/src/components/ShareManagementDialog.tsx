@@ -6,9 +6,9 @@ import { Dialog } from "./ui/dialog";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
 import { ClipboardButton } from "./patterns/clipboard-button";
 import { toast } from "../lib/toast";
-import { getErrorMessage } from "../lib/helpers";
-import { quotaBarTone } from "../shared/quota-formatters";
-import { compactTokens } from "../shared/display-formatters";
+import { getErrorMessage } from "../data/api";
+import { quotaBarTone } from "../lib/format/quota";
+import { compactTokens } from "../lib/format/tokens";
 import type { ApiKeyResponse, SharedKeyActivityDetail, SharedKeySummary } from "../data/contracts";
 import {
   useRegenerateApiKey,

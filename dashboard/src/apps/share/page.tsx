@@ -8,8 +8,8 @@ import { ClipboardButton } from "../../components/patterns/clipboard-button";
 import { downloadTextFile } from "../../lib/download";
 import { GithubBadge } from "../../components/patterns/github-badge";
 import { toast } from "../../lib/toast";
-import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../lib/model-limits";
-import { formatProbeDuration } from "../../lib/format";
+import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../lib/format/tokens";
+import { formatProbeDuration } from "../../lib/format/numbers";
 import { readConsoleTheme, applyConsoleTheme, isDarkEffective, writeConsoleTheme, type ConsoleThemeChoice } from "../../lib/theme";
 import { useShareData, type ShareLinkData, type ShareModelInfoData } from "../../hooks/share-data";
 import {

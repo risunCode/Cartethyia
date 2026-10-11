@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 
 export interface BackLinkProps {
   /** Used only when this page was opened directly and there is no history entry to return to. */

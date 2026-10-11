@@ -3,7 +3,7 @@ import { Check, ChevronDown } from "lucide-react";
 import { type CSSProperties, type ReactNode } from "react";
 
 import { FormField } from "../patterns/form-field";
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 
 export interface SelectOption {
   readonly value: string;

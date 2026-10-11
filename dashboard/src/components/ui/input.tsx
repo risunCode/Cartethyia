@@ -1,6 +1,6 @@
 import { Eye, EyeOff } from "lucide-react";
 import { forwardRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 
 /*
  * The shared field box. `form-input` / `form-textarea` stay as markers because

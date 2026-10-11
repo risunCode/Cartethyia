@@ -1,7 +1,7 @@
 import type { QueryFunctionContext } from "@tanstack/react-query";
-import { isRecord } from "../../data/api";
-import { USAGE_DIMENSIONS } from "../../data/contracts";
-import type { ApiErrorShape } from "../../data/api";
+import { isRecord } from "../data/api";
+import { USAGE_DIMENSIONS } from "./contracts";
+import type { ApiErrorShape } from "../data/api";
 import type {
   ApiKeyResponse,
   AuditEntry,
@@ -22,7 +22,7 @@ import type {
   UsageRequestDetail,
   UsageRequestsResponse,
   UsageSummaryResponse,
-} from "../../data/contracts";
+} from "./contracts";
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);

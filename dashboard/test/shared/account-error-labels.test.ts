@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { accountErrorLabel } from "../../src/shared/account-error-labels";
+import { accountErrorLabel } from "../../src/lib/format/labels";
 
 /**
  * The account pill used to render the raw category, so a quota endpoint that

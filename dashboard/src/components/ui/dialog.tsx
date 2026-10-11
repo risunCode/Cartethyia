@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePresence } from "../../hooks/use-presence";
 import { useModalFocus } from "../../hooks/use-modal-focus";
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 
 const TRAFFIC_LIGHT =
   "traffic-light grid size-7 cursor-pointer place-items-center rounded-pill border-none p-0 transition-transform duration-(--dur-micro) ease-standard hover:scale-112 focus-visible:outline-2 focus-visible:outline-current focus-visible:outline-offset-2";

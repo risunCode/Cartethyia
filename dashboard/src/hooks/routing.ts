@@ -2,7 +2,7 @@ import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import type { AccountInflightReading, ModelAliasCreateInput, ModelAliasPatchInput, ModelAliasRow, ModelComboCloneResult, ModelComboCreateInput, ModelComboPatchInput, ModelComboRow, ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
-import { assertModelAliases, assertModelCombos, assertProviderRouting, querySignal } from "../lib/api/validators";
+import { assertModelAliases, assertModelCombos, assertProviderRouting, querySignal } from "../data/assert";
 import { DASHBOARD_QUERY_OPTIONS, POLL } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

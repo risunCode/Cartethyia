@@ -1,5 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 
 export interface ListRowProps extends HTMLAttributes<HTMLDivElement> {
   readonly children?: ReactNode;

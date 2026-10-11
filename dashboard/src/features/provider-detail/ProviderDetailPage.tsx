@@ -40,7 +40,7 @@ import {
 import { queryKeys } from "../../data/query-keys";
 import { toast } from "../../lib/toast";
 import type { ProviderAccountResponse, ProviderResponse } from "../../data/contracts";
-import { providerCanConfigureUserAgent } from "../../shared/provider-user-agent";
+import { providerCanConfigureUserAgent } from "../../lib/provider-user-agent";
 import { RoutingStrategyCard } from "./sections/RoutingStrategyCard";
 import { UsageFloorControl } from "./sections/UsageFloorControl";
 import { CredentialNotice } from "./sections/CredentialNotice";

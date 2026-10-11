@@ -1,4 +1,4 @@
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -65,16 +65,17 @@ import {
   RAW_TOKEN_SCALE,
   TOKEN_SCALE_AUTO,
   TOKEN_SCALES,
-  formatBytes,
-  formatChartTick,
-  formatChartTooltip,
-  formatCredits,
-  formatDuration,
-  formatNumber,
   formatTokens,
   tokenScaleIndex,
   tokenScaleValue,
-} from "../../lib/format";
+} from "../../lib/format/tokens";
+import {
+  formatBytes,
+  formatCredits,
+  formatDuration,
+  formatNumber,
+} from "../../lib/format/numbers";
+import { formatChartTick, formatChartTooltip } from "../../lib/format/instants";
 
 type Metric = "requests" | "tokens" | "cached";
 /** Mirrors the backend `USAGE_DIMENSIONS`; keep in sync by hand. */

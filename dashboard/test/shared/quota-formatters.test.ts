@@ -32,7 +32,7 @@ import {
   paginateQuotaWindows,
   quotaBarTone,
   QUOTA_WINDOWS_PER_PAGE,
-} from "../../src/shared/quota-formatters";
+} from "../../src/lib/format/quota";
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

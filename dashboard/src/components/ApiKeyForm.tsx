@@ -6,7 +6,7 @@ import { ModelPickerModal } from "./ModelPicker";
 import { useResetToolMappings, useSaveToolMappings, useToolMappings, useToolRegistry } from "../hooks/cli-tools";
 import { useUpdateApiKey } from "../hooks/api-keys";
 import { toast } from "../lib/toast";
-import { getErrorMessage } from "../lib/helpers";
+import { getErrorMessage } from "../data/api";
 import {
   CLIENT_ROUTERS,
   SHARE_POPUP_IMAGE_MAX_BYTES,

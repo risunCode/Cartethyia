@@ -12,7 +12,7 @@ import {
   PROXY_SKIP_HINT_PROVIDERS,
   ROUTING_ACTIVE_LABEL,
   useRoutingStrategy,
-} from "../../../hooks/use-routing-strategy";
+} from "../../../hooks/routing-strategy";
 
 /** The slider's own scale: 1–50, with one step past the end meaning unlimited. */
 const SLIDER_MAX = 50;

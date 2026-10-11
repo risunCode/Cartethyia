@@ -8,9 +8,9 @@ import { ProviderIcon } from "./ProviderIcon";
 import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
 import type { FlatModelCatalogEntry } from "../data/contracts";
-import { UNKNOWN_LIMITS_TOOLTIP } from "../lib/model-limits";
+import { UNKNOWN_LIMITS_TOOLTIP } from "../lib/format/tokens";
 import { queryKeys } from "../data/query-keys";
-import { querySignal } from "../lib/api/validators";
+import { querySignal } from "../data/assert";
 
 export type FlatModelEntry = FlatModelCatalogEntry;
 

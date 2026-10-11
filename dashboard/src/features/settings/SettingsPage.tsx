@@ -10,7 +10,7 @@ import { BackupPanel } from "../../components/BackupPanel";
 import { toast } from "../../lib/toast";
 import { useChangePassword } from "../../hooks/auth";
 import { useRuntimeSettings, useUpdateRuntimeSettings } from "../../hooks/settings";
-import { getErrorMessage } from "../../lib/helpers";
+import { getErrorMessage } from "../../data/api";
 
 
 function PrivacyPanel(): ReactNode {

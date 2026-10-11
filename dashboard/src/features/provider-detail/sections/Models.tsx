@@ -29,11 +29,11 @@ import {
   useRegisterProviderModels,
   useSetModelEnabled,
 } from "../../../hooks/providers";
-import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../../lib/model-limits";
+import { formatModelTokens, UNKNOWN_LIMITS_TOOLTIP } from "../../../lib/format/tokens";
 import { toast } from "../../../lib/toast";
 import { useTrackedTimeout } from "../../../hooks/use-timeout";
 import { PROBE_REASONING_EFFORTS, formatThinkingSuffix, type ModelCatalogEntry, type ProbeReasoningEffort } from "../../../data/contracts";
-import { formatProbeDuration } from "../../../lib/format";
+import { formatProbeDuration } from "../../../lib/format/numbers";
 
 
 

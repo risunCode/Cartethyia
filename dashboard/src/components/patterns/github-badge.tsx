@@ -1,10 +1,5 @@
 import type { ReactElement } from "react";
-
-/**
- * Canonical repository link shared by every public surface, so the landing page
- * and the share page cannot drift onto different repositories.
- */
-export const GITHUB_REPO_URL = "https://github.com/risunCode/Cartethyia";
+import { GITHUB_REPO, GITHUB_REPO_URL } from "../../lib/links";
 
 /**
  * The badge host, declared here rather than imported from the backend CSP
@@ -14,8 +9,6 @@ export const GITHUB_REPO_URL = "https://github.com/risunCode/Cartethyia";
  * behind a CSP violation.
  */
 export const BADGE_IMAGE_ORIGIN = "https://img.shields.io";
-
-const REPO_SLUG = "risunCode/Cartethyia";
 
 /**
  * Live star and fork counts, as shields.io SVG badges.
@@ -33,7 +26,7 @@ function badgeUrl(metric: "stars" | "forks", color: string): string {
     labelColor: "0b1220",
     color,
   });
-  return `${BADGE_IMAGE_ORIGIN}/github/${metric}/${REPO_SLUG}?${params.toString()}`;
+  return `${BADGE_IMAGE_ORIGIN}/github/${metric}/${GITHUB_REPO}?${params.toString()}`;
 }
 
 /** The GitHub mark, inlined so no brand-icon dependency is needed. */

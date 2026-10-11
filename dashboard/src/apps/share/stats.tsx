@@ -14,7 +14,7 @@ import {
   TOKEN_SCALES,
   TOKEN_SCALE_AUTO,
   tokenScaleValue,
-} from "../../lib/format";
+} from "../../lib/format/tokens";
 
 const STATS_TABLE_SCROLL_CLASS =
   "max-h-168 w-full min-w-0 overflow-x-auto overflow-y-auto touch-pan-x touch-pan-y [&_thead_th]:sticky [&_thead_th]:top-0 [&_thead_th]:z-card [&_thead_th]:bg-surface-2";

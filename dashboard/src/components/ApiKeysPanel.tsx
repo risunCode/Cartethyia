@@ -21,8 +21,8 @@ import { ModelBansDialog } from "./ModelBansDialog";
 import { regenerateWarning, ShareManagementDialog } from "./ShareManagementDialog";
 import { SortableList } from "./SortableList";
 import { toast } from "../lib/toast";
-import { getErrorMessage } from "../lib/helpers";
-import { compactTokens, limitLabel } from "../shared/display-formatters";
+import { getErrorMessage } from "../data/api";
+import { compactTokens, limitLabel } from "../lib/format/tokens";
 import { useSessionUser } from "../hooks/system";import type { ApiKeyResponse } from "../data/contracts";
 import {
   useApiKeys,

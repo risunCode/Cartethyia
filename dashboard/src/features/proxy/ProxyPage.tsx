@@ -56,10 +56,10 @@ import {
   type PoolSortKey,
   type ProxyPoolSummary,
 } from "../../features/proxy/proxy-metrics";
-import { formatBytes } from "../../lib/format";
+import { formatBytes } from "../../lib/format/numbers";
 import { downloadTextFile } from "../../lib/download";
 import { toast } from "../../lib/toast";
-import { getErrorMessage } from "../../lib/helpers";
+import { getErrorMessage } from "../../data/api";
 const transportKinds = ["http", "https", "socks5"] as const;
 type TransportKind = (typeof transportKinds)[number];
 

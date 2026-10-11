@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { Toaster } from "sonner";
-import { DashboardShell } from "./components/Shell";
+import { DashboardShell } from "./apps/console/shell";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { lazyWithRetry } from "./lib/lazy-retry";
 import { consoleRequest, fetchSessionUser, setSessionTransitionListener } from "./data/api";
@@ -28,9 +28,9 @@ function RouteLoadingShell(): ReactNode {
 // Route chunks are content-hashed: after a rebuild the previous page's chunk
 // URLs 404. lazyWithRetry reloads once to pick up the fresh index.html, then
 // surfaces to the ErrorBoundary instead of looping.
-const Login = lazyWithRetry(() => import("./features/session/Login"), "login");
-const Setup = lazyWithRetry(() => import("./features/session/Setup"), "setup");
-const Banned = lazyWithRetry(() => import("./features/session/Banned"), "banned");
+const Login = lazyWithRetry(() => import("./features/session/LoginPage"), "login");
+const Setup = lazyWithRetry(() => import("./features/session/SetupPage"), "setup");
+const Banned = lazyWithRetry(() => import("./features/session/BannedPage"), "banned");
 const Overview = lazyWithRetry(() => import("./features/overview/OverviewPage"), "overview");
 const Usage = lazyWithRetry(() => import("./features/usage/UsagePage"), "usage");
 const ProviderDetail = lazyWithRetry(() => import("./features/provider-detail/ProviderDetailPage"), "provider-detail");

@@ -13,7 +13,7 @@ import {
   type RelayTarget,
 } from "../data/contracts";
 import { useDeployRelay } from "../hooks/network";
-import { getErrorMessage } from "../lib/helpers";
+import { getErrorMessage } from "../data/api";
 import { toast } from "../lib/toast";
 
 /** Human labels and per-target fields for the deploy form. */

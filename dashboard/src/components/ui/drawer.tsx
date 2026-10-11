@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useRef, type ReactNode } from "react";
 import { usePresence } from "../../hooks/use-presence";
 import { useModalFocus } from "../../hooks/use-modal-focus";
-import { cn } from "../../lib/cn";
+import { cn } from "../../lib/classnames";
 
 export interface DrawerProps {
   readonly open: boolean;

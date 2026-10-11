@@ -9,8 +9,8 @@ import { CompressionPanel } from "../../components/CompressionPanel";
 import { useSystemHealth } from "../../hooks/system";
 
 import { useTrackedTimeout } from "../../hooks/use-timeout";
-import { formatBytes } from "../../lib/format";
-import { getErrorMessage } from "../../lib/helpers";
+import { formatBytes } from "../../lib/format/numbers";
+import { getErrorMessage } from "../../data/api";
 
 
 function ApiEndpointCard() {

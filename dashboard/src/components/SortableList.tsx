@@ -1,6 +1,6 @@
 import { GripVertical } from "lucide-react";
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
-import { cn } from "../lib/cn";
+import { cn } from "../lib/classnames";
 import { gapUtility } from "../lib/spacing";
 
 /**

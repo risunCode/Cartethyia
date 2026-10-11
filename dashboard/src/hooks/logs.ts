@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { consoleRequest, isRecord } from "../data/api";
-import { STREAM_RETRY_MS } from "../lib/constants";
+import { STREAM_RETRY_MS } from "../lib/stream-retry";
 
 export type ConsoleLogLevel = "debug" | "info" | "warn" | "error";
 

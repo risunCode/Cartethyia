@@ -52,8 +52,8 @@ import {
   quotaBarTone,
   paginateQuotaWindows,
   accountIdentity,
-} from "../../shared/quota-formatters";
-import { getErrorMessage } from "../../lib/helpers";
+} from "../../lib/format/quota";
+import { getErrorMessage } from "../../data/api";
 
 
 function isEmpty(account: QuotaEntry): boolean {

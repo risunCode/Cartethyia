@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useRef, useState, type ReactNode } from "react";
 import { EyeOff, Gauge } from "lucide-react";
 import { Switch } from "../../../components/ui/switch";
-import { useRoutingStrategy } from "../../../hooks/use-routing-strategy";
+import { useRoutingStrategy } from "../../../hooks/routing-strategy";
 import { useQuotaOverview } from "../../../hooks/quota";
 import { useProviderAccountInflight } from "../../../hooks/routing";
 import { useMysteriousAccounts } from "../../../lib/privacy-mode";

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { consoleRequest, isRecord } from "../data/api";
 import { queryKeys } from "../data/query-keys";
-import { STREAM_RETRY_MS } from "../lib/constants";
+import { STREAM_RETRY_MS } from "../lib/stream-retry";
 
 export interface InFlightState {
   /** Latest live count, or null before the first snapshot arrives. */

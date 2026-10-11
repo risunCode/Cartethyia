@@ -5,7 +5,7 @@ import type { ComboStrategy } from "../../data/contracts";
  * Shared combo-strategy option list for the Combos UI.
  *
  * Kept deliberately separate from the provider routing toggle in
- * `./use-routing-strategy`: providers use a Round robin on/off switch while
+ * `hooks/routing-strategy`: providers use a Round robin on/off switch while
  * combos pick from a strategy list.
  * `ComboStrategy` typing keeps the list exhaustive — adding a combo strategy to
  * the canonical union fails typecheck here until an option is provided.

@@ -13,7 +13,7 @@ import { ModelPickerModal } from "../../components/ModelPicker";
 import { SortableList } from "../../components/SortableList";
 import { Stack } from "../../components/ui/stack";
 import { CodeChip } from "../../components/ui/code-chip";
-import { getErrorMessage } from "../../lib/helpers";
+import { getErrorMessage } from "../../data/api";
 import { useTrackedTimeout } from "../../hooks/use-timeout";
 import { useClipboard } from "../../hooks/use-clipboard";
 import { toast } from "../../lib/toast";

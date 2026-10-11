@@ -5,7 +5,7 @@ import type {
   UpdateRuntimeSettingsRequest,
 } from "../data/contracts";
 import { queryKeys } from "../data/query-keys";
-import { querySignal } from "../lib/api/validators";
+import { querySignal } from "../data/assert";
 import { DASHBOARD_QUERY_OPTIONS } from "../data/query-policy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 

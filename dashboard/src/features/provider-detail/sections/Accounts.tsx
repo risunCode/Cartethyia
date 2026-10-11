@@ -13,7 +13,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { consoleRequest } from "../../../data/api";
-import { accountErrorLabel } from "../../../shared/account-error-labels";
+import { accountErrorLabel } from "../../../lib/format/labels";
 import { useMysteriousAccounts } from "../../../lib/privacy-mode";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
@@ -39,8 +39,8 @@ import {
   jwtExpiresAt,
   parseCredentialBatch,
   type ParsedCredentialEntry,
-} from "../../../shared/credential-extract";
-import { formatResetDistance } from "../../../shared/quota-formatters";
+} from "../../../lib/credentials";
+import { formatResetDistance } from "../../../lib/format/quota";
 import {
   activeModelCooldowns,
   lastModelCooldownAt,

@@ -7,7 +7,7 @@ import { Inline } from "./ui/inline";
 import { EmptyState, ErrorState, LoadingState } from "./ui/state";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { toast } from "../lib/toast";
-import { getErrorMessage } from "../lib/helpers";
+import { getErrorMessage } from "../data/api";
 import type { ModelAbuseBan } from "../data/contracts";
 import { useModelBans, useUnbanModel } from "../hooks/model-bans";
 
