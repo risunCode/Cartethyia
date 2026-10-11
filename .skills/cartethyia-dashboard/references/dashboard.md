@@ -58,8 +58,9 @@ That script reads `CARTETHYIA_DEV_ADMIN_PASSWORD` (required), plus
 `CARTETHYIA_BROWSER_AGENT` when set. They are dev-tooling only — no runtime
 path reads them, so they are absent from `CONFIG_SPEC` and
 `documentation/reference/configuration.md` — and are listed in `.env.example`
-under "Dev console admin". The password is an operator credential: take it from
-the environment, never from a message.
+under "Dev console admin". The password is an operator credential; handling it
+follows `AGENTS.md` "Safety and git" — it may arrive in a message, and it never
+goes into a file, a commit, or output.
 
 `agent-browser` is what every UI claim is measured through, including this
 script's own measurements; a page can also be measured by driving the CLI
@@ -67,9 +68,8 @@ directly, which is the normal path when no gateway credential is available.
 
 ## Authenticated console session
 
-The console needs a sign-in, and the credential is an operator password — so it
-comes from the environment and is never typed into a message. One command does
-the whole thing:
+The console needs a sign-in, and the credential is an operator password. One
+command does the whole thing:
 
 ```bash
 bun run dev:console-auth

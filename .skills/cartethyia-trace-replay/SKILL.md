@@ -106,8 +106,9 @@ compare, SSE replay, and what must never be logged.
 
 The gateway accepts the default API key from the environment
 (`CARTETHYIA_API_KEY`), which is all-allowed, so a live remote instance can be
-probed directly. Read the key and origin **from the environment** — never from a
-message, never echoed into output.
+probed directly. Prefer the key and origin already in the environment; a key
+handed to you in a message is usable, and handling either follows `AGENTS.md`
+"Safety and git" — it never goes into a file, a commit, or output.
 
 ```bash
 BASE="https://<host>/v1"
@@ -144,8 +145,9 @@ restore it, see it pass. A test that passes both ways proves nothing.
 
 ## Hygiene
 
-- Credentials come from the environment. Never print, log, or write them to a
-  file, and never paste them into a message or a commit.
+- Never print, log, or write a credential to a file, and never put one in a
+  commit. A credential given in a message is fine; `AGENTS.md` "Safety and git"
+  is the owner of the rest.
 - Work in a scratch directory outside the repo; delete it when done. Leave no
   replay scripts or captured payloads in the tree.
 - Send the same `user-agent` as the failing client so the gateway takes the same

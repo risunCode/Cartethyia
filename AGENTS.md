@@ -218,11 +218,32 @@ A test earns its place only by failing when the fix is absent.
 
 Never use destructive git commands such as `reset --hard`, `checkout --`, or
 `clean`. Do not commit, push, deploy, touch production data, delete user data, or
-discard unrelated working-tree changes unless explicitly asked. Never expose
-credentials, tokens, keys, or sensitive payloads in output. Credentials come from
-the environment — never from a message, never echoed into output. Verify the
-environment before database/production operations and prefer reversible,
-transactional steps.
+discard unrelated working-tree changes unless explicitly asked.
+
+**Credentials may be given in a message.** This is a local-first development
+repo, reproduction comes before everything else, and making an operator retype a
+dev API key through an environment file before a failing request can be replayed
+cost more than it ever protected. So: use a credential the operator hands you,
+for the local target they named, without arguing about the channel.
+
+What still holds, because it is a different failure with a different cost —
+**a credential never lands anywhere durable**:
+
+- never write it to a file, including `.env`, `.env.*`, a script, or a scratch
+  file;
+- never put it in a commit, a commit message, a PR body, or documentation;
+- never echo it into output, a log line, an error message, a payload capture, or
+  a telemetry row;
+- never send it to a third party.
+
+Prefer the environment anyway when one is already set, and prefer a value the
+operator put in `.env` themselves over one retyped in chat — not as a rule about
+trust, but because a file survives a context summarization and a message does
+not. When you must print a request for someone to replay, redact the credential
+and say that you did.
+
+Verify the environment before database/production operations and prefer
+reversible, transactional steps.
 
 ## Completion report
 
