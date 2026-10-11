@@ -73,13 +73,56 @@ closest owner instead — one folder, one skill.
    `Grep`, `Glob`, or a targeted command) and obtain the same context manually.
 4. Read the skill for the subsystem, then the target's callers, contracts,
    config, and docs.
-5. Verify dashboard/UI in a real browser through the browser agent (Puppeteer
-   under the hood). Prefer that automation over a hand-rolled CDP client: it is
-   far easier to control. Reach for raw CDP only when the browser agent cannot
-   express the check. Measure real DOM geometry; never substitute markup guesses.
+5. Verify dashboard/UI in a real browser. The `agent-browser` CLI is
+   **mandatory** for dashboard development — not a fallback, not an option.
+   Drive it yourself with `Bash`. See "Browser verification" below.
 
 Do not spend a turn only restating a plan. The first useful action should read,
 search, reproduce, edit, or verify something.
+
+## Browser verification
+
+`agent-browser` is the tool. Nothing else is.
+
+- **Drive it yourself.** Do not delegate browser work to a subagent, and do not
+  write a Bun/Node harness around it. The CLI is complete
+  (`open`, `eval`, `click`, `fill`, `press`, `wait`, `set viewport`,
+  `set media`, `storage local set`, `network route`, `screenshot`, `errors`,
+  `console`, `diff snapshot`). If a check needs several commands, run them.
+- **A browser claim without a browser is not a claim.** "The DOM looks right
+  from the source" is not verification. If you did not run `agent-browser`, say
+  the surface is unverified — do not soften it with a passing typecheck.
+- **Measure, do not guess.** Read `getBoundingClientRect()` and
+  `getComputedStyle()` through `agent-browser eval`. A rect in your evidence is
+  evidence; a class name in the source is a guess.
+- **If the CLI cannot express the check**, say so plainly and name what you
+  tried. Do not build a parallel toolchain to route around one awkward command.
+- One-off state (`localStorage`, stubbed routes) is a CLI flag away
+  (`storage local set`, `network route`). A scratch server for the built `dist`
+  is acceptable; a scratch *harness* is not.
+
+## Efficient work
+
+These are the loops that actually cost time on this repo. They are rules
+because each one was paid for.
+
+- **Do not delegate what you can do directly.** A subagent costs a spawn, a
+  transcript, and a report you must re-verify. Reserve it for genuinely
+  parallel or genuinely independent work.
+- **Read the failing assertion before changing code.** Most "regressions" found
+  by a test are the test being wrong: a stale expected width, a default that is
+  legitimately `0`, a fixture that was never wired. Confirm the expectation
+  against the source of truth before editing production code.
+- **When three consecutive runs fail for different reasons, stop.** You are
+  probably measuring the wrong thing or trusting the wrong number. Re-read the
+  check and the code it asserts against.
+- **One change, one verification.** Re-run the narrowest gate that can fail on
+  the change. Do not re-run a passing suite looking for a different opinion.
+- **No exploratory scratch files.** A debug script exists to answer one
+  question. Answer it, then delete it in the same turn. If two scratch files
+  exist for one investigation, one is already abandoned.
+- **Reproduce, fix, re-run the reproduction.** Not a broader suite, not a
+  cleaner path.
 
 ## Implementation loop
 
@@ -95,9 +138,11 @@ search, reproduce, edit, or verify something.
 8. Report evidence, failures, skipped checks, and unavailable surfaces honestly.
 
 A temporary script is acceptable only when it exercises the real production path,
-proves the behavior, and is deleted afterward. A workaround is acceptable only
-when explicitly requested or when it is a named temporary boundary with a clear
-removal condition.
+proves the behavior, and is deleted afterward — in the same turn, not a later
+one. It is not acceptable as a substitute for a tool that already does the job
+(`agent-browser` for anything a browser can show). A workaround is acceptable
+only when explicitly requested or when it is a named temporary boundary with a
+clear removal condition.
 
 ## Repository boundaries
 
@@ -139,14 +184,32 @@ bun run test:backend             # or bun run test / dashboard:test / test:watch
 The repository carries an active test suite (`test/`, `dashboard/test/`, run via
 `scripts/ci-run-tests.ts` against the isolated `.env.test` database — never the
 dev database). Typecheck is not behavioral proof. Exercise the real boundary: a
-live gateway request, headless browser surface when available, database
-migration in an isolated environment, or a temporary script calling production
-code. UI claims require browser-agent (Puppeteer) automation evidence; if no
-browser runtime is available, say exactly why. Do not write a raw CDP client
-when the browser agent can express the check.
+live gateway request, a real browser surface, database migration in an isolated
+environment, or a temporary script calling production code.
 
-Prove a new test actually locks the fix: revert the change, see it fail, restore
-it, see it pass. A test that passes both ways proves nothing.
+UI claims require `agent-browser` evidence (see "Browser verification"). If no
+browser runtime is available, say exactly why — do not substitute markup
+guesses, and do not report the surface as verified.
+
+## Tests that lock
+
+A test earns its place only by failing when the fix is absent.
+
+- **Revert, watch it fail, restore, watch it pass.** A test that passes both
+  ways proves nothing and is worse than none: it is a future false assurance.
+  A measurement helper (an audit, a counter, a matcher) gets the same
+  treatment — pin its classification with cases that would break if the
+  matcher regressed.
+- **Test the mechanism, not the symptom.** `cn("text-badge",
+  "text-text-secondary")` keeps the size — that catches the merge bug. Asserting
+  that a rendered page has the right font size catches only that page.
+- **An expected value must have a source.** Widths come from the caller's
+  `DialogSize`, not from the primitive's default. A magic number in a test is
+  a claim that will rot; a value read from the owning constant is a claim that
+  cannot.
+- **A failing check that is really a wrong expectation is a test bug.** Fix the
+  test, and say in the report that the expectation was wrong — never quietly
+  weaken an assertion to make a run green.
 
 ## Safety and git
 

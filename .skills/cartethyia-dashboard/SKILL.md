@@ -82,20 +82,27 @@ keep CSP hashing based on the final body. Do not add another Vite HTML entry.
 
 ## Verification
 
+**`agent-browser` is mandatory for any dashboard or UI work**, and you drive it
+yourself. Do not delegate browser verification to a subagent, and do not write a
+harness around the CLI — `open`, `eval`, `click`, `fill`, `press`, `wait`,
+`set viewport`, `set media`, `storage local set`, `network route`,
+`screenshot`, `console`, `errors` cover the checks below. A claim about layout,
+computed style, focus, or overflow that was not measured with `eval` is
+unverified, whatever else is green. Never substitute markup guesses.
+
 Pick the tool that can actually answer:
 
 - **Markup/layout structure only** — throwaway SSR script with every query
   seeded; assert ids, text, count, and order. SSR does not prove CSS, effects,
   or stateful interaction.
-- **CSS/layout/overflow** — a real browser engine headlessly, driven through the
-  browser agent (Puppeteer under the hood). Prefer it over a hand-rolled CDP
-  client: it is far easier to control. Reach for raw CDP only when the browser
-  agent cannot express the check. Build first, serve the built dashboard on a
-  separate port, measure DOM geometry at short and tall viewports, then tear
-  down the temporary browser/profile/server. If no browser runtime exists, mark
+- **CSS/layout/overflow** — `agent-browser`, always. Build first, serve the
+  built dashboard on a spare port, set the viewport, then measure
+  `getBoundingClientRect()` and `getComputedStyle()` through `eval` at both a
+  desktop and a narrow viewport, in both themes. Tear down the session, the
+  server, and any scratch file when done. If no browser runtime exists, mark
   UI verification **unverified** instead of substituting markup guesses.
-- **API stubbing** — intercept only the console API pattern, read actual request
-  shapes, and use a fresh browser connection when changing handlers. Never pause
+- **API stubbing** — intercept with `agent-browser network route`, read actual
+  request shapes, and use a fresh session when changing handlers. Never pause
   the module graph.
 
 ```bash

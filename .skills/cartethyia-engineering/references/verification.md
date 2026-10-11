@@ -17,10 +17,15 @@ The repository carries an active test suite (`test/`, `dashboard/test/`, run via
 dev database).
 
 Typecheck proves code shape, not behavior. Run the affected scope alongside the
-gates, and exercise the real boundary: the browser through the browser agent
-(Puppeteer — prefer it over a raw CDP client, it is far easier to control), a
-live gateway request, or a `.tmp-<topic>.ts` calling production code. Delete
-temporary files afterward.
+gates, and exercise the real boundary: a UI surface through the `agent-browser`
+CLI (mandatory for dashboard work — see `AGENTS.md` "Browser verification"; drive
+it yourself, no harness, no delegation), a live gateway request, or a
+`.tmp-<topic>.ts` calling production code. Delete temporary files in the same
+turn you created them.
+
+A test locks a fix only if it fails without it: revert, watch it fail, restore,
+watch it pass. Assert on the mechanism (`cn`, `auditSource`, a reducer), not on
+one rendered surface. An expected value must be read from its owning constant.
 
 ## Bug-fix loop
 
