@@ -111,3 +111,28 @@ export function resolveAccountPolicyBlockCooldownMs(): number {
     CONFIG_SPEC.CARTETHYIA_ACCOUNT_POLICY_BLOCK_COOLDOWN_MS,
   );
 }
+
+/**
+ * How long an **automatically** disabled account stays out of rotation (default 24h).
+ *
+ * `disabled` used to be terminal: nothing recovered it, so a credential rejected
+ * once — a revoked key, a definitively dead refresh grant — left rotation until an
+ * operator noticed and clicked Recover by hand. That is the wrong default for a
+ * credential that may come back on its own: keys get re-issued, grants get
+ * re-authorized, and an upstream's notion of "invalid" can outrun ours.
+ *
+ * The deadline is what makes this safe to automate rather than a policy guess. A row
+ * this gateway disables **by itself** carries the deadline; a row an **operator**
+ * disables keeps `cooldownUntil` null, and the recovery sweep selects only rows whose
+ * deadline has elapsed. So an operator's decision still outranks the machine, with no
+ * extra column and no way to confuse the two.
+ *
+ * Long on purpose: the states that reach here are the ones where retrying sooner
+ * only reproduces the refusal. Set to `0` to restore the old terminal behavior.
+ */
+export function resolveAccountDisabledRecoveryMs(): number {
+  return readInt(
+    "CARTETHYIA_ACCOUNT_DISABLED_RECOVERY_MS",
+    CONFIG_SPEC.CARTETHYIA_ACCOUNT_DISABLED_RECOVERY_MS,
+  );
+}

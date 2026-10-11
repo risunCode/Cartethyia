@@ -313,4 +313,51 @@ describe("recordAccountFailure — an auth rejection writes a cooldown, not a di
     );
     expect(onlyUpdate(captured).status).toBe("disabled");
   });
+
+  test("the disable carries a deadline, so the sweep can undo the machine's verdict", async () => {
+    // `disabled` used to be terminal: a key revoked once — or a refresh grant
+    // the upstream had since re-authorized — left rotation until an operator
+    // noticed by hand. The deadline is what makes automating the recovery safe,
+    // and it is the only thing distinguishing an automatic disable from an
+    // operator's (which keeps `cooldownUntil` null and is never swept).
+    const account = coolingAccount();
+    account["status"] = "active";
+    account["cooldownUntil"] = null;
+    account["credentialKind"] = "oauth";
+    account["consecutiveFailures"] = 0;
+    const { db, captured } = dbDouble(account);
+    await recordAccountFailure(
+      db,
+      "acc-1",
+      new Error("token_revoked"),
+      { origin: "upstream", scope: "account", statusCode: 401 },
+    );
+    const deadline = deadlineMsOf(onlyUpdate(captured));
+    expect(deadline).toBeGreaterThan(Date.now() + 80_000_000);
+    expect(deadline).toBeLessThan(Date.now() + 90_000_000);
+  });
+
+  test("CARTETHYIA_ACCOUNT_DISABLED_RECOVERY_MS=0 writes no deadline — terminal again", async () => {
+    // The documented escape hatch. It has to change the write, or the comment
+    // promising the old behavior is a lie.
+    process.env.CARTETHYIA_ACCOUNT_DISABLED_RECOVERY_MS = "0";
+    try {
+      const account = coolingAccount();
+      account["status"] = "active";
+      account["cooldownUntil"] = null;
+      account["credentialKind"] = "oauth";
+      account["consecutiveFailures"] = 0;
+      const { db, captured } = dbDouble(account);
+      await recordAccountFailure(
+        db,
+        "acc-1",
+        new Error("token_revoked"),
+        { origin: "upstream", scope: "account", statusCode: 401 },
+      );
+      expect(onlyUpdate(captured).status).toBe("disabled");
+      expect(onlyUpdate(captured).cooldownUntil).toBeNull();
+    } finally {
+      delete process.env.CARTETHYIA_ACCOUNT_DISABLED_RECOVERY_MS;
+    }
+  });
 });

@@ -26,6 +26,7 @@ import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { providerAccounts, providerOauthStates } from "../../persistence/schema";
 import { decryptCredentialToString, encryptCredential } from "../../security/crypto";
 import { invalidateCredentialCache } from "../operations/provider-credential-service";
+import { resolveAccountDisabledRecoveryMs } from "../../config/cooldowns";
 import { record } from "./oauth-flow-store";
 import {
   loadAccountWithFreshness,
@@ -269,6 +270,15 @@ async function disableAccount(
         // be shown to still work, so this is exactly that state.
         lastErrorCategory: "auth_invalidated",
         lastErrorAt: new Date(),
+        // Carries a recovery deadline so `sweepExpiredCooldowns` can bring this
+        // account back once it elapses. `disabled` used to be terminal, which
+        // parked a credential for good on one definitive rejection; the deadline
+        // is also what distinguishes this (machine-disabled) from an operator's
+        // own disable, which leaves `cooldownUntil` null and is therefore never
+        // swept. See `resolveAccountDisabledRecoveryMs`.
+        ...(resolveAccountDisabledRecoveryMs() > 0
+          ? { cooldownUntil: new Date(Date.now() + resolveAccountDisabledRecoveryMs()) }
+          : {}),
       })
       .where(eq(providerAccounts.id, accountId));
     invalidateCredentialCache(accountId);

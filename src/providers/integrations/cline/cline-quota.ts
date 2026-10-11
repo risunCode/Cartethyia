@@ -2,10 +2,30 @@ import type { FetchLike, ProviderQuotaResult, ProviderQuotaWindow } from "../../
 import { authCredential, getJson, record, text } from "../../quota/quota-contracts";
 import { parseLimitWindows } from "../../quota/quota-limit-windows";
 import { probeApiKeyConnectivity } from "../../quota/quota-support";
-import { getClineClientVersion } from "../../operations/client-versions";
+import { getClineClientVersion, getClineSdkVersion } from "../../operations/client-versions";
 import { clinePlatform, clinePlatformVersion } from "../../operations/cli-platform";
 
-/** Quota headers always carry the currently resolved CLI version. */
+/**
+ * Quota headers always carry the currently resolved CLI version.
+ *
+ * The two version headers are two different versions and must stay that way.
+ * `x-client-version` is the Cline client the operator is running, from the
+ * shared pooler. `x-core-version` is the `@cline/sdk` version, which is a
+ * separate npm package with its own release line — this used to send the
+ * *client* version in both slots, so the billing surface was told our core was
+ * `4.1.23`, a vscode client version that `@cline/sdk` never published.
+ *
+ * `src/providers/integrations/cline/cline.ts` has always sent the correct
+ * pairing (`clientVersion` / `sdkVersion`) on the dispatch path, and that is
+ * the identity proven to work against this provider. A header the upstream can
+ * validate is not cosmetic: an implausible core version is exactly what a
+ * "please update and re-authenticate" refusal is shaped like, and it is
+ * indistinguishable from a dead credential from the response alone.
+ *
+ * `x-client-type` stays `cline-cli`: the billing surface is read by the CLI,
+ * while `cline.ts` correctly claims `cline-sdk` for the chat surface it talks
+ * to. Not verified against a live billing response — see the roadmap note.
+ */
 function clineQuotaHeaders(): Record<string, string> {
   const version = getClineClientVersion();
   return {
@@ -16,7 +36,7 @@ function clineQuotaHeaders(): Record<string, string> {
     "x-platform-version": clinePlatformVersion(),
     "x-client-type": "cline-cli",
     "x-client-version": version,
-    "x-core-version": version,
+    "x-core-version": getClineSdkVersion(),
     "x-is-multiroot": "false",
   };
 }
@@ -53,7 +73,8 @@ function isMissingPlanHistory(reason: unknown): boolean {
 }
 
 const CLINE_PROVIDER_ID = "cline" as const;
-const CLINE_API_KEY_PREFIX = "cline-api-key:" as const;
+/** Envelope marking a resolved secret as an api key rather than an OAuth grant. */
+export const CLINE_API_KEY_PREFIX = "cline-api-key:" as const;
 
 /** Wraps a resolved api_key secret so the collector can route it to /models. */
 export function markClineApiKeyCredential(credential: string): string {

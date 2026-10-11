@@ -103,16 +103,17 @@ describe("classifyAccountError — a regional model rejection", () => {
  * must NOT park the account.
  *
  * The branch above is deliberate — a revocation is the one auth outcome with no
- * expiry to wait out and no refresh to run. But `disabled` is also the one state
- * no sweep recovers (`sweepExpiredCooldowns` selects `status = "cooldown"` only,
- * and `recordAccountSuccess` returns early on `disabled`), so every *other* auth
- * rejection reaching it removed the account from rotation until an operator
- * noticed by hand.
+ * expiry to wait out and no refresh to run. A bare `401`/`403` is weak evidence:
+ * clock skew, a key rotated upstream a moment ago, an edge answering before the
+ * credential loads. All of them used to cost the account permanently, because
+ * `disabled` was terminal and nothing recovered it.
  *
- * A bare `401`/`403` is weak evidence: clock skew, a key rotated upstream a
- * moment ago, an edge answering before the credential loads. All of them used to
- * cost the account permanently. `disabled` must now require the upstream to
- * actually name the revocation.
+ * `disabled` is no longer terminal, but that does not make parking a *bare*
+ * rejection acceptable: the recovery deadline is 24h, against five minutes for
+ * the cooldown, and those five minutes are the honest estimate for clock skew.
+ * The remaining rule is that only a *named* revocation may park — see
+ * `test/providers/disabled-recovery-sweep.test.ts` for the deadline that now
+ * makes that parking recoverable.
  */
 describe("classifyAccountError — a rejection that names no revocation cools down", () => {
   test("a bare 401 cools the account instead of disabling it", () => {

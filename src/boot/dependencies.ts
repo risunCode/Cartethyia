@@ -347,49 +347,49 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   });
   void refreshProviderClientVersions();
 
+  const quotaResolveCredential = createAccountSecretResolver({
+    db,
+    resolveRefresher: (providerId) => registry.resolveRefresher(providerId),
+    refreshService: oauthRefreshService,
+  });
   // Keeps every account's cached quota warm so opening the Quota page is a
   // cache read. Without this the only refreshes are user-triggered, so the
-  // first open after an expiry always blocks on the provider. The quota cache
-  // is Redis-backed, and the console itself requires Redis, so the sweep only
-  // registers where the console can run at all.
-  if (redis) {
-    const quotaResolveCredential = createAccountSecretResolver({
-      db,
-      resolveRefresher: (providerId) => registry.resolveRefresher(providerId),
-      refreshService: oauthRefreshService,
-    });
-    // Keeps every account's cached quota warm so opening the Quota page is a
-    // cache read. Without this the only refreshes are user-triggered, so the
-    // first open after an expiry always blocks on the provider. The quota cache
-    // is Redis-backed, and the console itself requires Redis, so the sweep only
-    // registers where the console can run at all.
-    //
-    // It also carries the daily check-in ride-along: each account refreshed
-    // here gets its once-per-day WorkBuddy/CodeBuddy credit grant claimed in
-    // the same pass (one attempt per account per day, guarded by a Redis day
-    // marker), so no second timer duplicates the credential resolution.
-    scheduledTasks.register({
-      name: "quota-refresh-sweep",
-      intervalMs: 60_000,
-      run: () =>
-        quotaRefreshSweep({
-          db,
-          redis,
-          providerRegistry: registry,
-          resolveCredential: quotaResolveCredential,
-          snapshotInvalidator: snapshotService,
-          // The check-in ride-along rotates egress per account: each account
-          // gets the next active pool in its tenant's rotation so check-ins
-          // spread across IPs instead of sharing one direct egress. No pool
-          // (or an unreadable pool table) falls back to direct egress, and a
-          // tenant never borrows another tenant's pool.
-          checkinFetcherFor: checkinEgressForPass({ db, networkBindingFactory }),
-          // Per-account lines and the pass summary are emitted by the sweep
-          // itself at `info` level, so they survive the production LOG_LEVEL.
-          // `onTick` is left for tests.
-        }),
-    });
-  }
+  // first open after an expiry always blocks on the provider.
+  //
+  // It also carries the daily check-in ride-along: each account refreshed
+  // here gets its once-per-day WorkBuddy/CodeBuddy credit grant claimed in
+  // the same pass (one attempt per account per day, guarded by a day
+  // marker), so no second timer duplicates the credential resolution.
+  //
+  // Registered in **every** mode, not only when Redis is present. It used to
+  // sit behind `if (redis)`, which quietly cost Lite two things: proactive
+  // quota warming, and the check-in ride-along above that claims the
+  // once-per-day WorkBuddy/CodeBuddy credit grant. The whole sweep chain
+  // already accepts `RedisClient | undefined` and falls back to the
+  // in-process TTL cache and an in-process day marker, so Redis is an
+  // optimization here rather than a precondition — which is exactly what
+  // Lite is for.
+  scheduledTasks.register({
+    name: "quota-refresh-sweep",
+    intervalMs: 60_000,
+    run: () =>
+      quotaRefreshSweep({
+        db,
+        redis,
+        providerRegistry: registry,
+        resolveCredential: quotaResolveCredential,
+        snapshotInvalidator: snapshotService,
+        // The check-in ride-along rotates egress per account: each account
+        // gets the next active pool in its tenant's rotation so check-ins
+        // spread across IPs instead of sharing one direct egress. No pool
+        // (or an unreadable pool table) falls back to direct egress, and a
+        // tenant never borrows another tenant's pool.
+        checkinFetcherFor: checkinEgressForPass({ db, networkBindingFactory }),
+        // Per-account lines and the pass summary are emitted by the sweep
+        // itself at `info` level, so they survive the production LOG_LEVEL.
+        // `onTick` is left for tests.
+      }),
+  });
   // The scheduled tasks are registered here but started by the caller once the
   // listener is actually serving (`main.ts`). Starting them inside this builder
   // would let the first tick — the lease sweep, the health sweep — run against

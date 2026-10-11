@@ -72,6 +72,7 @@ Variables read outside the spec are therefore **not** listed below:
 | `CARTETHYIA_POOL_COOLDOWN_MS` | integer | 120000 | 0 – 86400000 |
 | `CARTETHYIA_ACCOUNT_AUTH_REJECTED_COOLDOWN_MS` | integer | 300000 | 0 – 86400000 |
 | `CARTETHYIA_ACCOUNT_POLICY_BLOCK_COOLDOWN_MS` | integer | 300000 | 0 – 86400000 |
+| `CARTETHYIA_ACCOUNT_DISABLED_RECOVERY_MS` | integer | 86400000 | 0 – 604800000 |
 
 ## Proxy pool agents
 

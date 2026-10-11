@@ -168,7 +168,7 @@ export const VERSION_SOURCES = {
   },
   qoder: {
     key: "qoder",
-    fallback: "1.1.65",
+    fallback: "1.1.68",
     sources: [
       {
         url: "https://registry.npmjs.org/@qoder-ai/qodercli/latest",
@@ -186,12 +186,12 @@ export const VERSION_SOURCES = {
   },
   commandcode: {
     key: "commandcode",
-    fallback: "1.79.1",
+    fallback: "1.79.2",
     sources: [{ url: "https://registry.npmjs.org/command-code/latest" }],
   },
   grok: {
     key: "grok",
-    fallback: "1.0.46",
+    fallback: "1.0.50",
     sources: [
       { url: "https://storage.googleapis.com/grok-build-public-artifacts/cli/stable" },
       { url: "https://registry.npmjs.org/@xai-official/grok/latest" },
@@ -215,7 +215,7 @@ export const VERSION_SOURCES = {
   },
   codex: {
     key: "codex",
-    fallback: "0.161.0",
+    fallback: "0.162.1",
     sources: [{ url: "https://registry.npmjs.org/@openai/codex/latest" }],
   },
   workbuddyClient: {
@@ -234,7 +234,7 @@ export const VERSION_SOURCES = {
   },
   workbuddyCli: {
     key: "workbuddy",
-    fallback: "2.162.0",
+    fallback: "2.164.0",
     sources: [
       { url: "https://registry.npmjs.org/@tencent-ai/codebuddy-code/latest" },
       { url: "https://registry.npmmirror.com/@tencent-ai/codebuddy-code/latest" },
@@ -252,7 +252,7 @@ export const VERSION_SOURCES = {
   },
   codebuddy: {
     key: "codebuddy",
-    fallback: "2.162.0",
+    fallback: "2.164.0",
     sources: [
       { url: "https://registry.npmjs.org/@tencent-ai/codebuddy-code/latest" },
       { url: "https://registry.npmmirror.com/@tencent-ai/codebuddy-code/latest" },
@@ -395,6 +395,44 @@ export async function refreshProviderClientVersions(): Promise<void> {
   await Promise.allSettled(resolversToRefresh.map((resolver) => resolver.ensure()));
 }
 
+/** One client identity still running on its pinned fallback. */
+export interface PinnedClientVersion {
+  readonly client: string;
+  /** The fallback in force, which is what every request is currently sending. */
+  readonly version: string;
+  /** The lowest version the upstream accepted when it last answered. */
+  readonly minVersion?: string;
+}
+
+/**
+ * Client identities whose version discovery has not succeeded.
+ *
+ * Every header this module builds is version-aware, and a provider that starts
+ * gating on it refuses with wording indistinguishable from a dead credential —
+ * Cline's is "please make sure you're using the latest version and
+ * re-authenticate". That makes a stuck fallback an operational fact an operator
+ * needs *before* it presents as an auth failure, and until now nothing could
+ * tell a pinned fallback from a discovered version: only the synchronous getter
+ * was exported, so the `source` the resolver already tracked was unreadable
+ * outside this module.
+ *
+ * Read-only and never fetched: this reports what is in force right now, for the
+ * same reason the getters never fetch. An empty list is the healthy answer.
+ */
+export function pinnedClientVersions(): readonly PinnedClientVersion[] {
+  const pinned: PinnedClientVersion[] = [];
+  for (const resolver of new Set(Object.values(PROVIDER_VERSION_RESOLVERS))) {
+    const snapshot = resolver.snapshot();
+    if (snapshot.source !== "fallback") continue;
+    pinned.push({
+      client: snapshot.client,
+      version: snapshot.version,
+      ...(resolver.minVersion === undefined ? {} : { minVersion: resolver.minVersion }),
+    });
+  }
+  return pinned;
+}
+
 /**
  * The accessors every table entry needs, generated from its resolver.
  *
@@ -435,6 +473,8 @@ export function buildGrokAuthUserAgent(version = getGrokVersion()): string {
 
 export const getClineClientVersion = accessor("clineClient").get;
 export const getClineSdkVersion = accessor("clineSdk").get;
+export const _resetClineClientVersionCache = accessor("clineClient").reset;
+export const _resetClineSdkVersionCache = accessor("clineSdk").reset;
 
 export const getCodexVersion = accessor("codex").get;
 

@@ -66,6 +66,17 @@ export interface ClientVersionResolver {
   get(): string;
   /** Current version and whether discovery has replaced the fallback. */
   snapshot(): ClientVersionSnapshot;
+  /**
+   * The floor discovery refused to move below, when this client declares one.
+   *
+   * Exposed so a fallback can be reported *with* the bound that produced it: a
+   * pinned version means one of two different things — discovery never
+   * succeeded, or it succeeded and answered with something below the floor. The
+   * second is the interesting one (an upstream artifact the provider does not
+   * gate on), and it is indistinguishable from the first unless the floor
+   * travels with the fallback.
+   */
+  readonly minVersion?: string;
   /** Resolve from upstream (cached, deduped, never throws). */
   ensure(fetcher?: ClientVersionFetcher, signal?: AbortSignal): Promise<void>;
   /**
@@ -181,6 +192,7 @@ export function createClientVersionResolver(
         source: discovered === null ? "fallback" : "latest",
       };
     },
+    ...(options.minVersion === undefined ? {} : { minVersion: options.minVersion }),
     ensure,
     reset(version: string | null = null): void {
       discovered = version;

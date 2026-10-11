@@ -1,5 +1,5 @@
 // Account health: error classification, failure/success recording, recovery and cooldown sweeps.
-import { and, desc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
 import { affectedRows, pruneExpiredCooldowns } from "../../persistence/dialect";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import { isRecord } from "../../protocol/codecs";
@@ -10,6 +10,7 @@ import { parseProviderResetDuration, parseUpstreamBackoff } from "../../transpor
 import {
   resolveAccountAuthRejectedCooldownMs,
   resolveAccountCooldownEscalationMaxMs,
+  resolveAccountDisabledRecoveryMs,
   resolveAccountModelCapacityCooldownMs,
   resolveAccountPolicyBlockCooldownMs,
   resolveAccountQuotaCooldownMs,
@@ -207,6 +208,29 @@ function latestDeadlineMs(...candidates: readonly (number | undefined | null)[])
     if (value > latest) latest = value;
   }
   return latest;
+}
+
+/**
+ * The account-wide deadline to write, or `null` for "no deadline".
+ *
+ * {@link latestDeadlineMs} cannot express *no* deadline — it floors at 0 — and
+ * the account-wide write has one state that needs it. With
+ * `CARTETHYIA_ACCOUNT_DISABLED_RECOVERY_MS=0` an automatic disable is meant to
+ * be terminal again, and the classifier correctly reports `retryAt: null`; the
+ * write used to derive the deadline from `Date.now() + cooldownMs` anyway,
+ * which stamps *now*. The recovery sweep then treats that elapsed deadline as
+ * an automatic disable awaiting recovery and returns the row to rotation on its
+ * next tick — the escape hatch enabled exactly the behavior it documents
+ * itself as disabling.
+ *
+ * A candidate only exists when there is a real window to state. Monotonicity is
+ * preserved: a deadline already in force still wins over a new `null`.
+ */
+function accountDeadlineMs(
+  candidates: readonly (number | undefined | null)[],
+): Date | null {
+  const latest = latestDeadlineMs(...candidates);
+  return latest > 0 ? new Date(latest) : null;
 }
 
 
@@ -442,12 +466,20 @@ export function classifyAccountError(
     // outcome the comment above says a static token must not suffer.
     const revoked = revocationNamed;
     const recoverable = staticTokenRecovery || oauthRecovery || !revoked;
-    const cooldownMs = recoverable ? resolveAccountAuthRejectedCooldownMs() : 0;
+    // An automatic disable is **not** terminal any more, but the deadline is what
+    // makes that safe: `sweepExpiredCooldowns` recovers a disabled row only when
+    // its `cooldownUntil` has elapsed, and an operator-disabled row keeps that
+    // column null. So the machine can undo its own verdict while an operator's
+    // decision still outranks it — see `resolveAccountDisabledRecoveryMs`.
+    const disabledRecoveryMs = resolveAccountDisabledRecoveryMs();
+    const disabledRetryAt =
+      disabledRecoveryMs > 0 ? new Date(Date.now() + disabledRecoveryMs) : null;
+    const cooldownMs = recoverable ? resolveAccountAuthRejectedCooldownMs() : disabledRecoveryMs;
     return result(
       "auth_invalidated",
       recoverable ? "cooldown" : "disabled",
       cooldownMs,
-      recoverable ? new Date(Date.now() + cooldownMs) : null,
+      recoverable ? new Date(Date.now() + cooldownMs) : disabledRetryAt,
       reason(
         !revoked
           ? "Provider credential rejected; retrying after a backoff"
@@ -750,13 +782,16 @@ export async function recordAccountFailure(
         // Monotonic against the account's own in-force deadline, for the same
         // reason as the model path: an unclassified 60-second failure must not
         // release an account the provider parked for hours.
-        cooldownUntil: new Date(
-          latestDeadlineMs(
-            effective.retryAt?.getTime(),
-            Date.now() + escalatedCooldownMs,
-            account.cooldownUntil?.getTime?.(),
-          ),
-        ),
+        //
+        // A `0` duration contributes no candidate rather than stamping *now*
+        // (see `accountDeadlineMs`): the one state that asks for it is a
+        // terminal automatic disable, and an elapsed deadline there would hand
+        // the row straight back to the recovery sweep.
+        cooldownUntil: accountDeadlineMs([
+          effective.retryAt?.getTime(),
+          escalatedCooldownMs > 0 ? Date.now() + escalatedCooldownMs : undefined,
+          account.cooldownUntil?.getTime?.(),
+        ]),
       })
       .where(eq(providerAccounts.id, accountId));
 
@@ -910,10 +945,24 @@ export async function sweepExpiredCooldowns(db: CartethyiaDatabase): Promise<num
       })
       .from(providerAccounts)
       .where(
-        and(
-          eq(providerAccounts.status, "cooldown"),
-          isNotNull(providerAccounts.cooldownUntil),
-          lte(providerAccounts.cooldownUntil, now),
+        or(
+          // An ordinary cooldown, recovered as soon as its window elapses.
+          and(
+            eq(providerAccounts.status, "cooldown"),
+            isNotNull(providerAccounts.cooldownUntil),
+            lte(providerAccounts.cooldownUntil, now),
+          ),
+          // An **automatic** disable, which used to be terminal. Selected only
+          // when it carries a deadline: an operator's disable leaves
+          // `cooldownUntil` null, so a human's decision still outranks the
+          // machine and is never swept away. The deadline is written by the two
+          // paths that disable on evidence — the classifier's revocation branch
+          // and a definitively rejected refresh grant.
+          and(
+            eq(providerAccounts.status, "disabled"),
+            isNotNull(providerAccounts.cooldownUntil),
+            lte(providerAccounts.cooldownUntil, now),
+          ),
         ),
       )
       // One pass recovers a bounded batch. The sweep runs every 30s, so a
@@ -929,6 +978,11 @@ export async function sweepExpiredCooldowns(db: CartethyiaDatabase): Promise<num
           consecutiveFailures: 0,
           cooldownUntil: null,
           lastRecoveredAt: now,
+          // Cleared with the state it described. A recovered row that kept
+          // `auth_invalidated` still rendered the console's "Re-login required"
+          // pill above an `active` status, so the account read healthy to
+          // routing and broken to the operator at the same time.
+          lastErrorCategory: null,
         })
         .where(inArray(providerAccounts.id, expired.map((account) => account.id)));
       if (typeof client.insert === "function") {
