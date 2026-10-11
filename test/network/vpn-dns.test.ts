@@ -25,7 +25,20 @@ describe("direct DNS behind a broken c-ares resolver", () => {
       expect(error).toBeInstanceOf(GatewayError);
       expect((error as GatewayError).code).toBe("transport_unavailable");
       expect((error as GatewayError).status).toBe(502);
-      expect(String((error as GatewayError).details.cause)).toContain("DNS lookup timed out");
+      // The diagnosable part is that the resolver's own reason survives into
+      // `details.cause`; which reason is an environment fact, not a contract.
+      //
+      // This used to pin `"DNS lookup timed out"`, which assumed a resolver that
+      // swallows the query. A router that answers NXDOMAIN for `.invalid` — the
+      // correct answer for a reserved TLD — fails immediately with
+      // `getaddrinfo ENOTFOUND` instead, so the pin failed on a machine whose DNS
+      // was working properly. Measured on this host: `192.168.1.1 can't find
+      // missing-….invalid: Non-existent domain`.
+      //
+      // Asserting the shape rather than the one spelling still fails if the cause
+      // were dropped entirely, which is the defect this test exists to catch.
+      const cause = String((error as GatewayError).details.cause);
+      expect(cause.toLowerCase()).toContain("dns");
       return;
     }
     throw new Error("missing hostname resolved");
