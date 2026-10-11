@@ -358,7 +358,7 @@ function AddCompatibleModal({
                 {testResult.message}
               </div>
               {testResult.warning ? (
-                <div className="mt-2 text-caption leading-[1.4] break-words text-orange">
+                <div className="mt-2 text-caption leading-snug break-words text-orange">
                   ⚠ {testResult.warning}
                 </div>
               ) : null}
