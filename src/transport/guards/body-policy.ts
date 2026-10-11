@@ -4,7 +4,7 @@ import { GatewayError } from "../../protocol/gateway-error";
 import { assertBoundedJsonDepth } from "../../protocol/codecs";
 import type { ProxyRequestStateStore } from "../request/state";
 import { fastPathname } from "../../transport/pathname";
-import { NATIVE_SERVICE_PATHS } from "../contracts";
+import { NATIVE_SERVICE_PATHS, TOKEN_COUNT_PATH } from "../contracts";
 
 function isProxyRequest(request: Request): boolean {
   return fastPathname(request.url).startsWith("/v1/");
@@ -32,6 +32,10 @@ const PROXY_JSON_ROUTES = [
   "/v1/completions",
   "/v1/responses/compact",
   "/v1/messages",
+  // Reads a JSON body through the ingress policy but skips the canonical chat
+  // stage — see `isOpaqueBodyRoute`. Listed here because this table must mirror
+  // what `app.ts` mounts: without the entry the body would not be read at all.
+  TOKEN_COUNT_PATH,
   "/v1/images/generations",
   ...NATIVE_SERVICE_PATHS,
 ] as const;

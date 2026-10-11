@@ -28,7 +28,7 @@ import {
   isProxyDispatchRoute,
   readIngressBody,
 } from "../../src/transport/guards/body-policy";
-import { NATIVE_SERVICE_PATHS } from "../../src/transport/contracts";
+import { isOpaqueBodyRoute, NATIVE_SERVICE_PATHS, TOKEN_COUNT_PATH } from "../../src/transport/contracts";
 import { GatewayError } from "../../src/protocol/gateway-error";
 
 /** A request to `path` with the given body and headers. */
@@ -66,10 +66,51 @@ describe("the route table", () => {
       "/v1/completions",
       "/v1/responses/compact",
       "/v1/messages",
+      TOKEN_COUNT_PATH,
     ]) {
       expect(isJsonProxyRoutePath(path)).toBe(true);
       expect(isProxyDispatchRoute(path)).toBe(true);
     }
+  });
+
+  test("the token counter reads a JSON body but skips the canonical chat stage", () => {
+    // Both halves are load-bearing, and the second is the one that is easy to
+    // get wrong.
+    //
+    // In the JSON table, because `app.ts` mounts it: without the entry the body
+    // would be treated as an unrouted path and never read, so the handler would
+    // find `ingressBody` null and reject every count.
+    //
+    // Opaque, because Anthropic's count body carries `messages` and no
+    // `max_tokens`, while `MessagesAdapter.matchesBodyShape` requires
+    // `max_tokens`. Letting it reach surface detection finds no adapter, so the
+    // request fails for a field this endpoint does not use — and the strike
+    // stage would then plan and reserve admission a second time on the chat path
+    // for a call that generates nothing and is not billed.
+    expect(isJsonProxyRoutePath(TOKEN_COUNT_PATH)).toBe(true);
+    expect(isOpaqueBodyRoute(TOKEN_COUNT_PATH)).toBe(true);
+  });
+
+  test("the native service paths are opaque too", () => {
+    // Guards the predicate's widening: `isOpaqueBodyRoute` had to cover the
+    // native services as well as the counter, and dropping one would silently
+    // route a generation body through the chat codecs.
+    for (const path of NATIVE_SERVICE_PATHS) {
+      expect(isOpaqueBodyRoute(path)).toBe(true);
+    }
+  });
+
+  test("an ordinary chat route is NOT opaque", () => {
+    // The converse: a chat body must still be canonically parsed, or the surface
+    // codecs never run and the gateway forwards an untranslated client body to
+    // whatever provider it picked.
+    for (const path of ["/v1/messages", "/v1/chat/completions", "/v1/responses"]) {
+      expect(isOpaqueBodyRoute(path)).toBe(false);
+    }
+  });
+
+  test("an undefined path is not an opaque route", () => {
+    expect(isOpaqueBodyRoute(undefined)).toBe(false);
   });
 
   test("every native service path is recognised", () => {

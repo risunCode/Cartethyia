@@ -76,6 +76,35 @@ export function isNativeServicePath(path: string | undefined): boolean {
   return path !== undefined && NATIVE_SERVICE_PATHS.includes(path);
 }
 
+/**
+ * `/v1/messages/count_tokens`.
+ *
+ * Listed separately because it is not a native service: it has no `serviceKind`,
+ * because no catalog row should ever be classified as "token counting" — the
+ * route is served by the very same `llm` model that answers `/v1/messages`. What
+ * it shares with the native services is the reason it is here at all: its body
+ * must skip the canonical chat stage, and the count body is why.
+ *
+ * Anthropic's count request carries `messages` and no `max_tokens`, while
+ * `MessagesAdapter.matchesBodyShape` requires `max_tokens`. Detecting a surface
+ * on it therefore finds none, so canonical parsing would fail the request for a
+ * field the endpoint does not use — and would then plan and reserve admission a
+ * second time, on the chat path, for a call that generates nothing and is not
+ * billed.
+ */
+export const TOKEN_COUNT_PATH = "/v1/messages/count_tokens";
+
+/**
+ * Whether `path` reads a JSON body that is *not* a canonical chat request.
+ *
+ * These bodies are opaque to the surface codecs by contract: the route handler
+ * forwards them upstream verbatim. The canonical stage must skip them, or it
+ * will either reject a body the upstream accepts or plan it twice.
+ */
+export function isOpaqueBodyRoute(path: string | undefined): boolean {
+  return isNativeServicePath(path) || path === TOKEN_COUNT_PATH;
+}
+
 /** The route path serving `serviceKind`, when one is declared. */
 export function nativeServicePathFor(serviceKind: string): string | undefined {
   return NATIVE_SERVICES.find((service) => service.serviceKind === serviceKind)?.path;

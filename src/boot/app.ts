@@ -35,6 +35,7 @@ import { createResponsesCompactHandler } from "../transport/dispatch/responses-c
 import { createSystemoneHandler } from "../transport/dispatch/systemone";
 import { createWebsearchHandler } from "../transport/dispatch/websearch";
 import { createImageGenerationHandler, createVideoGenerationHandler } from "../transport/dispatch/generation";
+import { createTokenCountHandler } from "../transport/dispatch/token-count";
 
 import { createTransportPipeline } from "../transport/guards/pipeline";
 import { createDrainHandler } from "../transport/drain-endpoint";
@@ -507,6 +508,10 @@ export function createGatewayApp(deps: GatewayAppDeps) {
     // Mounted with no model behind it on purpose: the surface exists so it can
     // be finished when an upstream is known, rather than 404ing like a typo.
     const handleVideoGeneration = createVideoGenerationHandler(generationDeps);
+    // Shares the generation dependency bundle: same pipeline, and a count is
+    // neither chat-shaped nor generation-shaped, so it needs exactly the same
+    // routing, leasing, and accounting surface.
+    const handleTokenCount = createTokenCountHandler(generationDeps);
 
     // Gateway mounting: the pipeline owner composes stages, telemetry, and
     // cleanup; app only registers the public route table.
@@ -516,6 +521,9 @@ export function createGatewayApp(deps: GatewayAppDeps) {
         routes.post("/responses", proxyHandler);
         routes.post("/responses/compact", handleResponsesCompact);
         routes.post("/messages", proxyHandler);
+        // The token counter is a sibling of the chat route on the same model, and
+        // it is forwarded rather than estimated — see dispatch/token-count.ts.
+        routes.post("/messages/count_tokens", handleTokenCount);
         routes.post("/completions", proxyHandler);
         routes.post("/systemone", handleSystemone);
         routes.post("/search", handleWebsearch);

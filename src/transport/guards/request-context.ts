@@ -13,7 +13,7 @@ import { GATEWAY_SECURITY_HEADERS } from "../../security/outbound-headers";
 import { pushStructuredConsoleLog } from "../../observability/log-ring";
 import { log } from "../../observability/logger";
 import { isJsonProxyRoutePath, isProxyDispatchRoute } from "./body-policy";
-import { isNativeServicePath } from "../contracts";
+import { isOpaqueBodyRoute } from "../contracts";
 import {
   modelAbuseBannedError,
   modelWarningMessage,
@@ -174,7 +174,7 @@ export function createCanonicalRequestMiddleware(deps: {
       // the JSON routes table, so the body-policy predicate covers it.
       // Native routes (compact, System One) read a body but are never parsed
       // into a canonical request — their bodies are opaque by contract.
-      if (!isJsonProxyRoutePath(path) || path === "/v1/responses/compact" || isNativeServicePath(path))
+      if (!isJsonProxyRoutePath(path) || path === "/v1/responses/compact" || isOpaqueBodyRoute(path))
         return;
       // Model discovery and other GET/multimodal routes must not go through canonical parsing.
       const state = deps.stateStore.require(request);
@@ -247,7 +247,7 @@ export function createProxyRoutePreparationMiddleware(deps: {
       if (!path.startsWith("/v1/")) return;
       if (request.method === "GET" || request.method === "HEAD") return;
       const isJsonRoute = isJsonProxyRoutePath(path);
-      if (!isJsonRoute || path === "/v1/responses/compact" || isNativeServicePath(path)) return;
+      if (!isJsonRoute || path === "/v1/responses/compact" || isOpaqueBodyRoute(path)) return;
       const state = deps.stateStore.require(request);
       if (!state.authorization || !state.canonicalRequest)
         throw new GatewayError("admission_unavailable", 503, "The request was not authenticated and parsed, so this route cannot be served. Resend the request.");

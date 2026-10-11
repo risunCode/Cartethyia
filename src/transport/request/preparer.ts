@@ -461,4 +461,33 @@ export class ProxyRequestPreparer {
       emptyMessage: `no eligible route serves the '${input.serviceKind}' service for this model`,
     });
   }
+
+  /**
+   * Plans a token-count request: the same `llm` route that would serve the
+   * message, restricted to providers that speak Anthropic Messages.
+   *
+   * Deliberately not a `serviceKind`. `/v1/messages/count_tokens` is a sibling
+   * endpoint of `/v1/messages` on the *same* model, so the candidate is an
+   * ordinary `llm` row — inventing a `tokenCounting` catalog kind would make it
+   * selectable on a provider model that can then never serve chat, and would put
+   * it in the console's picker for no reason. `wire_family` is the honest gate:
+   * a count body is Anthropic-shaped, so a chat-completions or responses
+   * provider has no equivalent endpoint and must not be dispatched to.
+   */
+  async prepareNativeTokenCount(input: {
+    readonly model: string;
+    readonly authorization: ResolvedApiKey;
+    readonly signal?: AbortSignal;
+    readonly clientUserAgent?: string;
+  }): Promise<PreparedNativeRequest> {
+    return this.#planNative({
+      model: input.model,
+      authorization: input.authorization,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+      ...(input.clientUserAgent === undefined ? {} : { clientUserAgent: input.clientUserAgent }),
+      eligible: (candidate) => candidate.wire_family === "messages",
+      emptyMessage:
+        "no eligible route can count tokens for this model — only an Anthropic Messages provider has /v1/messages/count_tokens",
+    });
+  }
 }
