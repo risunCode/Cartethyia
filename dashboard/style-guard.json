@@ -35,10 +35,6 @@
     "staticInline": 0,
     "arbitrary": 1
   },
-  "src/features/provider-detail/ProviderDetailPage.tsx": {
-    "staticInline": 1,
-    "arbitrary": 0
-  },
   "src/features/provider-detail/sections/CredentialNotice.tsx": {
     "staticInline": 1,
     "arbitrary": 0

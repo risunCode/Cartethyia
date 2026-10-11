@@ -727,7 +727,7 @@ export default function ProviderDetail(): ReactNode {
                     Test search
                   </Button>
                   {searchTestResult ? (
-                    <span style={{ fontSize: "11px", color: searchTestResult.ok ? "var(--green)" : "var(--red)" }}>
+                    <span className="text-badge" style={{ color: searchTestResult.ok ? "var(--green)" : "var(--red)" }}>
                       {searchTestResult.ok
                         ? `Search ok · ${searchTestResult.latencyMs}ms · ${searchTestResult.count ?? 0} result(s)`
                         : searchTestResult.error ?? "Search failed."}
@@ -735,19 +735,7 @@ export default function ProviderDetail(): ReactNode {
                   ) : null}
                 </Inline>
                 {searchTestResult && searchTestResult.results && searchTestResult.results.length > 0 ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "8px",
-                      maxHeight: "220px",
-                      overflowY: "auto",
-                      border: "1px solid var(--inner-border)",
-                      borderRadius: "8px",
-                      padding: "8px",
-                      background: "var(--surface-1)",
-                    }}
-                  >
+                  <div className="flex max-h-110 flex-col gap-4 overflow-y-auto rounded-inset border border-inner-border bg-surface-1 p-4">
                     {searchTestResult.results.map((hit, index) => (
                       <div key={`${hit.url}:${index}`} className="flex flex-col gap-1">
                         <a

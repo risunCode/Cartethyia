@@ -40,7 +40,7 @@ function ApiEndpointCard() {
             <code>{endpoint}</code>
             <span className="text-badge font-normal text-text-tertiary">PORT 12800</span>
           </div>
-          <p className="text-caption leading-[1.5] text-text-secondary">
+          <p className="text-caption leading-normal text-text-secondary">
             Point any SDK, CLI, or agent (e.g. Claude Code, OpenCode, Pi, OMP, Kilo, Cline, Droid and more clients) to this same-origin base URL.
           </p>
         </Stack>
@@ -52,7 +52,7 @@ function ApiEndpointCard() {
 function MemoryBar({ label, value, percent, color }: { readonly label: string; readonly value: string; readonly percent: number; readonly color: string }) {
   return (
     <div className="nested-panel min-w-0 rounded-control bg-surface-3 px-4.5 py-3.5">
-      <div className="mb-2.5 flex items-center justify-between gap-3 text-micro font-bold uppercase tracking-[0.05em] text-text-tertiary">
+      <div className="mb-2.5 flex items-center justify-between gap-3 text-micro font-bold uppercase tracking-wider text-text-tertiary">
         <span>{label}</span><span className="font-mono text-badge normal-case tracking-normal" style={{ color }}>{value}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-black/25">
