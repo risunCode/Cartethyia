@@ -60,15 +60,16 @@ describe("buildLabRequest", () => {
     expect(messages.body.messages).toEqual([{ role: "user", content: "draw a cat" }]);
   });
 
-  test("the default persona includes send-time context and combines the user's prompt across all wires", () => {
+  test("the default persona stays stable across turns and combines the user's prompt across all wires", () => {
     for (const protocol of ["chat", "responses", "messages"] as const) {
-      const built = buildLabRequest(
-        [{ role: "user", text: "hello" }],
-        settings({ protocol, systemPrompt: "Keep answers concise." }),
-      );
+      const turns = [{ role: "user" as const, text: "hello" }];
+      const labSettings = settings({ protocol, systemPrompt: "Keep answers concise." });
+      const built = buildLabRequest(turns, labSettings);
+      const repeated = buildLabRequest(turns, labSettings);
       const system = systemText(built.body);
       expect(system).toContain("Cartethyia Model Lab");
-      expect(system).toContain("Local date and time:");
+      expect(system).not.toContain("Local date and time:");
+      expect(systemText(repeated.body)).toBe(system);
       expect(system).toContain("Selected model: openai/gpt-4.1");
       expect(system).toContain(`Selected protocol: ${protocol}`);
       expect(system).toContain("## User system prompt\nKeep answers concise.");

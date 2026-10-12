@@ -1,19 +1,9 @@
-import { Brain, Paperclip, Send, SlidersHorizontal, Square, X } from "lucide-react";
+import { Paperclip, Send, SlidersHorizontal, Square, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ModelPickerModal } from "../../components/ModelPicker";
 import { Button } from "../../components/ui/button";
-import { Select } from "../../components/ui/select";
+import { EffortPicker } from "./EffortPicker";
 import type { LabEffort, LabImage } from "./protocol";
-
-const EFFORTS: readonly { readonly value: LabEffort; readonly label: string }[] = [
-  { value: "auto", label: "auto" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "max", label: "Max" },
-];
-
-
 
 const MAX_IMAGES = 4;
 
@@ -183,18 +173,11 @@ export function Composer({
           </Button>
 
 
-          <span className="inline-flex items-center gap-2 h-15 pl-4 pr-1 border border-inner-border rounded-control bg-hover text-text-secondary max-small:shrink-0">
-            <Brain size={13} />
-            <Select
-              size="sm"
-              aria-label="Reasoning effort"
-              value={effort}
-              options={EFFORTS}
-              onValueChange={(next) => onEffort(next as LabEffort)}
-              disabled={effortDisabled}
-              className="h-13 min-w-29 w-auto px-4 border-0 bg-transparent text-caption hover:bg-active-pill [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap"
-            />
-          </span>
+          <EffortPicker
+            value={effort}
+            onChange={onEffort}
+            disabled={effortDisabled}
+          />
         </div>
         <div className="flex items-center gap-3 min-w-0 max-small:w-auto max-small:justify-end max-small:justify-self-end max-small:gap-2">
           <Button

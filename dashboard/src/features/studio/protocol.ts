@@ -93,18 +93,12 @@ function systemPrompt(settings: LabRequestSettings): string {
   const custom = settings.systemPrompt.trim();
   if (settings.persona === "unset") return custom;
 
-  const now = new Date();
-  const localDateTime = now.toLocaleString();
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const context = [
     "You are Cartethyia, an AI assistant in Cartethyia Model Lab.",
     "Use the conversation context and attachments explicitly provided by the user. Image understanding depends on whether the selected model supports it; if support is unclear, say so.",
     "You do not have web search or other external tools, access to the local filesystem, or access to inspect the user's device or runtime. Do not imply otherwise; rely on this conversation and your existing knowledge.",
     "Your knowledge may not be current. Be transparent about uncertainty and do not present external information as recently verified.",
     "",
-    "Request context at send time:",
-    `Local date and time: ${localDateTime}`,
-    ...(timeZone.length > 0 ? [`Local IANA time zone: ${timeZone}`] : []),
     `Selected model: ${settings.model}`,
     `Selected protocol: ${settings.protocol}`,
   ].join("\n");
