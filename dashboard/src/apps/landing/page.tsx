@@ -435,12 +435,12 @@ export function LandingPage(): ReactElement {
               ref={(node) => {
                 sectionRefs.current[idx] = node;
               }}
-              className="relative flex min-h-screen items-center overflow-hidden bg-story-deep bg-[linear-gradient(to_right,color-mix(in_srgb,var(--story-accent)_2.2%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--story-accent)_2.2%,transparent)_1px,transparent_1px)] bg-[length:44px_100%,100%_40px] px-12 py-28 max-compact:min-h-0 max-compact:px-8 max-compact:py-52 max-compact:pb-16"
+              className="relative flex min-h-screen items-center overflow-hidden bg-story-deep bg-[linear-gradient(to_right,color-mix(in_srgb,var(--story-accent)_2.2%,transparent)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--story-accent)_2.2%,transparent)_1px,transparent_1px)] bg-[length:44px_100%,100%_40px] py-112 max-compact:min-h-0 max-compact:py-52 max-compact:pb-16"
               style={STORY_THEME_STYLES[entry.theme]}
               aria-labelledby={`chapter-title-${idx}`}
             >
               <div className="absolute inset-0 z-0 scale-108 bg-cover bg-center opacity-25 mix-blend-screen blur-13.5 saturate-114" style={{ backgroundImage: `url(${entry.image})` }} aria-hidden={true} />
-              <div className="relative z-1 mx-auto grid w-full max-w-640 grid-cols-2 items-center gap-20 max-compact:flex max-compact:flex-col max-compact:items-stretch max-compact:gap-9">
+              <div className="relative z-1 mx-12 grid w-auto grid-cols-[0.8fr_1.2fr] items-center gap-x-[clamp(2rem,5vw,5rem)] gap-y-0 max-compact:mx-16 max-compact:flex max-compact:flex-col max-compact:items-stretch max-compact:gap-9">
                 <div className={`min-w-0 py-8 max-compact:py-0 ${idx % 2 === 0 ? "col-start-2 row-start-1" : "col-start-1 row-start-1"}`}>
                   <p className={`mt-14.5 font-mono text-micro font-medium leading-none tracking-code text-story-white/55 ${revealClass(idx)}`}>{entry.location}</p>
                   <h1 className={`mt-3 max-w-12ch font-head text-story-hero font-normal leading-[0.98] tracking-[-0.045em] text-balance max-compact:max-w-13ch max-compact:text-story-hero-compact ${revealClass(idx, "delay-100")}`} id={`chapter-title-${idx}`}>{entry.title}</h1>
@@ -457,7 +457,7 @@ export function LandingPage(): ReactElement {
                     </button>
                   </div>
                 </div>
-                <figure className={`relative row-start-1 h-270 min-w-0 w-full self-center overflow-hidden border border-story-white/20 bg-[#090d16] shadow-popout after:absolute after:inset-0 after:bg-gradient-to-b after:from-story-deep/4 after:via-story-deep/30 after:to-story-deep/60 after:content-[''] max-compact:order-[-1] max-compact:h-auto max-compact:aspect-story max-compact:col-auto max-compact:row-auto ${idx % 2 === 0 ? "col-start-1" : "col-start-2"}`}>
+                <figure className={`relative row-start-1 h-[min(62svh,540px)] min-w-0 w-full self-center overflow-hidden border border-story-white/20 bg-[#090d16] shadow-popout after:absolute after:inset-0 after:bg-gradient-to-b after:from-story-deep/4 after:via-story-deep/30 after:to-story-deep/60 after:content-[''] max-compact:order-[-1] max-compact:h-auto max-compact:aspect-story max-compact:col-auto max-compact:row-auto ${idx % 2 === 0 ? "col-start-1" : "col-start-2"}`}>
                   <img className="block size-full object-cover object-center" src={entry.image} alt={entry.imageAlt} loading={idx === 0 ? "eager" : "lazy"} fetchPriority={idx === 0 ? "high" : "low"} decoding="async" />
                   <figcaption className="absolute inset-x-4 bottom-4 z-1 flex justify-between font-mono text-micro font-medium leading-none tracking-label text-story-white/70 uppercase">
                     {entry.location} <span className="text-story-accent">{entry.number}</span>
