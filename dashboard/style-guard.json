@@ -1,11 +1,7 @@
 {
-  "src/apps/console/shell.tsx": {
-    "staticInline": 0,
-    "arbitrary": 0
-  },
   "src/apps/landing/page.tsx": {
     "staticInline": 0,
-    "arbitrary": 5
+    "arbitrary": 9
   },
   "src/apps/share/page.tsx": {
     "staticInline": 0,

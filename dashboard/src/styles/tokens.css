@@ -75,7 +75,6 @@
   --text-title: 18px;
   --text-display: 21px;
   --text-hero: 28px;
-
   /** The uppercase-eyebrow letter-spacing the section headers and stat labels use. */
   --tracking-label: 0.08em;
   --tracking-code: 0.18em;
@@ -127,6 +126,9 @@
   --color-story-ink: var(--story-ink);
   --color-story-muted: var(--story-muted);
   --color-story-accent: var(--story-accent);
+  /* Reference landing uses bare white for borders, washes and figcaption text.
+     Declared here so Tailwind's `/NN` opacity modifier resolves against it. */
+  --color-story-white: #f5faff;
   --color-story-night: #9deaff;
   --color-story-core: #7db6ff;
   --color-story-blossom: #ffafd0;
@@ -134,6 +136,11 @@
   --color-story-red: #ff9b9b;
   --color-story-denial: #ffd18f;
   --color-story-shore: #a8ffe0;
+
+  /** Landing chapter headline. Follows the reference simple-variant scale:
+      desktop fills its column, compact steps down to a phone-first clamp. */
+  --text-story-hero: clamp(38px, 4.4vw, 68px);
+  --text-story-hero-compact: clamp(34px, 10.5vw, 56px);
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);

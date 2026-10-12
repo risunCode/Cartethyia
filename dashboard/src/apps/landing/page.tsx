@@ -197,6 +197,18 @@ export function LandingPage(): ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
   const [revealed, setRevealed] = useState<ReadonlySet<number>>(() => new Set([0]));
   const [showAll, setShowAll] = useState(false);
+  // Drives the header's shape: full-bleed and square-edged at the top of the
+  // page, a floating pill once the story has started scrolling under it. The
+  // threshold is one header height, so it flips as soon as content is
+  // genuinely passing beneath rather than on the first wheel tick.
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = (): void => setScrolled(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   const sectionRefs = useRef<Array<HTMLElement | null>>([]);
 
   useEffect(() => {
@@ -262,8 +274,11 @@ export function LandingPage(): ReactElement {
 
   return (
     <div className="relative min-h-screen overflow-x-clip bg-story-deep font-sans text-story-ink" id="top" style={STORY_THEME_STYLES[activeTheme]}>
-      <header className="fixed inset-x-0 top-0 z-header border-b border-story-white/10 bg-story-deep/78 px-12 transition-colors duration-200 max-compact:px-8">
-        <div className="mx-auto flex h-36 w-full max-w-640 items-center justify-between gap-4 max-compact:h-16">
+      <header
+        className={`fixed inset-x-0 top-0 z-40 flex justify-center border-b bg-story-deep/78 px-6 transition-[padding,border-color,background-color,backdrop-filter] duration-260 max-compact:px-10 ${scrolled ? "border-b-transparent bg-story-deep/62 px-10 backdrop-blur-18 backdrop-saturate-150" : ""}`}
+        data-scrolled={scrolled}
+      >
+        <div className={`flex w-full items-center justify-between gap-2 border border-transparent transition-[max-width,height,border-radius,border-color,background-color,box-shadow] duration-260 ${scrolled ? "h-15 max-w-[656px] rounded-pill border-story-white/14 bg-story-deep/78 shadow-[0_10px_34px_-12px_rgb(0_0_0/0.7)]" : "h-36 max-w-[1280px] rounded-card"}`}>
           <a
             className="inline-flex items-center gap-2.5 text-story-white no-underline"
             href="#top"
@@ -301,12 +316,12 @@ export function LandingPage(): ReactElement {
               aria-label={showAll ? "Show story" : "Show all"}
               aria-pressed={showAll}
               onClick={() => setShowAll((v) => !v)}
-              className={`hidden h-19 items-center gap-1.75 whitespace-nowrap rounded-control border border-story-white/25 bg-story-white/9 px-3 text-badge font-bold text-story-white transition-colors hover:border-story-white hover:bg-story-white hover:text-story-deep sm:inline-flex${showAll ? " border-story-white bg-story-white text-story-deep" : ""}`}
+              className={`hidden h-19 shrink-0 items-center gap-1.75 whitespace-nowrap rounded-control border border-story-white/25 bg-story-white/9 px-3 text-badge font-bold text-story-white transition-colors hover:border-story-white hover:bg-story-white hover:text-story-deep sm:inline-flex${showAll ? " border-story-white bg-story-white text-story-deep" : ""}`}
             >
               <span className="size-3.5 shrink-0 rounded-full bg-current" aria-hidden={true} />
               {showAll ? "Story" : "All view"}
             </button>
-            <a className="inline-flex h-19 items-center gap-2 rounded-control border border-story-white/25 bg-story-white/9 px-3.5 text-badge font-bold text-story-white no-underline transition-colors hover:border-story-white hover:bg-story-white hover:text-story-deep max-compact:hidden" href={CONSOLE_PATH}>
+            <a className="inline-flex h-19 shrink-0 items-center gap-2 whitespace-nowrap rounded-control border border-story-white/25 bg-story-white/9 px-3.5 text-badge font-bold text-story-white no-underline transition-colors hover:border-story-white hover:bg-story-white hover:text-story-deep max-compact:hidden" href={CONSOLE_PATH}>
               Enter console
               <ArrowUpRight size={14} aria-hidden={true} />
             </a>
@@ -442,7 +457,7 @@ export function LandingPage(): ReactElement {
                     </button>
                   </div>
                 </div>
-                <figure className={`relative row-start-1 h-270 min-w-0 w-full self-center overflow-hidden border border-story-white/20 bg-story-panel shadow-popout after:absolute after:inset-0 after:bg-gradient-to-b after:from-story-deep/4 after:via-story-deep/30 after:to-story-deep/60 after:content-[''] max-compact:order-[-1] max-compact:h-auto max-compact:aspect-story max-compact:col-auto max-compact:row-auto ${idx % 2 === 0 ? "col-start-1" : "col-start-2"}`}>
+                <figure className={`relative row-start-1 h-270 min-w-0 w-full self-center overflow-hidden border border-story-white/20 bg-[#090d16] shadow-popout after:absolute after:inset-0 after:bg-gradient-to-b after:from-story-deep/4 after:via-story-deep/30 after:to-story-deep/60 after:content-[''] max-compact:order-[-1] max-compact:h-auto max-compact:aspect-story max-compact:col-auto max-compact:row-auto ${idx % 2 === 0 ? "col-start-1" : "col-start-2"}`}>
                   <img className="block size-full object-cover object-center" src={entry.image} alt={entry.imageAlt} loading={idx === 0 ? "eager" : "lazy"} fetchPriority={idx === 0 ? "high" : "low"} decoding="async" />
                   <figcaption className="absolute inset-x-4 bottom-4 z-1 flex justify-between font-mono text-micro font-medium leading-none tracking-label text-story-white/70 uppercase">
                     {entry.location} <span className="text-story-accent">{entry.number}</span>
