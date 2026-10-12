@@ -1,248 +1,212 @@
-# Cartethyia Agent Guide
+# Cartethyia — Agent Guide
 
-The goal is to leave the repository trustworthy for the next reader. Keep this
-file concise; detailed subsystem guidance lives in `.skills/`.
+Use this file as the general guide for work in this repository. Keep the task
+moving, adapt to the request, and use focused subsystem guidance when it adds
+useful detail. Do not treat every suggestion here as a reason to block progress.
 
-## Core rule
+## Requirements
 
-Every reported issue must be **reproduced or explicitly flagged as unverified**.
-Every feature and bug fix must be implemented with the proper logic and handlers
-across the affected code path. Do not ship a workaround disguised as a fix.
+At the start of a task, briefly understand:
 
-No overengineering unless the task explicitly asks for it. Prefer the smallest
-complete change that fixes the owning layer, migrates its callers, and proves the
-acceptance criteria.
+- **Requirement:** the requested behavior or outcome.
+- **Acceptance criteria:** what observable result would satisfy the request.
+- **Constraints:** what must remain unchanged, and any explicit limits.
 
+Use the user's wording where possible. A short internal summary is enough; do
+not turn a small task into a specification exercise.
 
-## Pick the skill first
+If details are missing, prefer a reasonable, low-risk assumption and continue.
+Ask the user when different plausible choices would materially change behavior,
+scope, data handling, compatibility, or user experience. When helpful, offer a
+small set of clear options. Mention assumptions that affect the result.
 
-Most tasks belong to one skill in `.skills/`. Read its `SKILL.md` before
-starting — it holds the procedure, the pitfalls, and the owner of the layer.
+## Working principles
 
-| Work | Skill |
-|---|---|
-| A failing request to attribute to a field; payload/wire bytes; remote debugging | `cartethyia-trace-replay` |
-| Schema change, migration, new usage/telemetry field | `cartethyia-schema-telemetry` |
-| Add/remove/authenticate a provider; catalog, `/v1/models`, capabilities | `cartethyia-provider-catalog` |
-| Remove a bundled provider and its leftover global row | `cartethyia-provider-removal` |
-| Account health, cooldown class, pool selection, retries, leases | `cartethyia-health-routing` |
-| Add/change a `src/console/` domain; contract→store→dashboard mirror | `cartethyia-console-api` |
-| `dashboard/` React, layout, social metadata, browser verification | `cartethyia-dashboard` |
-| Orientation, invariants/deadness, house style, gates | `cartethyia-engineering` |
+- Optimize for useful progress and a complete result, not process for its own
+  sake.
+- Inspect the relevant code and its conventions before editing. For a small,
+  well-scoped task, keep exploration small too.
+- Make the smallest complete change that meets the request. Avoid unrelated
+  cleanup, speculative abstractions, and broad rewrites unless requested.
+- Follow existing patterns when they fit. If they conflict or appear stale, use
+  judgment and explain a meaningful deviation rather than copying a bad pattern.
+- For bugs, find the likely cause and verify it when practical. If reproduction
+  is blocked or not worthwhile, say what remains unverified.
+- Keep code, tests, documentation, and configuration in sync when the change
+  affects them. Do not update unrelated docs just to satisfy a checklist.
+- Do not spend a turn only restating a plan. Make a useful first move: inspect,
+  search, reproduce, edit, or verify.
+- Work directly by default. Use a helper agent only when work is genuinely
+  independent or needs substantial separate context.
 
-Do not add a competing file when a skill already owns the topic. Extend the
-closest owner instead — one folder, one skill.
+## Clarifying questions and flexibility
 
-## Working agreement
+- Do not ask about details with an obvious, reversible default.
+- Do ask before a high-impact or hard-to-reverse decision, a destructive action,
+  or an unresolved product choice with multiple reasonable outcomes.
+- If progress can safely continue while an uncertainty is isolated, continue
+  the independent work and call out the open choice.
+- The user may redirect scope, tools, or verification depth; adapt rather than
+  insisting on a fixed workflow.
+- Distinguish requirements from suggestions. Use the lightest process that
+  adequately manages the change's risk.
 
-- Keep related implementation, documentation, and test changes together as one
-  coherent change set. Complete the relevant work, run the appropriate gates,
-  and create one reviewable commit for the finished change.
-- Do not push automatically. Push only when the user explicitly asks for it.
-- Use `bun install` for dependency installation. Use the unified `bun setup`
-  command for environment creation, encryption-key generation, Lite/Full
-  selection, database checks, and optional Redis checks. Use
-  `bun setup --non-interactive` for automation.
-- `CARTETHYIA_DB_MODE` is **required and has no default** — the gateway throws at
-  boot when it is absent, because the two modes are different databases with
-  separate migration sets and a silent guess would pick which one an install's
-  data is read against. `.env.example` ships `lite` (the zero-dependency first
-  run); Docker Compose supplies `full`. Keep these choices intentional and
-  document changes in `documentation/getting-started.md`.
-- Lite uses embedded SQLite and in-process coordination when `REDIS_URL` is
-  absent. Full uses external PostgreSQL; Redis remains optional unless shared
-  coordination is required. Do not reintroduce `REDIS_MODE` or
-  `single_instance_local`.
-- Development is local-first: use an available local PostgreSQL (including Laragon
-  on Windows) and local Redis/in-memory mode before considering Docker. Docker is
-  an optional deployment/test fallback, never a default development prerequisite.
+## Environment and tools
 
-## Start here
+Cartethyia's main stack:
 
-1. State the goal, acceptance criteria, and hard constraints in one sentence.
-2. Use CodeGraph first for blast search: owner, callers, implementations, and
-   dynamic paths. Use `codegraph_explore` when available.
-3. If CodeGraph is unavailable or stale, use the available search tools (`Read`,
-   `Grep`, `Glob`, or a targeted command) and obtain the same context manually.
-4. Read the skill for the subsystem, then the target's callers, contracts,
-   config, and docs.
-5. Verify dashboard/UI in a real browser. The `agent-browser` CLI is
-   **mandatory** for dashboard development — not a fallback, not an option.
-   Drive it yourself with `Bash`. See "Browser verification" below.
+- **Runtime and package manager:** Bun 1.4.0 or newer.
+- **Backend:** TypeScript and Elysia under `src/`.
+- **Dashboard:** React and Vite under `dashboard/`.
+- **Persistence:** embedded SQLite in Lite mode; external PostgreSQL in Full
+  mode. Redis is optional and is used when coordination needs to be shared.
+- **Development services:** prefer available local PostgreSQL and Redis (or the
+  in-process coordination mode) for local work. Docker is an option when a
+  needed service is unavailable, not a default prerequisite.
+- **Browser checks:** use `agent-browser` for visual, layout, and interactive
+  dashboard behavior. The dashboard skill has more specific verification
+  guidance; follow it for dashboard tasks.
 
-Do not spend a turn only restating a plan. The first useful action should read,
-search, reproduce, edit, or verify something.
+Use the shell and path syntax that match the active environment. In a Windows
+workspace, PowerShell is appropriate; do not assume Bash-only utilities or
+Unix-style paths when an equivalent native command is available.
 
-## Browser verification
+Useful root commands:
 
-`agent-browser` is the tool. Nothing else is.
-
-- **Drive it yourself.** Do not delegate browser work to a subagent, and do not
-  write a Bun/Node harness around it. The CLI is complete
-  (`open`, `eval`, `click`, `fill`, `press`, `wait`, `set viewport`,
-  `set media`, `storage local set`, `network route`, `screenshot`, `errors`,
-  `console`, `diff snapshot`). If a check needs several commands, run them.
-- **A browser claim without a browser is not a claim.** "The DOM looks right
-  from the source" is not verification. If you did not run `agent-browser`, say
-  the surface is unverified — do not soften it with a passing typecheck.
-- **Measure, do not guess.** Read `getBoundingClientRect()` and
-  `getComputedStyle()` through `agent-browser eval`. A rect in your evidence is
-  evidence; a class name in the source is a guess.
-- **If the CLI cannot express the check**, say so plainly and name what you
-  tried. Do not build a parallel toolchain to route around one awkward command.
-- One-off state (`localStorage`, stubbed routes) is a CLI flag away
-  (`storage local set`, `network route`). A scratch server for the built `dist`
-  is acceptable; a scratch *harness* is not.
-
-## Efficient work
-
-These are the loops that actually cost time on this repo. They are rules
-because each one was paid for.
-
-- **Do not delegate what you can do directly.** A subagent costs a spawn, a
-  transcript, and a report you must re-verify. Reserve it for genuinely
-  parallel or genuinely independent work.
-- **Read the failing assertion before changing code.** Most "regressions" found
-  by a test are the test being wrong: a stale expected width, a default that is
-  legitimately `0`, a fixture that was never wired. Confirm the expectation
-  against the source of truth before editing production code.
-- **When three consecutive runs fail for different reasons, stop.** You are
-  probably measuring the wrong thing or trusting the wrong number. Re-read the
-  check and the code it asserts against.
-- **One change, one verification.** Re-run the narrowest gate that can fail on
-  the change. Do not re-run a passing suite looking for a different opinion.
-- **No exploratory scratch files.** A debug script exists to answer one
-  question. Answer it, then delete it in the same turn. If two scratch files
-  exist for one investigation, one is already abandoned.
-- **Reproduce, fix, re-run the reproduction.** Not a broader suite, not a
-  cleaner path.
-
-## Implementation loop
-
-1. Reproduce the issue or record the exact blocker and mark it unverified.
-2. Identify the canonical owner and state the causal mechanism.
-3. Check blast radius before changing shared status, mappings, contracts, schemas,
-   routing, retries, cooldowns, security, or wire formats.
-4. Fix the root cause in the owner and update every affected caller/handler.
-5. Remove obsolete paths; do not add aliases, shims, special cases, or silent
-   fallbacks to preserve broken behavior.
-6. Update active docs, config, and generated sources through their generators.
-7. Re-run the same reproduction, then run the narrowest useful gates.
-8. Report evidence, failures, skipped checks, and unavailable surfaces honestly.
-
-A temporary script is acceptable only when it exercises the real production path,
-proves the behavior, and is deleted afterward — in the same turn, not a later
-one. It is not acceptable as a substitute for a tool that already does the job
-(`agent-browser` for anything a browser can show). A workaround is acceptable
-only when explicitly requested or when it is a named temporary boundary with a
-clear removal condition.
-
-## Repository boundaries
-
-- `src/` is the production backend; `dashboard/src/` is browser code.
-- Dashboard code must not import Elysia, database drivers, filesystem modules,
-  secrets, or Node-only runtime dependencies. It calls `/console/api`.
-- Treat network responses, environment variables, database rows, request bodies,
-  and user values as untrusted. Validate at boundaries and fail closed.
-- Preserve intentional provider wire bytes, headers, and user-agent behavior.
-- Keep one source of truth for provider metadata, persisted contracts, environment names, routing policy, and dashboard mirrors.
-- Provider, health, and streaming claims in docs and skills must match the owning code. A dashboard section is a mirror, not a second inventory.
-- `scripts/` is grouped by purpose: `cli/`, `operations/`, `install/`, `build/`,
-  `generate/`, `dev/`, `test/`, and `shared/`. Avoid barrel files; use role names
-  such as `contracts.ts`, `routes.ts`, `store.ts`, `service.ts`, and `errors.ts`.
-- Do not hand-edit generated output. Change its source or generator.
-- Use strict TypeScript conventions already configured by the repository: no `any`,
-  suppressions, needless assertions, or weakened compiler settings.
-
-## Clean cutover
-
-For a rename, move, replacement, feature removal, or contract change:
-
-1. Search runtime code, scripts, dashboard, config, and docs.
-2. Change the canonical definition and migrate all callers.
-3. Delete the obsolete symbol/path; do not leave a compatibility alias.
-4. Search the old name again and typecheck the affected surface.
-5. Prove deadness before deleting code; declaration-only search is not proof.
-
-## Verification gates
-
-```bash
-bun run typecheck                # always
-bun run dashboard:typecheck      # when dashboard/ changes
-bun run build                    # when entry points or build contracts change
-bun run test:backend             # or bun run test / dashboard:test / test:watch
+```text
+bun install
+bun setup
+bun setup --non-interactive
+bun run dev
+bun run dev:backend
+bun run typecheck
+bun run dashboard:typecheck
+bun run build
+bun run test
+bun run test:backend
+bun run dashboard:test
 ```
 
-The repository carries an active test suite (`test/`, `dashboard/test/`, run via
-`scripts/test/run.ts` against the isolated `.env.test` database — never the dev
-database). Typecheck is not behavioral proof. Exercise the real boundary: a
-live gateway request, a real browser surface, database migration in an isolated
-environment, or a temporary script calling production code.
+Use `bun setup` for local environment setup. It configures the environment,
+encryption key, database mode, and port; it does not install PostgreSQL or start
+the application. See `documentation/getting-started.md` for setup details and
+`package.json` for the current command list.
 
-UI claims require `agent-browser` evidence (see "Browser verification"). If no
-browser runtime is available, say exactly why — do not substitute markup
-guesses, and do not report the surface as verified.
+`CARTETHYIA_DB_MODE` is required and has no default. Do not silently choose a
+mode: Lite and Full use different database backends and migration sets. Use the
+isolated `.env.test` configuration for tests, never a development or production
+database.
 
-## Tests that lock
+## Repository map and boundaries
 
-A test earns its place only by failing when the fix is absent.
+- `src/` — production backend, public gateway, console API, persistence,
+  providers, protocol translation, routing, and telemetry.
+- `dashboard/src/` — browser application. It talks to `/console/api`; it must
+  remain browser-safe and must not import database drivers, Elysia, filesystem
+  modules, secrets, or Node-only runtime dependencies.
+- `scripts/` — CLI, development, build, generation, operations, and test
+  utilities. Check the existing subdirectory before adding a script.
+- `migrations/` — database baselines and forward migrations.
+- `test/` and `dashboard/test/` — backend and dashboard tests.
+- `documentation/` — getting started, reference indexes, and feature guides.
+- `.skills/` — focused, repository-specific procedures and domain guidance.
 
-- **Revert, watch it fail, restore, watch it pass.** A test that passes both
-  ways proves nothing and is worse than none: it is a future false assurance.
-  A measurement helper (an audit, a counter, a matcher) gets the same
-  treatment — pin its classification with cases that would break if the
-  matcher regressed.
-- **Test the mechanism, not the symptom.** `cn("text-badge",
-  "text-text-secondary")` keeps the size — that catches the merge bug. Asserting
-  that a rendered page has the right font size catches only that page.
-- **An expected value must have a source.** Widths come from the caller's
-  `DialogSize`, not from the primitive's default. A magic number in a test is
-  a claim that will rot; a value read from the owning constant is a claim that
-  cannot.
-- **A failing check that is really a wrong expectation is a test bug.** Fix the
-  test, and say in the report that the expectation was wrong — never quietly
-  weaken an assertion to make a run green.
+Keep one canonical owner for provider metadata, environment configuration,
+contracts, routing policy, and persisted data. When changing a shared contract,
+inspect and update its relevant producers, consumers, validation, and dashboard
+mirror.
 
-## Safety and git
+Treat network responses, environment values, database rows, request bodies, and
+user-supplied values as untrusted. Preserve security boundaries and intentional
+provider-specific headers, user-agent behavior, and wire bytes.
 
-Never use destructive git commands such as `reset --hard`, `checkout --`, or
-`clean`. Do not commit, push, deploy, touch production data, delete user data, or
-discard unrelated working-tree changes unless explicitly asked.
+Do not hand-edit generated output. Find and change its source or generator, then
+regenerate when appropriate. Keep TypeScript strict; do not weaken compiler
+settings or use `any` or suppressions merely to silence an error.
 
-**Credentials may be given in a message.** This is a local-first development
-repo, reproduction comes before everything else, and making an operator retype a
-dev API key through an environment file before a failing request can be replayed
-cost more than it ever protected. So: use a credential the operator hands you,
-for the local target they named, without arguing about the channel.
+## Finding the right guidance
 
-What still holds, because it is a different failure with a different cost —
-**a credential never lands anywhere durable**:
+Read the closest skill when the task touches a specialized area; do not read
+every skill for every task. The committed skill source lives under `.skills/`.
 
-- never write it to a file, including `.env`, `.env.*`, a script, or a scratch
-  file;
-- never put it in a commit, a commit message, a PR body, or documentation;
-- never echo it into output, a log line, an error message, a payload capture, or
-  a telemetry row;
-- never send it to a third party.
+| Task area | Starting point |
+|---|---|
+| Repository conventions, verification, or a cross-cutting change | `.skills/cartethyia-engineering/SKILL.md` |
+| Reproducing a failing request, payloads, or provider wire behavior | `.skills/cartethyia-trace-replay/SKILL.md` |
+| Schema, migrations, usage, or telemetry | `.skills/cartethyia-schema-telemetry/SKILL.md` |
+| Adding or authenticating a provider, catalog, or capabilities | `.skills/cartethyia-provider-catalog/SKILL.md` |
+| Removing a bundled provider | `.skills/cartethyia-provider-removal/SKILL.md` |
+| Account health, cooldowns, retries, leases, or routing | `.skills/cartethyia-health-routing/SKILL.md` |
+| Console API domain or contract | `.skills/cartethyia-console-api/SKILL.md` |
+| Dashboard, React, layout, or browser behavior | `.skills/cartethyia-dashboard/SKILL.md` |
 
-Prefer the environment anyway when one is already set, and prefer a value the
-operator put in `.env` themselves over one retyped in chat — not as a rule about
-trust, but because a file survives a context summarization and a message does
-not. When you must print a request for someone to replay, redact the credential
-and say that you did.
+Use the task-relevant skill's procedure and references where they help. Skills
+may define stricter domain-specific requirements than this general guide, such
+as the dashboard's browser verification procedure.
 
-Verify the environment before database/production operations and prefer
-reversible, transactional steps.
+## Typical workflow
 
-## Completion report
+1. Understand the requirement, acceptance criteria, and constraints.
+2. Locate the owning layer and inspect the relevant implementation, callers, and
+   tests. Use CodeGraph or other code intelligence if available and useful;
+   targeted search and file reads are fine too.
+3. Check the closest skill and documentation for domain-specific pitfalls.
+4. Make a focused change at the canonical owner and update affected callers.
+5. Run a proportional verification check and, for behavior changes, verify the
+   changed behavior at a useful boundary when practical.
+6. Report the result, verification, and any meaningful limitation.
 
-Report:
+This is a guide, not a mandatory ceremony. Skip steps that add no value to a
+trivial task; spend more time when the change has a wider blast radius.
 
-- what changed and where;
-- the reproduction or why it remains unverified;
-- commands/gates run and their result;
-- real-boundary evidence;
-- failures, skips, blockers, and next action.
+## Testing and verification
 
-Do not claim an issue is fixed when it was only masked, or claim tests passed when
-no tests were run.
+- Avoid over-testing. Start with the smallest check that can provide useful
+  confidence; do not run the full suite by default.
+- Run the relevant typecheck, focused test, build, or reproduction based on the
+  files and behavior changed. Use the scripts in `package.json`.
+- Typechecking confirms types, not runtime behavior. For a behavioral change,
+  run a focused test or exercise the relevant boundary when practical.
+- For UI claims about layout, styles, or interactions, use `agent-browser` when
+  available and report browser verification separately from static checks.
+- If the ideal check is unavailable or disproportionate, use a reasonable
+  alternative and state the limitation. Do not imply an unrun check passed.
+- Schema changes should be checked against an isolated database when practical.
+  Do not use a developer's normal database or production data as a test fixture.
+- Report the commands actually run and their outcomes. Keep the report concise
+  for a small change; include more detail when a check failed or was skipped.
+
+## Documentation
+
+Use `documentation/getting-started.md` for installation and local setup.
+`documentation/reference/` explains system layers; `documentation/features/`
+describes individual features. Prefer updating the existing owner page instead
+of duplicating long explanations in `AGENTS.md`.
+
+Update user-facing documentation when behavior, configuration, or setup changes
+would otherwise make it misleading. Avoid documenting transient implementation
+details that belong in code or tests.
+
+## Git, data, and credentials
+
+- Do not commit, push, deploy, or alter production data unless the user asks.
+- Preserve unrelated user changes. Do not use destructive Git commands such as
+  `reset --hard`, `checkout --`, or `clean`.
+- A small cleanup directly required by the task is fine; avoid unrelated
+  refactors or cleanup.
+- Do not persist credentials in source, environment files, scratch files,
+  commits, logs, reports, or telemetry. Do not expose credentials in tool output
+  or send them to third parties.
+- Prefer reversible steps for database and environment operations. Confirm
+  which environment is targeted before any operation that may alter real data.
+
+## Completion
+
+When the work is done, briefly state:
+
+- what changed and how it addresses the request;
+- which relevant checks or reproductions ran and their outcomes;
+- any important assumptions, skipped verification, or remaining blockers.
+
+For straightforward work, a short summary is enough. Be clear about evidence:
+do not claim behavior is fixed or verified beyond what was actually checked.

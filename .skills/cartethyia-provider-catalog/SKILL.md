@@ -76,8 +76,8 @@ Codex image headers are the hosted set: auth, user-agent, `originator`,
 `version`, `[OI]-Beta: responses=experimental`, `session_id`,
 `conversation_id`, account id, and residency. Do not send the chat turn headers.
 
-A catalog row is not an entitlement. Replay the provider directly before
-changing the body:
+A catalog row is not an entitlement. When you have an authorized account and
+probe, replay the provider directly before changing the body:
 
 - `gpt-image-*` can be rejected for a ChatGPT account.
 - Forcing the image tool can return `Tool choice 'image_generation' must be specified with 'tools' parameter` even when `tools` is present.
@@ -87,41 +87,53 @@ changing the body:
 
 Prove an image by decoded magic bytes: `89 50 4E 47` for PNG or `FF D8 FF` for
 JPEG. `content_signature` and a text reply are not images. Gemini stays
-unverified until a Gemini account exists. After a catalog edit, restart the
-process; `bun --hot` can keep the old adapter, and `dist/cartethyia.exe` can
-keep answering on `:12800`.
+unverified until a Gemini account exists. These upstream rejection examples
+are account- and deployment-specific observations, not guarantees; confirm
+them against the authorized account before changing a request. After a catalog
+edit, restart the process; `bun --hot` can keep a cached adapter, and
+`dist/cartethyia.exe` can keep answering on `:12800`.
 
 ## Grok video generation
 
-Do not send free Grok video to `cli-chat-proxy.grok.com` or `api.x.ai`. The
-working free surface is the developer console:
+These are unverified upstream research notes, not a supported Cartethyia video
+integration. The checked-in Grok adapter targets Grok Build at
+`cli-chat-proxy.grok.com`, and this repository does not implement the SSO/DPoP
+video flow described below. Do not treat these endpoints or field names as a
+gateway implementation recipe without a fresh, authorized probe.
+
+The previously observed free-video surface was the developer console:
 
 - `POST https://console.x.ai/v1/videos/generations` returns `request_id`.
 - `GET https://console.x.ai/v1/videos/<request_id>` returns status and `video.url`.
 - The model is `grok-imagine-video`. Duration is 1–15 seconds. One `image.url`
   may be an HTTPS URL or a `data:` URL, never bare base64.
 
-Authentication is an SSO cookie plus DPoP, not the stored Grok Build OAuth
-token. Mint `POST /v1/dpop/token` with a fresh P-256 JWK, then sign one ES256
-proof per request. The proof uses raw `r || s`, and its `htu` is scheme, host,
-and path only. The token lasts about 300 seconds, so a poll longer than that
-must mint again. A stored `oauth` credential cannot cross this boundary.
+The reported authentication was an SSO cookie plus DPoP, not the stored Grok
+Build OAuth token. The reported procedure minted `POST /v1/dpop/token` with a
+fresh P-256 JWK, then signed one ES256 proof per request using raw `r || s` and
+an `htu` containing scheme, host, and path only. Those details and the
+approximately 300-second token lifetime have not been verified by this
+repository; re-check them before use. A stored `oauth` credential must not be
+assumed to work on this separate surface.
 
-Quota is separate from images: about two videos, then HTTP 429
-`resource-exhausted`. Track that exhaustion per kind. A catalog row is not an
-entitlement, and a 200 chat response is not a video. The proof is an MP4 URL
-or bytes beginning `00 00 00` with an `ftyp` box.
+The reported quota was about two videos followed by HTTP 429
+`resource-exhausted`; this is not a guaranteed limit. Track video exhaustion
+separately if implementing the feature. A catalog row is not an entitlement,
+and a 200 chat response is not a video. Verify the returned MP4 URL or bytes
+including the `ftyp` box rather than accepting a status alone.
 
 ## Remove a provider
 
-Use `cartethyia-provider-removal`. It owns the cutover and the persisted-row
-cleanup. Deleting metadata alone leaves a global `providers` row that the
-dashboard lists as custom and the tenant delete cannot reach.
+Use the [provider-removal skill](../cartethyia-provider-removal/SKILL.md). It
+owns the cutover and persisted-row cleanup. Boot retires unbundled global rows;
+the catalog also hides any orphan immediately and lets tenant delete remove
+it without exposing a current builtin to deletion.
 
 ## Verify
 
-The gate list is `cartethyia-engineering/references/verification.md`; run those,
-plus `bun run test:backend`.
+The gate list is the
+[engineering verification reference](../cartethyia-engineering/references/verification.md);
+run those, plus `bun run test:backend`.
 
 The boundary specific to this skill is upstream: exercise the real auth,
 catalog, and request boundaries when safe. If credentials or upstream access are

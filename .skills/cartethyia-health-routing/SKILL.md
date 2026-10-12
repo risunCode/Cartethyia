@@ -25,16 +25,20 @@ Before changing a status or timeout, trace every reader and branch that uses it.
 - Account-wide cooldowns carry a class, defined in `HARD_COOLDOWN_CATEGORIES`
   (`src/transport/routing/route-catalog.ts`) and projected as
   `RouteCandidate.cooldown_kind`:
-  - **hard** — `quota_exhausted`, `policy_blocked`, `auth_invalidated`. Excludes
-    the account until the deadline.
+  - **hard** — `quota_exhausted`, `policy_blocked`, `auth_invalidated`. When
+    represented as a cooldown, excludes the account until its deadline.
+    Non-recoverable `auth_invalidated` failures can instead disable the account
+    without a timed cooldown.
   - **soft** — stays eligible but is ordered after every healthy sibling.
 - `model_cooldown` is a hard exclusion per (account, model).
-- When nothing eligible remains, `plan()` answers **429
-  `accounts_rate_limited`** when a decision reason is `cooldown_hard` or
-  `model_cooldown`, and again when every eligible account is cooling
-  (`healthyCount === 0`); otherwise **503 `accounts_unavailable`**. Both 429
-  paths exist so a client retries after the reset instead of reading a
-  resting deployment as down.
+- If every candidate is excluded, `plan()` answers **429
+  `accounts_rate_limited`** when an exclusion reason is `cooldown_hard` or
+  `model_cooldown`; other all-excluded cases answer **503
+  `accounts_unavailable`**. Separately, account-wide soft cooldowns remain
+  eligible but are not dialed when all eligible accounts are cooling
+  (`healthyCount === 0`); that case also answers 429. Both 429 paths let a
+  client retry after the reset instead of reading a resting deployment as
+  down.
 - An active account may still have model-level cooling entries.
 - Quota exhaustion, disabled state, cooldown, and model cooling must stay
   distinguishable in API and UI; do not sum them into a misleading total.
@@ -67,8 +71,8 @@ source status and avoid double-counting one account in multiple aggregate labels
 
 ## Verify
 
-The gate list is `cartethyia-engineering/references/verification.md`; run those,
-plus `bun run test:backend`.
+The gate list is the [engineering verification reference](../cartethyia-engineering/references/verification.md);
+run the applicable checks, plus `bun run test:backend`.
 
 The boundary specific to this skill is health: exercise a real provider/account
 or a production-path temporary probe, and report when upstream credentials or a

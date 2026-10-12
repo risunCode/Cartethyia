@@ -1,12 +1,14 @@
 # Dashboard
 
 `dashboard/src/` is the browser app. It is React, React Router, and TanStack
-Query. The backend serves the built files at `/console`. The app's router
+Query. The backend serves the built files at `/console`. The console router
 basename is `/console`, so a route written as `/usage` is `/console/usage` in
-the browser.
+the browser. Console pages use `/console/api`; the public landing and share apps
+use their own public surfaces.
 
 The dashboard does not import Elysia, database drivers, filesystem modules, or
-secrets. It calls `/console/api` through `dashboard/src/data/api.ts`.
+secrets at runtime. Console requests go through `dashboard/src/data/api.ts`;
+shared backend contracts may be imported as types only.
 
 ## Shell
 
@@ -126,9 +128,11 @@ to `dashboard/src/hooks/`.
 
 ## Share and landing
 
-`apps/share` is the public page a share link opens: it reads the share API and
-carries no probe, enable, disable, or delete controls. What the page is for, and
-what enforces it, is on the [share keys](../features/share-keys.md) page.
+`apps/share` is the public page a share link opens: it reads the share API,
+lets recipients copy granted model ids and test allowed models with the shared
+key, and carries no key-management controls such as enable, disable, or delete.
+What the page is for, and what enforces it, is on the
+[share keys](../features/share-keys.md) page.
 
 `apps/landing` is the unauthenticated product page. Crawlers do not run the
 bundle, so title, description, and social tags for landing, console, and share
@@ -137,11 +141,16 @@ are injected by `src/console/dashboard-assets.ts` into the one
 
 ## Layout rules
 
-The document is the only scroll container. `.app-topbar` and `.app-sidebar` are
-sticky against it. A sticky toolbar uses `top: var(--topbar-height)`. It is a
-sibling above the scrolling content, opaque, with its own shadow.
+The document is the page scroll container. The sidebar rail/navigation and
+contained surfaces such as dialogs can scroll independently. `.app-topbar` and
+the desktop `.app-sidebar` stick against the document at the shell's 16px inset;
+the narrow-shell drawer is fixed. The topbar is an opaque sibling above the
+page content with its own shadow.
 `.app-main-column`, `.dashboard-page`, and `.route-enter` do not scroll. The
-sidebar collapses to a drawer on the shell's own width, not the viewport's.
+sidebar collapses to a drawer at the shell's `@container app-shell` 860px
+threshold, not a viewport breakpoint. `route-enter` moves vertically; do not
+add opacity, transform, or filter animation there because it changes the
+backdrop-filter grouping used by cards.
 
 Card blur only reaches the uploaded background when that image is painted behind the card in the same group. `BackgroundLayer` mounts inside `.app-main-column`. `.route-enter` animates position only — an `opacity`, `transform`, or `filter` animation groups the page, and the card then blurs the black body instead of the image. `.custom-background` keeps `contain: none` for the same reason; anything else also pins a `fixed` layer to the scroller. Clarity and blur are separate sliders.
 
@@ -152,9 +161,11 @@ legacy. `expanded` is the explicit full-width escape hatch and caps at 1160. At
 `Drawer` is the surface that becomes a full-viewport panel. New dialogs use
 `DialogSize`, not a raw width.
 
-`localStorage` keys are `cartethyia:<area>:<name>`. Reads check `typeof window`,
-check the stored value against the allowed set, and fall back. A bad stored
-value does not throw.
+New persisted UI preferences should use a `cartethyia:<area>:<name>` key and
+defensive reads (SSR/storage availability, validation, and a fallback). Some
+existing preferences retain older key formats; follow the owning helper rather
+than renaming persisted keys incidentally. The share page stores an issued
+enrollment key in IndexedDB, keyed by the share token.
 
 Polling lists sort with a deterministic tiebreaker. Two rows with the same
 timestamp must not swap places between polls.
@@ -217,4 +228,4 @@ document for `/`, a console route, and a share route must each carry the tags
 | New API field | console contract, then `data/contracts.ts`, then the hook |
 | New dialog | `components/` dialog, `DialogSize`, both toast arms |
 | Share page behavior | `apps/share`, and the share API it reads |
-| Layout | `styles/` and `components/Shell.tsx` |
+| Layout | `dashboard/src/styles/` and `dashboard/src/apps/console/shell.tsx` |

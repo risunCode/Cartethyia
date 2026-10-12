@@ -42,8 +42,9 @@ the merged alias map, and every step is bounded:
    (`claude-opus-5[1m]` → `claude-opus-5`), then the family-slot fallback takes
    `claude-opus-5` → `opus`. Both only fire when the full name has no mapping of
    its own.
-3. **The alias chain walks** to a fixed point with a `seen` set (cycle →
-   `routing alias cycle`) and a depth cap of 16.
+3. **The alias chain walks** to a fixed point with a `seen` set. A cycle or
+   depth over 16 is rejected internally; route planning surfaces the failed
+   resolution as `model_not_found` for the original request.
 4. **Combo expansion** runs per member through `expandMember`, recursively, with
    its own `seen` set. An alias may target a combo and a combo may nest another
    combo, so a member naming a combo expands to its models rather than matching
@@ -58,9 +59,10 @@ Then `resolveMatchingCandidates` filters `snapshot.candidates`:
 - More than one owner for a name that contains no `/` and is not a combo →
   `ambiguousModelError`. Resolving through an alias is never a silent way around
   ambiguity protection.
-- Combo members that matched zero candidates are collected as `unmatchedMembers`
-  and reported on the error, so a misconfigured member is named instead of
-  failing opaquely on whichever member happened to route.
+- Combo members that matched zero candidates are collected as
+  `unmatchedMembers`. On the `accounts_unavailable` path, the router logs their
+  names for operators; it deliberately does not expose dead member ids in the
+  public error envelope. The rate-limited path may return before this warning.
 
 A retryable failure flags that member for the rest of the request. Dispatch
 moves it behind every member that has not failed yet, so the next attempt
@@ -129,5 +131,5 @@ write that forgets leaves the data plane on the old plan.
   table that runs after this.
 - [`protocol-and-translation.md`](../reference/protocol-and-translation.md) — where in the
   request path alias resolution sits.
-- `.skills/cartethyia-health-routing` — what happens to a resolved candidate
-  that is cooling down.
+- [Health-routing skill](../../.skills/cartethyia-health-routing/SKILL.md) —
+  what happens to a resolved candidate that is cooling down.

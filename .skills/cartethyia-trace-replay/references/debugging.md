@@ -28,9 +28,9 @@ whether the adapter emitted or replayed the same call. For image failures, verif
 media type, encoding, and the provider's accepted field shape.
 
 Wire normalization lives in `src/transport/translation/quirks.ts`
-(`resolveWireMaxTokens`): a positive caller value below `minTokens: 16` is
-lifted to 16 for chat/responses/messages before tool-floor/ceiling clamps, and
-the responses builder bounds `max_output_tokens` through the same resolver.
+(`resolveWireMaxTokens`): a caller value below `minTokens: 16` is lifted to 16
+for chat/responses/messages before any tool-floor or ceiling clamps, and the
+Responses builder bounds `max_output_tokens` through the same resolver.
 Tool schemas are normalized at canonical decode — `parseToolObject` in
 `src/transport/surface/dialects.ts` runs `completeRequiredSchema`, so every
 codec (chat/responses/messages) emits `required` matching `properties`.
@@ -68,5 +68,5 @@ Inline `<think>` and `<thinking>` tags can straddle SSE chunks. The chat decoder
 Read the captured request shape before editing. Re-run the same real pipeline shape
 after the fix; delete temporary diagnostics.
 
-Report exact evidence and any unavailable live surface. Gates are in
-`cartethyia-engineering/references/verification.md`.
+Report exact evidence and any unavailable live surface. Gates are in the
+[engineering verification reference](../../cartethyia-engineering/references/verification.md).

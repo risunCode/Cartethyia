@@ -6,53 +6,58 @@ description: "Remove a bundled Cartethyia provider, including its persisted glob
 # Provider removal
 
 Removing a bundled provider is a catalog cutover plus a persisted-row cleanup.
-Deleting the metadata is not enough: the old global `providers` row stays
-visible, and the tenant delete cannot reach it.
+Deleting the metadata is not enough: an old global `providers` row may remain
+until the boot retirement step runs.
 
 ## Cutover
 
-1. Remove the provider from `BUNDLED_PROVIDER_METADATA` and
-   `BUNDLED_PROVIDER_MODULES`. `isBundledProviderId` is derived from that
-   metadata, so a leftover id is no longer builtin the moment the metadata
-   goes.
+1. Remove the provider's row from `RAW_BUNDLED_PROVIDER_METADATA` in
+   `src/providers/metadata.ts` and its entry from `PROVIDER_CAPABILITIES` in
+   `src/providers/default-registry.ts`. `BUNDLED_PROVIDER_MODULES` is derived
+   from those declarations; its construction throws if metadata names a
+   provider with no capability entry. `isBundledProviderId` derives from the
+   exported metadata, so removing the metadata row is what makes the id no
+   longer builtin.
 2. Remove its adapter, auth, discovery, quota, and request-shaping modules.
    Search registry, routes, dashboard mirrors, `base-models.json`, scripts,
    and docs. Migrate every caller in the same change.
 3. Do not leave an alias, shim, or compatibility id. Do not delete telemetry
    history. Do not delete shared models by `model_id` alone.
 
-## The stuck card
+## Why a stale global row used to stick
 
-A retired bundled provider leaves `providers.id = <old-id>` with
-`tenant_id IS NULL`.
+Before retirement cleanup, removing a bundled provider could leave
+`providers.id = <old-id>` with `tenant_id IS NULL`, which used to cause a
+stuck custom-provider card:
 
-- `list` uses `globalOrOwnedBy`, so every tenant sees that row.
-- `mapProviderRow` sets `isBuiltIn` from `isBundledProviderId`. After removal
-  that is false, so the dashboard draws it under Custom Providers.
-- Tenant `DELETE /providers/:id` used to filter `ownedByOnly`. A global row
-  matches nothing, the store returns false, and the operation throws
-  `Provider <id> not found`.
-- `deleteGlobal` can delete `tenant_id IS NULL`, but only after the id is no
-  longer bundled. Current builtins still 403.
+- The old list projection exposed every global row, while `mapProviderRow`
+  derived `isBuiltIn` from `isBundledProviderId`. After removal, that predicate
+  returned false and the dashboard displayed the row under Custom Providers.
+- Tenant delete first scopes to tenant-owned rows. Without the current
+  fallback to `deleteGlobal`, that missed a global row and returned
+  `provider_not_found` (404).
 
-The owner is the catalog list and delete, not a dashboard special case. Do
-not hardcode the retired id in React.
+The owner is the catalog list and delete, not a dashboard special case. Do not
+hardcode the retired id in React.
 
-## Required cleanup
+## Current safeguards
 
-- Boot calls `retireUnbundledProviders` after `seedBundledProviders`. It
-  deletes unowned rows whose id is absent from the bundle. Model, account,
-  and routing rows cascade from `providers.id`. A tenant-owned BYOK row is
-  out of scope.
-- `DrizzleProviderCatalogStore.list` must not project an unowned row whose id
-  is absent from the bundle. Otherwise the card survives until the next boot.
-- Tenant delete must remove that orphan global row when the owned delete
-  misses. `deleteGlobal` still refuses a current bundled id, so this must not
-  make a live builtin deletable.
+- Boot calls `retireUnbundledProviders` after `seedBundledProviders`; it deletes
+  unowned rows absent from the bundle. Provider-owned model and account rows
+  cascade through the provider foreign key. Tenant-owned BYOK rows are out of
+  scope.
+- `DrizzleProviderCatalogStore.list` includes global rows only when their ids
+  are still bundled, so an orphan is hidden immediately, before the next boot.
+- Tenant delete tries the tenant-owned delete, then `deleteGlobal` for a
+  remaining global orphan. `deleteGlobal` rejects a currently bundled id, so a
+  live builtin remains undeletable.
+- `test/providers/catalog-seeder-reconciliation.test.ts` covers retirement,
+  tenant-list hiding, orphan deletion, builtin protection, and preservation of
+  tenant-owned rows.
 
 ## Prove it
 
-Insert a global provider row with an id absent from the bundle. Assert the
-tenant list omits it, tenant delete removes it, and deleting a real bundled
-id still returns `provider_is_builtin` / 403. A tenant-owned row with the
-same shape must survive retirement.
+When changing this behavior, insert a global provider row with an id absent
+from the bundle. Assert the tenant list omits it, tenant delete removes it, and
+deleting a real bundled id still returns `provider_is_builtin` / 403. A
+tenant-owned row with the same shape must survive retirement.

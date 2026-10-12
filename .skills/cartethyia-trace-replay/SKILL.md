@@ -21,8 +21,10 @@ both of which looked like better suspects.
 1. **Reproduce verbatim** — send the captured body unchanged. If it does not
    fail, you do not yet have the failure. Find out why before bisecting
    (different route, key, or deployment state).
-2. **Run it three times.** One 400 may be transient; three identical failures is
-   a deterministic reproduction you can bisect against. One variable per step.
+2. **Repeat the baseline.** A single 400 may be transient; replay it several
+   times (three is a useful starting point) and confirm the same failure before
+   bisecting. Repeated failures establish a reproducible baseline, not proof
+   that every run will fail. Change one variable per step.
 3. **Bisect** on the full payload — strip optional controls one at a time
    (`prompt_cache_key`, `reasoning_effort`, `stream_options`, `thinking`,
    `reasoning_summary`), then shrink size, then **add** the field you suspect is
@@ -44,9 +46,9 @@ Binary-search rather than guessing: known-good low, known-bad high, halve until
 they meet. A sharp threshold is a real bound; a fuzzy one usually means you are
 not measuring the right variable.
 
-Read the provider's own code, not the gateway's. `details.providerCode` carries
-it (`model_param_invalid`, `11133`, `11148`); the public `message` is often
-generic and names nothing.
+Read the provider's own response/code, not just the gateway's. When retained,
+`details.providerCode` may carry it (`model_param_invalid`, `11133`, `11148`);
+the public `message` is often generic and names nothing.
 
 **Guard against the size red herring.** A large failing payload makes you
 suspect size. Before concluding that, add a tiny explicit limit: 3.16M chars +
@@ -74,27 +76,35 @@ gets the guard.
 ## Image generation replay
 
 For `POST /v1/images/generations`, identify the listener before bisecting the
-body. `Get-NetTCPConnection -LocalPort 12800` must show `bun run --hot
-src/main.ts` after a source edit. `dist/cartethyia.exe` and a hot process
-started before the edit can answer with the old payload. Do not assign `$pid`
-in PowerShell; it is read-only.
+body. `Get-NetTCPConnection -LocalPort 12800 -State Listen` reports the
+listening process id, not its command line; inspect its `OwningProcess` (for
+example, through `Get-CimInstance Win32_Process`) to confirm the listener is
+`bun run --hot src/main.ts`. `dist/cartethyia.exe` or a process that still has a
+cached adapter can answer with the old payload. Do not assign `$pid` in
+PowerShell; it is read-only.
 
 Capture the body at the last boundary that still owns it. For Codex, compare
 the object passed to `postUpstreamJson` with the string inside
 `pinnedFetch`. If both contain `tools` and the upstream still says
 `tool_choice` must be specified with `tools`, the body is not the cause.
-Replay that same body directly to the provider before editing another choice
-or header.
+Replay that same body directly to the provider only when the probe is
+authorized; otherwise retain the evidence and do not edit another choice or
+header based on an unverified direct replay.
 
 Do not treat a 200 chat response as an image. The proof is an
 `image_generation_call` or `inlineData` whose decoded bytes start with
 `89 50 4E 47` or `FF D8 FF`. The wire owners and the known account-boundary
-errors are in `cartethyia-provider-catalog`.
+errors are in the
+[provider-catalog skill](../cartethyia-provider-catalog/SKILL.md).
 
 For Grok video, a 403 or a chat-only 200 from `cli-chat-proxy.grok.com` is not
-a payload bug. Replay the same prompt against `console.x.ai` with the SSO
-cookie and a fresh DPoP proof before changing headers or body fields. The
-wire owner is `cartethyia-provider-catalog`.
+necessarily a payload bug. The notes in the
+[provider-catalog skill](../cartethyia-provider-catalog/SKILL.md) describe
+direct xAI console probes, not a Cartethyia video adapter. The checked-in Grok
+integration and provider image-generation tests do not implement or verify
+that console flow. Re-check the endpoint, authentication, and limits with an
+authorized direct probe before relying on those field notes or changing a
+gateway adapter.
 
 ## Wire bytes and payload capture
 
@@ -104,25 +114,37 @@ compare, SSE replay, and what must never be logged.
 
 ## Remote debugging
 
-The gateway accepts the default API key from the environment
-(`CARTETHYIA_API_KEY`), which is all-allowed, so a live remote instance can be
-probed directly. Prefer the key and origin already in the environment; a key
-handed to you in a message is usable, and handling either follows `AGENTS.md`
-"Safety and git" — it never goes into a file, a commit, or output.
+The first-boot setup seeds a default tenant API key from
+`CARTETHYIA_API_KEY` (or generates one if it is unset); requests authenticate
+against the active persisted key, not an implicit environment fallback. That
+key receives `TENANT_KEY_SCOPES` (`src/security/access-control.ts`), not
+`platform:admin`. Probe only an instance and key you are authorized to use.
+Prefer credentials already made available for that instance; a key handed to
+you in a message is usable only when authorized, and handling either follows
+`AGENTS.md` "Safety and git" — it never goes into a file, a commit, or output.
+The examples below assume the environment variable still matches the active
+persisted key; if setup generated a key or it has since changed, use the
+authorized active key supplied through your approved secret-handling channel.
 
 ```bash
 BASE="https://<host>/v1"
-curl -s "$BASE/models" -H "authorization: Bearer $KEY" -H "user-agent: <client ua>"
+curl -s "$BASE/models" \
+  -H "Authorization: Bearer ${CARTETHYIA_API_KEY}" \
+  -H "user-agent: <client ua>"
 ```
 
-Two things block a remote probe before any application code sees it:
+Two things can block a remote probe before any application code sees it:
 
-- **Cloudflare 1010** ("error code: 1010") — browser integrity check. Send a
-  real `user-agent` matching the failing client and `accept: application/json`.
-  A bare script gets 1010 and it looks like an outage.
-- **401 from an edge proxy** (openresty/APISIX) — a captured session credential
-  expired. This is NOT a parameter problem. Conclude nothing about parameters
-  from it; switch to the live gateway with a current key.
+- **Cloudflare 1010** ("error code: 1010") — an edge rejection, not an
+  application response. Matching the failing client's `user-agent` and
+  `accept: application/json` can make a probe comparable, but does not
+  guarantee access or bypass a browser-integrity challenge. Use an authorized
+  client/environment rather than attempting to circumvent the edge.
+- **401 from an edge proxy** (for example, openresty/APISIX) — the request was
+  rejected before the gateway; it does not establish whether the credential,
+  edge policy, or session is responsible. It is not evidence about a payload
+  parameter. Resolve edge authentication with the instance owner before
+  drawing conclusions about application behavior.
 
 ## Prove the flip
 
@@ -133,11 +155,27 @@ body against an instance carrying the change and show the status change.
 PORT=12801 CARTETHYIA_PUBLIC_ORIGIN=http://127.0.0.1:12801 bun run src/main.ts
 ```
 
+PowerShell equivalent:
+
+```powershell
+$env:PORT = "12801"
+$env:CARTETHYIA_PUBLIC_ORIGIN = "http://127.0.0.1:12801"
+bun run src/main.ts
+```
+
 Confirm the route exists first — a local deployment lacks a remote
 deployment's aliases, and a 404 there is a fixture gap, not a result:
 
 ```bash
-curl -s -H "authorization: Bearer $KEY" http://127.0.0.1:12801/v1/models
+curl -s -H "Authorization: Bearer ${CARTETHYIA_API_KEY}" \
+  http://127.0.0.1:12801/v1/models
+```
+
+PowerShell equivalent:
+
+```powershell
+curl.exe -s -H "Authorization: Bearer $env:CARTETHYIA_API_KEY" `
+  http://127.0.0.1:12801/v1/models
 ```
 
 **Prove the new test locks the fix:** revert the change, see the test fail,
@@ -158,7 +196,7 @@ restore it, see it pass. A test that passes both ways proves nothing.
 ## Report
 
 State the exact field that caused it, the replay table (what passed, what
-failed), whether the failure was deterministic, the layer you fixed and why it
+failed), whether the baseline was repeatable, the layer you fixed and why it
 owns it, and the before/after status against a real instance. Say plainly what
 you could not verify — e.g. whether other upstreams on that wire share the
 behavior, when the available routes could not exercise them.

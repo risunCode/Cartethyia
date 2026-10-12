@@ -16,8 +16,8 @@ what backs the database and how coordination is shared.
 | | Lite | Full |
 |---|---|---|
 | Database | Embedded SQLite | External PostgreSQL |
-| Coordination | In-process memory | Redis optional, shareable |
-| Extra services | None | PostgreSQL required |
+| Coordination | In-process when Redis is unset; Redis optional | In-process when Redis is unset; Redis optional and shareable |
+| Extra services | None by default; Redis optional | PostgreSQL required; Redis optional |
 | Best for | Personal use, local dev, one process | VPS, sharing, selling, sustained load |
 | Concurrency ceiling | **Single process** | Multiple instances |
 
@@ -344,7 +344,7 @@ Override the default:
 ```dotenv
 CARTETHYIA_DB_MODE=lite
 # DATABASE_URL is not needed in Lite.
-# REDIS_URL=   # omit for in-memory coordination
+# CARTETHYIA_REDIS_URL=   # empty or omit to use in-memory coordination in Compose
 ```
 
 ```bash
@@ -353,7 +353,10 @@ docker compose up --build -d
 
 The app container stores Lite state and telemetry payloads in the persistent
 `/app/data` volume. **Without that mount, replacing the container wipes the
-database.**
+database. Compose starts its bundled Redis service in Lite mode too; set
+`CARTETHYIA_REDIS_URL` empty to use in-memory coordination instead. The Compose
+file maps that variable to the app's `REDIS_URL`; a host `.env` `REDIS_URL`
+does not override it.
 
 > [!IMPORTANT]
 > The image is built on Alpine and runs `dist/cartethyia` (the compiled

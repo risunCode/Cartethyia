@@ -20,7 +20,8 @@ How the system is built — [reference/](reference/README.md), one page per laye
 - [Console API](reference/console-api.md) — the admin/operator surface: domains,
   feature inventory, and the browser mirror.
 - [Dashboard](reference/dashboard.md) — pages, data flow, layout, mutations.
-- [Configuration](reference/configuration.md) — every environment variable.
+- [Configuration](reference/configuration.md) — variables declared in
+  `src/config/spec.ts` (not the separate database, setup, or Compose settings).
   **Generated** from `src/config/spec.ts`; regenerate, never edit by hand.
 - [SQLite parity](reference/sqlite-parity.md) — measured dialect differences
   between Lite and Full.

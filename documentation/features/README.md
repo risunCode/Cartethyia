@@ -18,6 +18,8 @@ summary plus a link. Do not grow those four into feature manuals.
 | [Routing aliases and combos](routing-aliases-combos.md) | Name a model something else, or fan a name out to several |
 
 Procedure does not live here. `.skills/` owns procedure, and each skill names
-the layer's owner: `cartethyia-health-routing` for pools and cooldowns,
-`cartethyia-console-api` for authoring a console domain, `cartethyia-dashboard`
-for browser code. `AGENTS.md` routes you to the right one.
+the layer's owner: [cartethyia-health-routing](../../.skills/cartethyia-health-routing/SKILL.md)
+for pools and cooldowns, [cartethyia-console-api](../../.skills/cartethyia-console-api/SKILL.md)
+for authoring a console domain, and
+[cartethyia-dashboard](../../.skills/cartethyia-dashboard/SKILL.md) for
+browser code. [AGENTS.md](../../AGENTS.md) routes you to the right one.

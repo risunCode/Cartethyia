@@ -17,8 +17,9 @@ The current inventory:
 
 Order of work, so a step never lands blind:
 
-1. `test/style-guard.test.ts` + `style-guard.json` hold the ratchet.
-2. `scripts/dev/visual-baseline.ts` covers the console pages: it builds the
+1. `dashboard/test/style-guard.test.ts` + `dashboard/style-guard.json` hold the ratchet.
+2. `scripts/dev/visual-baseline.ts` covers the landing page and a selected set
+   of public and authenticated console routes (not every dashboard route): it builds the
    dashboard, boots the real gateway (serving the built dist and `/console/api`
    on one origin), signs in through the real form (`admin`; password from
    `CARTETHYIA_DEV_ADMIN_PASSWORD`), and measures through the browser agent
@@ -62,9 +63,10 @@ under "Dev console admin". The password is an operator credential; handling it
 follows `AGENTS.md` "Safety and git" — it may arrive in a message, and it never
 goes into a file, a commit, or output.
 
-`agent-browser` is what every UI claim is measured through, including this
-script's own measurements; a page can also be measured by driving the CLI
-directly, which is the normal path when no gateway credential is available.
+`agent-browser` is what UI claims about layout, computed style, focus, and
+overflow are measured through, including this script's own measurements. A
+page can also be measured by driving the CLI directly, which is the normal path
+when no gateway credential is available.
 
 ## Authenticated console session
 
@@ -114,9 +116,11 @@ environment.
 ## Share page
 
 Keep share data and token units sourced from one provider. Public recipients may
-copy model ids but must not receive admin controls such as probe, enable,
-disable, or delete. Treat theme, backdrop, responsive layout, and model grouping
-as UI behavior to verify.
+copy model ids and test allowed models using the shared API key, but must not
+receive key-management controls such as enable, disable, or delete. Enrollment
+keys are saved in IndexedDB for the same browser; handoff keys are fetched from
+the public data route when the link is opened. Treat theme, backdrop, responsive
+layout, and model grouping as UI behavior to verify.
 
 ## Social metadata injection
 

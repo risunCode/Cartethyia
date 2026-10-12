@@ -147,8 +147,8 @@ bun setup
 
 It does not install PostgreSQL. Full mode needs a server that is already
 running. Setup configures the installation; it does not start it. Pick one of
-the two ways in below, then open the console — the first visit creates the
-admin user.
+the two ways in below, then open the console and complete the first-boot wizard
+to create the admin user.
 
 `CARTETHYIA_DB_MODE` is required and has no default: the gateway throws at boot
 when it is absent, because the two modes are different databases with separate
@@ -310,8 +310,10 @@ passwords and store them securely.
 ## 9. Test database
 
 Database-backed tests use the isolated URL in `CARTETHYIA_TEST_DATABASE_URL`,
-not the development `DATABASE_URL`. The setup command creates `.env.test` from
-`.env.test.example` when it is missing.
+not the development `DATABASE_URL`. The test runner loads `.env.test`
+explicitly; create that file from `.env.test.example` before running
+database-backed checks. `bun setup` creates or updates the application `.env`
+(or the npm CLI's user config), not `.env.test`.
 
 Check the test database:
 

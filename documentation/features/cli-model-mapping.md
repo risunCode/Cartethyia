@@ -98,8 +98,9 @@ another tool gains a mapping table.
 A mapping to a target the key may not use is rejected at `isModelAllowed` before
 routing — the caller sees `model_not_found`, never a silently substituted model.
 A mapping to a target with no usable account reaches `plan()` and returns
-`accounts_unavailable` (503) or `model_not_found` (404), depending on whether the
-target is in the catalog at all.
+`accounts_unavailable` (503) when the target has no usable route,
+`accounts_rate_limited` (429) when its routes are cooling down, or
+`model_not_found` (404) when the resolved target is not routed at all.
 
 ## Where to change what
 
@@ -114,16 +115,19 @@ target is in the catalog at all.
 
 ## Verify
 
-The differential is the test — the same body, only the `User-Agent` changes:
+Use this manual differential smoke check with a key that has the mapping scope,
+a configured `opus` CLI mapping, and no ordinary tenant alias or routed model
+named `opus`. Keep the request body the same and change only the `User-Agent`:
 
 ```
 model "opus", UA curl/8.5.0        → 404 model_not_found   (no remap)
 model "opus", UA claude-cli/1.0.0  → routed to the mapped target
 ```
 
-`test/console/cli-tool-lifecycle.test.ts` and `test/console/cli-tool-injectors.test.ts`
-pin the console half; `test/unit/api-key-auth.test.ts` pins that
-`routing:cli_mapping` never leaks onto a model allowlist.
+`test/unit/api-key-auth.test.ts` verifies that a CLI remap cannot bypass the
+key's model policy. The console lifecycle and injector tests cover local CLI
+configuration files, not the remote-mapping `User-Agent` gate or snapshot
+lookup; there is no focused checked-in test for the differential above yet.
 
 ## See also
 

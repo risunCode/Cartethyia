@@ -2,9 +2,10 @@
 
 `src/console/**` is the operator control plane: the HTTP API the React dashboard
 talks to. Everything under `/console/api` exists so a browser can read and change
-configuration — providers, models, keys, pools, routing, preferences — without
-ever importing the backend. The dashboard calls `/console/api` through
-`dashboard/src/data/api.ts` and defines no second copy of the wire.
+configuration — providers, models, keys, pools, routing, preferences. Console
+pages call `/console/api` through `dashboard/src/data/api.ts`; public apps such
+as the share page use their own public routes. The browser does not import
+backend runtime code, and its API contracts are type-only mirrors.
 
 It is not the data plane. `/v1/*` serves clients; `/console/api` serves the
 operator who configures them. One Elysia process mounts both, but the console is
@@ -18,7 +19,7 @@ A domain is one folder under `src/console/`. The file roles are consistent:
 | File | Owns |
 |---|---|
 | `contracts.ts` | Request/response types, the store interface, validation helpers, and the operations factory. Elysia-free on purpose — `src/console/routing/pools/contracts.ts:3` says so because the dashboard imports these types. |
-| `routes.ts` | The only module that touches Elysia: path, body/query schema, `set.status`, and the catch. |
+| `routes.ts` | The HTTP binding: Elysia paths and schemas, response status, and one error hook per route group. |
 | `store.ts` | Drizzle. The row-to-view mapping lives here; a route never touches the driver. |
 | `service.ts` | Behaviour too large for a store but not HTTP — `src/console/backup/service.ts`, `src/console/cli-tools/service.ts`. |
 
@@ -61,9 +62,11 @@ the console must not depend on the transport layer. Same reason
 `ConsoleApiCompositionDeps.routeSnapshotService` is a structural
 `{ invalidate(): Promise<number> }` (`console-router.ts:48`).
 
-## Boundaries
+## Access and mutation boundaries
 
-Four boundaries apply before any domain code runs. None of them is optional.
+These boundaries apply according to the request and operation: console/API-key
+authentication and authorization, CSRF and throttling for session mutations,
+and password re-authentication for sensitive backup operations.
 
 **Session and tenant.** A `beforeHandle` (`console-router.ts:132`) resolves the
 session cookie to an `AccessDecision` and caches it per `Request` in a `WeakMap`
@@ -119,15 +122,15 @@ into the next.
 | `routing/model` | `/console/api/routing/aliases|combos` | Aliases and combos, plus reorder and clone |
 | `routing/pools` | `/console/api/network/pools/*` | Egress pools, health checks, speed tests, batch probe, cooldown clearing, strategy, hosted-relay deploy |
 | `api-keys/` | `/console/api/api-keys/*` | Keys, share links, share popups, per-key spend |
-| `share/` | `/share/:token/*` | Public enrollment, mounted separately by `createShareRouter` (`src/boot/app.ts:531`), not under `/console/api` |
+| `share/` | `/share/:token/*` | Public enrollment and handoff links, mounted separately by `createShareRouter` (`src/boot/app.ts`), not under `/console/api` |
 | `cli-tools/` | `/console/api/cli-tools/*` | Per-tool status, per-(tenant, tool, key) slot mappings, download, apply |
 | `settings/` | `/console/api/settings/runtime` | Per-tenant preferences: telemetry payloads, privacy mode, RTK prune, PonyTail |
 | `backup/` | `/console/api/backup/*` | Export, import, delete-all. `nine-router.ts` converts a foreign router export, never guessing a provider id |
 | `studio/` | `/console/api/studio/*` | Model lab sessions, bounded to 50 per tenant with oldest-first eviction |
-| `quota/` | `/console/api/quota/*`, `/accounts/*`, `/global/accounts/*` | Quota windows, refresh, check-in, resets; tenant routes and platform-admin routes are separate modules onto one instance |
-| `observability/` | `/console/api/system/*`, `/telemetry/*`, `/logs/*`, `/live/*` | File-log reads, log ring SSE, live in-flight gauge, pool health streams |
+| `quota/` | `/console/api/quota/*`, `/console/api/accounts/*`, `/console/api/global/accounts/*` | Quota windows, refresh, check-in, resets; tenant routes and platform-admin routes are separate modules onto one instance |
+| `observability/` | `/console/api/system/*` (including `/system/performance`), `/telemetry/*`, `/logs/*`, `/live/*` | File-log reads, log ring SSE, live in-flight gauge, pool health streams |
 | `audit/` | `/console/api/audit` | Cursor-paginated `admin_audit_log` read, `platform:admin` only |
-| `admin/model-abuse` | `/console/api/model-bans` | Lift a model-abuse ban early; mounted only when `ctx.modelStrikes` exists (`domain-registration.ts:231`) |
+| `admin/model-abuse` | `/console/api/model-bans` | Lift a model-abuse ban early; mounted only when `ctx.modelStrikes` exists (`domain-registration.ts`) |
 
 That table is the index. Four areas carry their own feature page — data,
 ownership, the routes behind the row, and where to change what:

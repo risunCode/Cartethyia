@@ -5,9 +5,11 @@ is not a class and not a config file: it is a small set of declarations that fou
 layers read. Which layer owns a fact decides where a change goes.
 
 This is the map. The procedure for adding, removing, importing, or authenticating
-a provider belongs to `.skills/cartethyia-provider-catalog/SKILL.md`; account
-health, cooldowns, and pool selection belong to
-`.skills/cartethyia-health-routing/SKILL.md`. Neither is duplicated here.
+a provider belongs to the
+[provider-catalog skill](../../.skills/cartethyia-provider-catalog/SKILL.md);
+account health, cooldowns, and pool selection belong to the
+[health-routing skill](../../.skills/cartethyia-health-routing/SKILL.md).
+Neither is duplicated here.
 
 ## The layers
 
@@ -185,12 +187,15 @@ proof that a model answers. `/v1/models` reads the same rows.
 `QuotaFetcher` (`src/providers/quota/quota-support.ts:60`) is a per-provider
 callback returning `ProviderQuotaResult` (`quota-contracts.ts:17`): a plan label
 and a list of windows with percentages and reset times. Registered collectors are
-resolved lazily through the registry (`:67`). A cached reading of zero remaining
-credit or percent excludes that account while another account can serve the
-request. An operator usage floor can exclude an account earlier. A missing
-reading is not proof that allowance is gone, and `totalRemainingCredit` (`:40`)
-deliberately ignores percentage-only windows because 0–100 is utilization, not a
-balance. Health state lives on `provider_accounts` via `healthColumns()`
+resolved lazily through the registry (`:67`). Each window is explicitly marked
+as `pooled` credit or, by default, an independent quota. Pooled refill/bonus
+balances sum per account before applying the credit or percent floor; independent
+windows such as 5-hour and weekly rate limits are checked separately and block
+at zero. A percent floor also applies to each independent window, while a credit
+floor applies only to the pooled balance. A missing reading is not proof that
+allowance is gone, and `totalRemainingCredit` (`:40`) ignores independent usage
+limits even when they expose absolute `used`/`limit` values. Health state lives
+on `provider_accounts` via `healthColumns()`
 (`src/persistence/schema.ts:93,198`): status, `cooldown_until`, per-model
 cooldowns, last error category. Cooldown classes, recovery sweeps, leases, and
 pool selection are owned by `.skills/cartethyia-health-routing/SKILL.md`.
@@ -230,7 +235,7 @@ protocol instead of going through a canonical codec (`metadata.ts:316`).
 
 | Change | Start here |
 | --- | --- |
-| New provider, family, or catalog row | `.skills/cartethyia-provider-catalog/SKILL.md` |
+| New provider, family, or catalog row | [Provider-catalog skill](../../.skills/cartethyia-provider-catalog/SKILL.md) |
 | Provider identity, base URL, default wire, service kinds | `src/providers/metadata.ts:27` |
 | Wire a bundled provider's adapter/auth/quota/discovery | `src/providers/default-registry.ts:82` |
 | Behavior of one provider's wire | its module under `src/providers/integrations/<family>/` or `src/providers/adapters/` |
@@ -245,4 +250,4 @@ protocol instead of going through a canonical codec (`metadata.ts:316`).
 | Live model listing | the family's `loadModelDiscovery`, or `discovery/openai-model-discovery.ts:25` |
 | Quota windows | the family's `*-quota.ts` collector, plus `src/providers/quota/quota-contracts.ts:1` |
 | OAuth login, refresh, device flow | `src/providers/authentication/`, then the family's `*-oauth.ts` |
-| Account health, cooldowns, pool selection | `.skills/cartethyia-health-routing/SKILL.md` |
+| Account health, cooldowns, pool selection | [Health-routing skill](../../.skills/cartethyia-health-routing/SKILL.md) |

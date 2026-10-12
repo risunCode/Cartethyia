@@ -15,9 +15,11 @@ Read `documentation/reference/console-api.md` for orientation first.
 ## When not to touch a route
 
 A route is the narrowest layer. If the bug is in a store query, a validator, or a
-projection, fix it there and leave `routes.ts` alone. 95 route handlers used to
-each carry their own `try/catch`; that was collapsed into one `error()` hook, so
-adding a try/catch back is going backwards.
+projection, fix it there and leave `routes.ts` alone. Several route groups have
+replaced per-handler `try/catch` blocks with one shared `error()` hook; do not
+add a catch back to those groups. Some existing groups (including
+`api-keys/routes.ts`) still shape errors per handler; follow the local group
+rather than mechanically converting unrelated handlers.
 
 ## Procedure
 
@@ -25,7 +27,7 @@ adding a try/catch back is going backwards.
    One behaviour, one canonical owner.
 2. **Read the domain end to end** — `contracts.ts`, then `routes.ts`, then
    `store.ts` or `service.ts`. Do not skip `contracts.ts`: the operations factory
-   and the validation live there in most domains.
+   and the validation live there in many domains.
 3. **Contract first.** Add the request/response types, the store method, and the
    validation to `contracts.ts`. Declare member lists as `as const` tuples and
    project the Elysia schema from them with `literalUnion()`
@@ -38,9 +40,11 @@ adding a try/catch back is going backwards.
 4. **Operations second.** Authorise, validate, mutate, audit, invalidate. The
    factory takes `access` as its first argument and narrows it before touching the
    store — `requireTenantScope(access, "dashboard:write")` is the normal shape.
-5. **Route third.** `routes.ts` binds the path, the schema, and `set.status`, and
-   does nothing else. Register `.error(consoleErrorHandler("<area> operation failed"))`
-   once per route group rather than wrapping handlers.
+5. **Route third.** `routes.ts` binds the path and schema, sets response status,
+   and shapes failures using its existing group convention. New route groups
+   should use `.error(consoleErrorHandler("<area> operation failed"))`; where
+   an existing group still uses per-handler catches, preserve that local
+   pattern unless converting the group deliberately.
 6. **Wire it.** No new domain mounts itself. Add one
    `console.use(createXRoutes({ ...ctx fields ... }))` in
    `src/console/domain-registration.ts`. Only the auth routes are mounted by
@@ -62,7 +66,8 @@ is why `USAGE_DIMENSIONS` is re-exported from the pure `usage-dimensions.ts`
 ## Errors and status codes
 
 `ConsoleDomainError` (`src/console/shared/errors.ts:14`) carries `code`, `status`,
-and optional `details`. Every domain throws it; `errorResponse()`
+and optional `details`. Domain operations commonly throw it; route groups shape
+it with `errorResponse()`
 (`shared/errors.ts:42`) shapes it into `{ error, code, details? }` and sets
 `set.status`. A throw that is not shaped becomes 500 `internal_error` with the
 group's fallback message.
@@ -73,8 +78,11 @@ failure is the caller's fault, not a 500 — and lets Elysia's own control-flow
 throws keep their numeric status.
 
 Codes in use: `unauthorized` 401, `insufficient_scope` 403, `tenant_required` 403,
-`invalid_request` 400, `not_found`/`<thing>_not_found` 404, `quota_exceeded` 429,
-`ssrf_rejected` 400. Reuse these before inventing one.
+`not_found`/`<thing>_not_found` 404, and `quota_exceeded` 429. `invalid_request`
+uses the status appropriate to its boundary: domain validation commonly returns
+400, CSRF rejection returns 403, and Elysia request-schema failures are
+translated to 422. `ssrf_rejected` returns 400. Reuse the established code and
+status for the same condition.
 
 `detailsPolicy` controls whether `details` reaches the client. `settings` passes
 `"omit"` (`settings/contracts.ts:140`) because a preferences patch echoes the whole

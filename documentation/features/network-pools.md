@@ -1,7 +1,8 @@
 # Network pools
 
-A network pool is one egress — an HTTP, SOCKS5, or bridge relay a request
-leaves through. Pools are chosen *after* the model and account are decided:
+A network pool is an egress path — an HTTP, HTTPS, or SOCKS5 proxy, optionally
+fronted by a hosted relay. Pools are chosen *after* the model and account are
+decided:
 `src/network` owns egress, SSRF, retry, and outbound fetch, and explicitly does
 not own model selection (`architecture.md`).
 
@@ -11,11 +12,13 @@ not own model selection (`architecture.md`).
 | --- | --- | --- |
 | `network_pools` | `id` | `kind`, `endpoint_config`, `credential_ciphertext`, `max_inflight`, `weight`, `family`, health columns, speed-test and byte totals |
 | `pool_routing_settings` | PK `tenant_id` | `strategy` (`least_loaded` \| `round_robin`), `rotate_count` |
-| `provider_routing_settings` | `(tenant_id, provider_id)` or global when `tenant_id IS NULL` | `skip_proxy` (dial direct, never through a pool), `user_agent`, per-account `max_inflight`, `usage_floor` |
+| `provider_routing_settings` | `(tenant_id, provider_id)` or global when `tenant_id IS NULL` | Account `strategy` / `rotate_count`, `enabled`, `max_inflight`, `usage_floor` / `usage_floor_unit`, and provider `skip_proxy` / `user_agent` |
 
 `skipProxy` and `userAgent` live on the *provider* row, not the pool row: when
-it is false, dispatch selects among every active pool the tenant owns —
-least-loaded and not cooling down — and never an admin-pinned one.
+`skipProxy` is false and the tenant has pools configured, dispatch selects
+among every active pool the tenant owns using its pool strategy (weighted
+least-loaded by default, or round-robin), skips pools cooling for that provider,
+and never uses an admin-pinned pool.
 
 `kind` is `http`, `https`, or `socks5`. Health columns are the same eight every
 health-bearing row shares (`status`, `consecutive_failures`, `last_success_at`,
@@ -30,8 +33,10 @@ health-bearing row shares (`status`, `consecutive_failures`, `last_success_at`,
 
 `NetworkPoolSelector` (`src/network/pool/selector.ts`) is weighted and
 cooldown-aware, and keeps inflight in a local map with Redis counters so two
-processes do not oversubscribe one proxy. `DEFAULT_PROXY_CONCURRENCY` is 10;
-`effectiveConcurrency()` applies the pool's own `max_inflight` on top.
+processes do not oversubscribe one proxy. `DEFAULT_PROXY_CONCURRENCY` is 10:
+that is the limit when a pool has no `max_inflight` value. The pool's configured
+limit replaces that default; `effectiveConcurrency()` validates the chosen
+limit rather than adding another cap.
 
 The role files are split on purpose:
 
@@ -48,6 +53,12 @@ The role files are split on purpose:
 Strategy is per tenant: `least_loaded` (the default) does a weighted scan with a
 rotating tie-break; `round_robin` serves `rotate_count` requests per pool before
 advancing and skips a pool the same way account failover does.
+
+An operator may set a pool to `disabled`; network failures can park it in
+`cooldown`, and a successful dispatch or recovery restores it to `active`.
+Only active pools enter automatic selection. `quota_bytes` is a metering/display
+allowance, not a dispatch stop: the gateway records sent/received totals but
+does not block traffic when those totals reach the allowance.
 
 ## Agents and relays
 
@@ -89,12 +100,13 @@ Domain: `src/console/routing/pools/`, mounted at `/console/api/network/pools`.
 | Route | Purpose |
 | --- | --- |
 | `GET /`, `GET /:poolId` | List and detail |
-| `POST /`, `DELETE /:poolId` | Create and remove |
+| `POST /`, `PATCH /:poolId`, `DELETE /:poolId` | Create, update, and remove |
 | `POST /test`, `POST /test-batch` | Single and batch endpoint probe |
-| `POST /:poolId/health-check`, `/recover` | Force a check; clear a cooldown |
+| `POST /:poolId/health-check`, `/recover`, `/cooldowns/clear` | Check health, recover a pool, or clear selected/all provider cooldowns |
 | `GET /:poolId/health-events` | The pool's health history |
+| `POST /:poolId/speed-test` | Measure transfer speed |
 | `POST /relay/deploy` | Hosted-relay deploy (`relay-deploy.ts`, `relay-regions.ts`) |
-| `GET /strategy` | Tenant strategy and rotate count |
+| `GET /strategy`, `PATCH /strategy` | Read or update tenant strategy and rotate count |
 
 `contracts.ts` is deliberately Elysia-free — the note is at
 `src/console/routing/pools/contracts.ts:3` because the dashboard imports these
@@ -127,19 +139,20 @@ straight off the selector.
 
 ## Known issues
 
-Direct egress behind an active VPN resolves through the OS resolver. A proxy
-pool on the same host can still hang: the pool accepts TCP, but an HTTP request
-or `CONNECT` handshake may never answer, so the gateway request produces no
-response. Reproduced with VPN enabled and proxy skip disabled. The proxy-side
-cause is not yet identified, so do not treat a timeout added around DNS lookup
-as a fix for this hang.
+Direct egress falls back to the OS resolver when the configured c-ares resolver
+refuses a query (`test/network/vpn-dns.test.ts`). There is also a reported
+proxy-pool hang on the same host: the pool accepts TCP, but an HTTP request or
+`CONNECT` handshake may never answer, leaving the gateway request without a
+response. The proxy-side cause is not yet identified. The test verifies only
+the DNS fallback, not the proxy hang, so do not treat a DNS lookup timeout as a
+fix for it.
 
 ## See also
 
 - [`configuration.md`](../reference/configuration.md) — "Account and pool cooldowns",
   "Proxy pool agents", and "Network policy (trusted proxy and SSRF)". Generated
   from `src/config/spec.ts`; do not edit it.
-- `.skills/cartethyia-health-routing` — cooldown classes, retries, leases, and
-  rotation procedure.
+- [Health-routing skill](../../.skills/cartethyia-health-routing/SKILL.md) —
+  cooldown classes, retries, leases, and rotation procedure.
 - [`architecture.md`](../reference/architecture.md) — pool routing as part of the route
   snapshot.

@@ -245,10 +245,24 @@ columns are not recreated.
 
 ## Workers
 
-`src/workers/` holds scheduled loops started from the composition root: telemetry
-retention, session sweep, OAuth refresh, health sweep, and quota refresh. A loop
-that needs the database takes the handle it was given at boot. It does not open
-a second pool.
+`src/workers/` keeps scheduling mechanics and worker-specific jobs as flat
+modules:
+
+| File | Responsibility |
+| --- | --- |
+| `scheduler.ts` | Owns task timers, non-overlap, shutdown, and growing concurrency waves |
+| `sweep-runner.ts` | Shared bounded runner for account-oriented maintenance sweeps |
+| `quota-refresh-sweep.ts` | Refreshes stale quota and rides along with daily check-ins |
+| `oauth-refresh-sweep.ts` | Proactively refreshes due OAuth credentials |
+| `daily-checkin.ts` | Claims daily check-in and reports Buddy activity |
+| `daily-checkin.ts` | Claims daily check-ins, reports Buddy activity, and selects tenant-safe egress |
+| `account-identity-sweep.ts` | Derives account label/email from stored credentials |
+
+`src/boot/dependencies.ts` registers these and other maintenance tasks with the
+scheduler. Other periodic jobs remain beside their owning domains, such as
+session cleanup under `src/console/auth/` and health cleanup under
+`src/providers/operations/`. A task that needs persistence receives the
+composition root's database handle; it does not open a second pool.
 
 ## Where to change what
 

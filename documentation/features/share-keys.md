@@ -1,14 +1,16 @@
 # Share keys
 
-A share link is a public URL that mints a **child API key** under a parent
-*share template*. Anyone holding the link can enroll once and get a bearer key
-that lives inside the parent's budget, denylist, model allowlist, and CLI
-mapping bucket — without the operator handing out the parent secret.
+A share link is a public URL for one of two flows. An **enrollment link** under
+a parent *share template* lets a recipient mint a **child API key** inside the
+parent's budget, denylist, model allowlist, and CLI mapping bucket — without
+the operator handing out the template secret. A **handoff link** for a personal
+key reveals that existing key to anyone holding the link.
 
-The template is an ordinary `api_keys` row with `key_mode = 'share'`. Its own
-counter never moves for child traffic; reporting sums the parent plus every
-recipient it has issued, revoked ones included, because that spend is already
-spent.
+The template is an ordinary top-level `api_keys` row with `key_mode = 'share'`.
+Its own counter never moves for child traffic; family reporting sums the parent
+plus every recipient it has issued, revoked ones included, because that spend
+is already spent. A personal key uses a handoff link instead and has no child
+issuance flow.
 
 ## Data
 
@@ -18,9 +20,10 @@ spent.
 | `share_popups` | PK `api_key_id` | `enabled`, `image`, `image_mime`, `title`, `body` |
 | `api_keys` | `parentKeyId` | The child row itself |
 
-**Token.** Generated at 43 base64url characters; the lookup is on the hash
-(`hashShareToken`). The plaintext is kept in `token_encrypted` only so the
-console can re-display a stable link. Rows written before that column existed
+**Token.** A 32-byte random token encodes to 43 base64url characters; lookup
+uses its SHA-256 hash (`hashShareToken`). The plaintext is kept in
+`token_encrypted` only so the console can re-display a stable link. Rows written
+before that column existed
 carry `NULL` and simply cannot be shown again — the remedy is a new link, not a
 recovery path. `kind` is `enroll` or `handoff`.
 
@@ -36,22 +39,25 @@ make every `/v1` request drag a 2 MiB blob through it.
 
 ## The public surface
 
-`createShareRouter` is mounted separately by `createShareRouter` in
-`src/boot/app.ts:531` — **not** under `/console/api`, because it must work
-without a session:
+`createShareRouter` is mounted by `createGatewayApp` in `src/boot/app.ts` —
+**not** under `/console/api`, because it must work without a session:
 
 | Route | Purpose |
 | --- | --- |
-| `GET /share/:token/data` | Policy, popup, and allowed-model catalog for the page |
-| `GET /share/:token/popup-image` | The image bytes, served with the API's content-security and frame headers |
-| `POST /share/:token/issue` | Mint the child key |
+| `GET /share/:token/data` | Policy, popup, and allowed-model catalog; enrollment links also report issuance eligibility, while handoff links return the existing key |
+| `GET /share/:token/popup-image` | The image bytes, served with a private cache policy and `X-Content-Type-Options: nosniff` |
+| `POST /share/:token/issue` | Mint an enrollment child key; requires a non-empty `nameHint` |
 | `GET /share/:token/stats` | Family totals, hourly buckets, top models, top client IPs |
 | `GET /share/:token/stats/stream` | The same as SSE, one snapshot every 2 s |
 
-`issue` allows **one child key per canonical client IP** (`canonicalClientIpKey`,
-so a NAT'd office still shares a key rather than spraying new ones). The child
-bearer is returned only by that call — never by `stats`, never by `data`, never
-again.
+Enrollment allows **one active child key per canonical client IP across share
+templates** (`canonicalClientIpKey`), so a NAT'd office shares a key rather than
+issuing one per link. The newly minted bearer is returned by the successful
+`issue` response, not by stats or enrollment data. The share page saves that
+enrollment key in IndexedDB in the same browser, keyed by link token, so it can
+redisplay a local copy; it deletes that copy if the link lookup fails. A
+handoff link is different: its `data` response reveals the existing personal
+key whenever the link resolves, and the browser does not persist that key.
 
 ## Inheritance
 
@@ -72,9 +78,9 @@ A child row cannot be edited on its own: `updateKey` refuses with 409
 
 ## Dashboard
 
-`dashboard/src/apps/share` is the public page. It reads the share API and has
-**no** probe, enable, disable, or delete controls — model ids can be copied, and
-admin actions stay in the console. The owner's side is
+`dashboard/src/apps/share` is the public page. Recipients can copy model ids
+and test an allowed model using the shared API key; they have no key-management
+controls such as enable, disable, or delete. The owner's side is
 `ShareManagementDialog.tsx` plus the share section of `ApiKeyForm.tsx`.
 
 Social tags for the share route are injected into the served HTML by
@@ -85,7 +91,7 @@ check against the bundle proves nothing.
 
 | Change | Start here |
 | --- | --- |
-| Token format or hash | `src/persistence/stores/share-store.ts`, `MIN_TOKEN_LENGTH` in `share-router.ts` |
+| Token format or hash | `src/console/api-keys/routes.ts`, `hashShareToken` in `src/persistence/stores/share-store.ts`, and `MIN_TOKEN_LENGTH` in `src/console/share/share-router.ts` |
 | Enrollment rules (one per IP, refusal reasons) | `src/console/share/share-router.ts` |
 | Family usage and stats | `src/console/share/{share-usage,share-stats}.ts` |
 | Popup validation | `src/console/api-keys/share-popup-image.ts` |
@@ -94,6 +100,7 @@ check against the bundle proves nothing.
 
 ## See also
 
-- [`console-api.md`](../reference/console-api.md) — the four boundaries; the public router
-  deliberately bypasses the session one.
-- [`backend.md`](../reference/backend.md) — where the domain sits in the console mount.
+- [`console-api.md`](../reference/console-api.md) — console access and mutation
+  boundaries; the public router is mounted separately and does not use console
+  session authentication.
+- [`backend.md`](../reference/backend.md) — backend composition and route mounting.

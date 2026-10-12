@@ -2,14 +2,16 @@
 
 How one client payload becomes one provider payload and back. Read this before
 changing request or response handling. For the procedure to attribute a failing
-request to one field, use `.skills/cartethyia-trace-replay` instead — this file
-explains the seams, not the bisection method.
+request to one field, use the
+[trace-replay skill](../../.skills/cartethyia-trace-replay/SKILL.md) instead —
+this file explains the seams, not the bisection method.
 
 ## What the gateway translates between
 
-Clients speak five wire shapes. Four of them are parsed into one canonical
-request; the fifth (`completions`) is its own surface with its own encoder and no
-provider-side codec.
+The gateway exposes four client request surfaces. Each surface parses into the
+canonical request; `completions` has its own legacy parser and client-response
+encoder, but no dedicated provider-side codec. It is translated to the selected
+provider wire family like the other surfaces.
 
 | Client surface | Path | Owner |
 | --- | --- | --- |
@@ -225,8 +227,11 @@ lifecycle violations.
 ## Not covered here
 
 Reproducing a failure, bisecting a payload, remote debugging against a live
-gateway, and proving a test locks the fix are owned by
-`.skills/cartethyia-trace-replay`. Routing, eligibility, leases, and account
-cooldowns are `documentation/architecture.md` and the health-routing skill.
-Provider registration and catalogs are `documentation/backend.md` and the
-provider-catalog skill.
+gateway, and proving a test locks the fix are owned by the
+[trace-replay skill](../../.skills/cartethyia-trace-replay/SKILL.md). Routing,
+eligibility, leases, and account cooldowns are covered by the
+[architecture reference](architecture.md) and
+[health-routing skill](../../.skills/cartethyia-health-routing/SKILL.md).
+Provider registration and catalogs are covered by the
+[backend reference](backend.md) and
+[provider-catalog skill](../../.skills/cartethyia-provider-catalog/SKILL.md).

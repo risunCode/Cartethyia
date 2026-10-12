@@ -1,11 +1,14 @@
 # SQLite and PostgreSQL parity
 
 Both backends run the same Drizzle schema (`src/persistence/schema.ts`, written
-with `pg-core`) and the same stores. The SQL that differs is meant to live in
-`src/persistence/dialect.ts`, and the DDL that differs is derived by
-`scripts/generate/sqlite-ddl.ts`. What follows is what that arrangement
-actually does, measured against a real SQLite database on 2026-10-07, not
-inferred from the types.
+with `pg-core`) and the same stores. SQL expressions that differ are meant to
+live in `src/persistence/dialect.ts`. The SQLite baseline is generated from the
+PostgreSQL baseline by `scripts/generate/sqlite-ddl.ts`; forward migrations are
+maintained as paired SQL files in `migrations/full-postgres/` and
+`migrations/lite-sqlite3/`. `test/persistence/sqlite-baseline.test.ts` checks
+that the baselines and migration filenames stay in sync. What follows is what
+that arrangement actually does, measured against a real SQLite database on
+2026-10-07, not inferred from the types.
 
 The column counts are from `schema.ts`: 18 `boolean`, 15 `jsonb`, 24
 `timestamp`, 13 `bigint` (all `mode: "number"`), 3 `numeric`, 12 `pgEnum`.
