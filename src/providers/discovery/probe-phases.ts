@@ -33,7 +33,7 @@ import {
   type ProviderWireContext,
 } from "./probe-wire";
 import { OpenAICompatibleAdapter } from "../compatible-adapter";
-import { resolveByokWireProfile, stripEndpointBasePath } from "../operations/byok-wire-profile";
+import { resolveByokWireProfile } from "../operations/byok-wire-profile";
 import { recordAccountFailure, recordAccountSuccess } from "../operations/account-health-service";
 import { buildCapabilityProfile } from "../../transport/routing/route-catalog";
 import { classifyUpstreamFailure } from "../../transport/failure-policy";
@@ -203,10 +203,7 @@ export async function resolveProbeTarget(args: {
       profile?.endpoint_paths_by_wire_family?.[family] ??
       staticEndpointForWire(bundledModelCatalog, providerId, family) ??
       discoveryPathsFor(providerId)?.[family];
-    return stripEndpointBasePath(
-      ep ?? defaultEndpoints[family] ?? "/v1/chat/completions",
-      providerWireRow?.baseUrl ?? undefined,
-    );
+    return ep ?? defaultEndpoints[family] ?? "/v1/chat/completions";
   };
 
   let wireFamily: WireFamily;

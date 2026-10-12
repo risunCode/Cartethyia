@@ -186,6 +186,21 @@ Released 2026-10-12.
 
 ### Fixed
 
+**Providers**
+
+- A rejected credential now says what the operator can actually do. `Re-login
+  required` was rendered for every `auth_invalidated` account, which is only
+  true of an OAuth one; a BYOK API key has no login to return to, and the row
+  sent the operator after a sign-in button their provider does not have. An API
+  key now reads `Replace API key`.
+- A declared endpoint path is no longer rewritten against the provider's base
+  URL. The strip existed so `https://api.openai.com/v1` plus
+  `/v1/chat/completions` would not join into `/v1/v1/chat/completions`, and it
+  hid the fact that 13 bundled providers declared exactly that doubled path. The
+  specs now declare the path below the version root they actually sit under, so
+  a wrong path reaches the operator as the wrong URL instead of being quietly
+  corrected into a different address.
+
 **Packaging**
 
 - The root manifest version was `2.2.0` while the dashboard manifest carried

@@ -11,8 +11,18 @@ describe("accountErrorLabel", () => {
     expect(accountErrorLabel("quota_fetch_failed")).toBe("Quota unreachable");
   });
 
-  test("a revoked credential says what the operator must do", () => {
-    expect(accountErrorLabel("auth_invalidated")).toBe("Re-login required");
+  test("a revoked OAuth credential says to re-login", () => {
+    expect(accountErrorLabel("auth_invalidated", "oauth")).toBe("Re-login required");
+  });
+
+  test("a revoked API key says to replace the key, not re-login", () => {
+    // A BYOK key has no login to return to; telling the operator to re-login
+    // sends them after a sign-in button their provider does not have.
+    expect(accountErrorLabel("auth_invalidated", "api_key")).toBe("Replace API key");
+  });
+
+  test("an unlabelled revoked credential still avoids a login instruction", () => {
+    expect(accountErrorLabel("auth_invalidated")).not.toMatch(/login/i);
   });
 
   test("an unknown category is shown as-is rather than hidden", () => {

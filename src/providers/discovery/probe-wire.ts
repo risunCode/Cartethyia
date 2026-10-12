@@ -21,7 +21,7 @@ import type { CompatibilityProfile } from "../metadata";
 import { isBundledProviderId } from "../contracts";
 import type { ModelDefinition } from "../model-definition";
 import { PROVIDER_CAPABILITIES } from "../default-registry";
-import { stripEndpointBasePath, resolveByokWireProfile } from "../operations/byok-wire-profile";
+import { resolveByokWireProfile } from "../operations/byok-wire-profile";
 
 /**
  * Endpoint paths declared for one provider by the provider registry.
@@ -154,7 +154,7 @@ export function applyDiscoveredWire(input: DiscoveredWireInput): DiscoveredModel
     (discoveredFamily !== undefined ? input.discoveredEndpointPath : undefined) ??
     input.staticEndpoints?.[wireFamily] ??
     input.resolvedEndpointPath;
-  return { wireFamily, endpointPath: stripEndpointBasePath(endpointPath, input.baseUrl) };
+  return { wireFamily, endpointPath };
 }
 
 /**

@@ -13,7 +13,7 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { consoleRequest } from "../../../data/api";
-import { accountErrorLabel } from "../../../lib/format/labels";
+import { accountErrorLabel, authInvalidatedLabel } from "../../../lib/format/labels";
 import { useMysteriousAccounts } from "../../../lib/privacy-mode";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
@@ -127,11 +127,11 @@ export function AccountStatusBadge({
         </Badge>
         {revoked ? (
           <Badge tone="warn" title={account.lastError}>
-            Re-login required
+            {authInvalidatedLabel(account.credentialKind)}
           </Badge>
         ) : account.lastErrorCategory && !(account.lastErrorCategory === "quota_exhausted" && modelCooldowns) ? (
           <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
-            {accountErrorLabel(account.lastErrorCategory)}
+            {accountErrorLabel(account.lastErrorCategory, account.credentialKind)}
           </Badge>
         ) : null}
         <ModelCooldownChip cooldowns={modelCooldowns} reason={account.lastErrorCategory === "quota_exhausted" ? account.lastError : undefined} />
@@ -152,7 +152,7 @@ export function AccountStatusBadge({
         </Badge>
         {account.lastErrorCategory && !(account.lastErrorCategory === "quota_exhausted" && modelCooldowns) ? (
           <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
-            {accountErrorLabel(account.lastErrorCategory)}
+            {accountErrorLabel(account.lastErrorCategory, account.credentialKind)}
           </Badge>
         ) : null}
         <ModelCooldownChip cooldowns={modelCooldowns} reason={account.lastErrorCategory === "quota_exhausted" ? account.lastError : undefined} />
@@ -168,7 +168,7 @@ export function AccountStatusBadge({
         </Badge>
         {account.lastErrorCategory && !(account.lastErrorCategory === "quota_exhausted" && modelCooldowns) ? (
           <Badge tone="warn" title={account.lastError ?? account.lastErrorCategory}>
-            {accountErrorLabel(account.lastErrorCategory)}
+            {accountErrorLabel(account.lastErrorCategory, account.credentialKind)}
           </Badge>
         ) : null}
         <ModelCooldownChip cooldowns={modelCooldowns} reason={account.lastErrorCategory === "quota_exhausted" ? account.lastError : undefined} />

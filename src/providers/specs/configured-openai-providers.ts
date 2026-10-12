@@ -1,5 +1,5 @@
 import type { ApiKeyProviderSpec } from "../integrations/shared/configured-provider";
-import { BARE_ROOT_ENDPOINTS } from "../../protocol/codecs";
+import type { ProviderId } from "../contracts";
 
 /**
  * Builtin providers whose entire adapter contract is "bearer auth against the
@@ -51,12 +51,12 @@ export const GENERIC_API_KEY_PROVIDER_IDS = [
 /**
  * Ids whose base URL already ends at a version segment.
  *
- * `joinUrl` is plain concatenation, so the path a provider declares is appended
- * verbatim. For a base already rooted at a version, a `/v1/…` path doubles the
- * segment and every request 404s — silently, since nothing dispatches until an
- * operator configures an account. These specs therefore declare the path
- * *below* the version root, which is what `stripEndpointBasePath` would derive
- * anyway when it runs during discovery.
+ * `joinUrl` is plain concatenation and nothing rewrites a declared path, so a
+ * base already rooted at a version plus a `/v1/…` path doubles the segment and
+ * every request 404s. These specs therefore declare the path *below* the
+ * version root. That is the provider stating the truth about its own wire, not
+ * a correction applied to it: a wrong path now reaches the operator as the
+ * wrong URL instead of being quietly rewritten into a different address.
  */
 export const VERSIONED_ROOT_API_KEY_PROVIDER_IDS = [
   "groq",
@@ -71,7 +71,7 @@ export const VERSIONED_ROOT_API_KEY_PROVIDER_IDS = [
 export type VersionedRootApiKeyProviderId =
   (typeof VERSIONED_ROOT_API_KEY_PROVIDER_IDS)[number];
 
-function versionedRootApiKeySpec(providerId: VersionedRootApiKeyProviderId): ApiKeyProviderSpec {
+function versionedRootApiKeySpec(providerId: ProviderId): ApiKeyProviderSpec {
   return {
     provider_id: providerId,
     endpoint_paths_by_wire_family: {
@@ -102,14 +102,12 @@ export const VERSIONED_ROOT_API_KEY_SPECS = {
 export type GenericApiKeyProviderId = (typeof GENERIC_API_KEY_PROVIDER_IDS)[number];
 
 function genericApiKeySpec(providerId: GenericApiKeyProviderId): ApiKeyProviderSpec {
-  return {
-    provider_id: providerId,
-    // These roots are bare hosts, so the `/v1`-prefixed wire paths stay pinned.
-    endpoint_paths_by_wire_family: {
-      chat: BARE_ROOT_ENDPOINTS.chat!,
-      responses: BARE_ROOT_ENDPOINTS.responses!,
-    },
-  };
+  // These roots are *not* bare hosts — every one of them already ends at `/v1`
+  // — so the path is declared below that root. It used to be pinned from
+  // `BARE_ROOT_ENDPOINTS` and silently corrected at dispatch, which meant the
+  // declared path was wrong for all of them and nothing said so. Both spec
+  // shapes now declare the same thing, so this is the one implementation.
+  return versionedRootApiKeySpec(providerId);
 }
 
 export const GENERIC_API_KEY_SPECS = {

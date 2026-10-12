@@ -80,31 +80,11 @@ export function resolveByokWireProfile(
 }
 
 /**
- * Strips a base path the operator already baked into their base URL
- * (`https://api.openai.com/v1` + `/v1/chat/completions` must not join into
- * `/v1/v1/chat/completions`). A no-op when the base has no path or the
- * endpoint does not repeat it.
- */
-export function stripEndpointBasePath(endpointPath: string, baseUrl: string | undefined): string {
-  if (!baseUrl) return endpointPath;
-  let basePath: string;
-  try {
-    basePath = new URL(baseUrl).pathname.replace(/\/+$/, "");
-  } catch {
-    return endpointPath;
-  }
-  if (basePath !== "" && basePath !== "/" && endpointPath.startsWith(`${basePath}/`)) {
-    return endpointPath.slice(basePath.length);
-  }
-  return endpointPath;
-}
-
-/**
  * Endpoint tails an operator may paste into the Base URL field instead of a
  * root. They all end at a per-request path (`/models` is the one exception the
  * model list already handles), so a base carrying one of them cannot be a root
- * and every derived URL — the model list, and the dispatch endpoint joined by
- * `stripEndpointBasePath` — comes out wrong.
+ * and every derived URL — the model list, and the dispatch endpoint joined
+ * below it — comes out wrong.
  */
 const ENDPOINT_TAIL = /\/(?:v\d+\/)?(?:messages|chat\/completions|responses|completions|embeddings|images\/generations)$/;
 

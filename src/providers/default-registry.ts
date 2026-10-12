@@ -545,8 +545,8 @@ export const PROVIDER_CAPABILITIES = {
     // here would resolve a probe onto a wire with no endpoint path and no
     // catalog row behind it.
     endpointPathsByWireFamily: {
-      chat: "/v1/chat/completions",
-      responses: "/v1/responses",
+      chat: "/chat/completions",
+      responses: "/responses",
     },
     loadAdapter: async () => createApiKeyAdapter(GENERIC_API_KEY_SPECS.ollamacloud),
     loadQuotaCollector: quotaCapability(() => import("./specs/ollama-cloud-quota"), "fetchOllamaQuota"),

@@ -28,7 +28,6 @@ import {
 import { createDefaultProviderRegistry } from "../../src/providers/default-registry";
 import { BUNDLED_PROVIDER_MODULES } from "../../src/providers/default-registry";
 import { BUNDLED_PROVIDER_METADATA, providerBaseUrl } from "../../src/providers/metadata";
-import { stripEndpointBasePath } from "../../src/providers/operations/byok-wire-profile";
 import { joinUrl } from "../../src/protocol/codecs";
 import { BARE_ROOT_ENDPOINTS } from "../../src/protocol/codecs";
 import type { WireFamily } from "../../src/protocol/canonical-model";
@@ -115,9 +114,10 @@ describe("bundled API-key provider completeness", () => {
       for (const [wireFamily, declared] of Object.entries(
         module.endpointPathsByWireFamily,
       ) as [WireFamily, string][]) {
-        // Discovery strips the base path before persisting, so the dispatched
-        // URL is the stripped form — that is what this measures.
-        const finalUrl = joinUrl(baseUrl, stripEndpointBasePath(declared, baseUrl));
+        // The dispatched URL is the declared path joined to the base
+        // verbatim: nothing rewrites it, so a doubled version segment here is
+        // one the gateway would actually send.
+        const finalUrl = joinUrl(baseUrl, declared);
         if (/\/(v\d+)(?:\/[a-z0-9]+)?\/\1\//i.test(finalUrl)) {
           doubled.push(`${module.id}/${wireFamily} → ${finalUrl}`);
         }

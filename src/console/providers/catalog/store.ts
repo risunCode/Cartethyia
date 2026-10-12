@@ -515,10 +515,8 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     // probe/dispatch 404s.
     const staticEndpoint = await this.probing.resolveStaticEndpoint(providerId, family);
     const endpointPath = endpointPathForProviderModel(
-      providerId,
       family,
       owner[0].compatibilityProfile,
-      owner[0].baseUrl,
       staticEndpoint === undefined ? undefined : { [family]: staticEndpoint },
     );
     if (modelIds.length === 0) return;

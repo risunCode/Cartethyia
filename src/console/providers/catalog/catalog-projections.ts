@@ -9,7 +9,7 @@
  * segment. `mapProviderRow` is the single `providers` row projection.
  */
 import { isBundledProviderId } from "../../../providers/contracts";
-import { providerBaseUrl } from "../../../providers/metadata";
+
 import { providerDisplayName, providerServiceKinds, providerSupportsWebSearch } from "../../../providers/metadata";
 import type { CompatibilityProfile } from "../../../providers/metadata";
 import { supportedWireFamiliesForProvider } from "../../../providers/discovery/probe-wire";
@@ -32,10 +32,8 @@ export const DEFAULT_ENDPOINT_BY_WIRE_FAMILY: Record<WireFamily, string> = {
   messages: "/v1/messages",
 };
 export function endpointPathForProviderModel(
-  providerId: string,
   wireFamily: WireFamily,
   compatibilityProfile: unknown,
-  storedBaseUrl: string | null,
   staticEndpoints?: Partial<Record<WireFamily, string>>,
 ): string {
   const profile =
@@ -44,21 +42,20 @@ export function endpointPathForProviderModel(
     !Array.isArray(compatibilityProfile)
       ? (compatibilityProfile as CompatibilityProfile)
       : undefined;
-  // Operator profile > the provider's own static catalog (cline serves chat
-  // from `/chat/completions` on its versioned base; the generic `/v1/…`
-  // default would join into an unreachable `/api/v1/v1/…`) > default+strip.
+  // Operator profile > the provider's own static catalog > the generic
+  // per-wire default.
+  //
+  // The path is returned as declared. It used to be rewritten against the
+  // base URL, stripping a segment the base already carried so a versioned root
+  // would not join into `/v1/v1/chat/completions`. That machinery hid the
+  // mistake it was papering over: a provider whose base is already versioned
+  // has to declare its own path, exactly as `cline` and `qianfan` do. A wrong
+  // URL should reach the operator as the wrong URL, not be quietly corrected
+  // into a different address that may or may not be the one they meant.
   const endpointPath =
     profile?.endpoint_paths_by_wire_family?.[wireFamily] ??
     staticEndpoints?.[wireFamily] ??
     DEFAULT_ENDPOINT_BY_WIRE_FAMILY[wireFamily];
-  const baseUrl =
-    storedBaseUrl ??
-    (isBundledProviderId(providerId) ? providerBaseUrl(providerId) : undefined);
-  if (!baseUrl) return endpointPath;
-  const basePath = new URL(baseUrl).pathname.replace(/\/+$/, "");
-  if (basePath && basePath !== "/" && endpointPath.startsWith(`${basePath}/`)) {
-    return endpointPath.slice(basePath.length);
-  }
   return endpointPath;
 }
 
