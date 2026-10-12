@@ -126,9 +126,9 @@ export function ChatBubble({
       >
         {waiting ? (
           <span className="inline-flex items-center gap-2 h-11 px-2" aria-label="Model is writing">
-            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-typing-bounce motion-reduce:animate-none" />
-            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-typing-bounce motion-reduce:animate-none [animation-delay:0.15s]" />
-            <span className="w-3 h-3 rounded-pill bg-text-tertiary animate-typing-bounce motion-reduce:animate-none [animation-delay:0.3s]" />
+            <span className="w-3 h-3 rounded-full bg-text-tertiary animate-typing-bounce motion-reduce:animate-none" />
+            <span className="w-3 h-3 rounded-full bg-text-tertiary animate-typing-bounce motion-reduce:animate-none [animation-delay:0.15s]" />
+            <span className="w-3 h-3 rounded-full bg-text-tertiary animate-typing-bounce motion-reduce:animate-none [animation-delay:0.3s]" />
           </span>
         ) : editing ? (
           <form

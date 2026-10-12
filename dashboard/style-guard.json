@@ -1,7 +1,7 @@
 {
   "src/apps/landing/page.tsx": {
     "staticInline": 0,
-    "arbitrary": 14
+    "arbitrary": 6
   },
   "src/apps/share/page.tsx": {
     "staticInline": 0,

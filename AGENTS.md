@@ -14,16 +14,6 @@ complete change that fixes the owning layer, migrates its callers, and proves th
 acceptance criteria.
 
 
-## Exact labels
-
-Copy a user-facing name character for character. Do not abbreviate, expand,
-restyle, or "correct" it.
-
-The required Client identity label is the backtick-wrapped string `[CC]`.
-`CC` is wrong. Wrapping those letters in square brackets is also wrong. The
-previous failure was substituting one of those forms and then treating a
-screenshot of the wrong form as acceptable. When the user corrects a label,
-change that label before investigating the renderer.
 ## Pick the skill first
 
 Most tasks belong to one skill in `.skills/`. Read its `SKILL.md` before

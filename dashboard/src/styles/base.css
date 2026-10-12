@@ -470,7 +470,7 @@ html[data-blur-cards-on="false"] .composer-glass {
 .switch-track {
   width: 42px;
   height: 24px;
-  border-radius: 9999px;
+  border-radius: var(--radius-control);
   padding: 2px;
   transition:
     background-color 160ms var(--ease-spring),
@@ -719,7 +719,7 @@ main > .state-viewport {
 
 .auth-window {
   width: min(100%, 420px);
-  border-radius: 24px;
+  border-radius: var(--radius-card);
   padding: 36px 32px;
   /* The key art shows through the card. A flat shadow only — the shared card
      shadow carries a colored glow that reads as a halo over the art. */
@@ -737,7 +737,7 @@ main > .state-viewport {
 .auth-logo {
   width: 48px;
   height: 48px;
-  border-radius: 14px;
+  border-radius: var(--radius-control);
   background: var(--accent) center / cover no-repeat url("/assets/brand/favicon.jpg");
   color: var(--accent-foreground);
   display: grid;

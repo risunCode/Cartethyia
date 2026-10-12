@@ -132,7 +132,7 @@ function TokenUnitSwitch(): ReactElement {
   return (
     <button
       type="button"
-      className="ml-auto inline-flex min-h-6 items-center gap-1 rounded-full border border-inner-border bg-surface-2 px-2 text-text-secondary font-mono text-micro font-bold uppercase tracking-[0.04em] cursor-pointer hover:border-accent hover:text-text-primary"
+      className="ml-auto inline-flex min-h-6 items-center gap-1 rounded-chip border border-inner-border bg-surface-2 px-2 text-text-secondary font-mono text-micro font-bold uppercase tracking-[0.04em] cursor-pointer hover:border-accent hover:text-text-primary"
       aria-label={`Token unit: currently ${current}, switch to ${next}`}
       title={`Show ${next}`}
       onClick={cycleUnit}

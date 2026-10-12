@@ -300,7 +300,7 @@ function QuotaCard({
               {account.providerName}
             </div>
             {quota?.plan && (
-              <span className="shrink-0 rounded-full bg-accent-soft px-4 py-1 text-micro font-semibold text-accent">
+              <span className="shrink-0 rounded-chip bg-accent-soft px-4 py-1 text-micro font-semibold text-accent">
                 {quota.plan}
               </span>
             )}

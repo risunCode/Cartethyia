@@ -75,7 +75,10 @@
             ? "Cartethyia Console"
             : "Cartethyia — One Stop OpenAI & Anthropic Proxy Router";
         if (themeMeta) themeMeta.setAttribute("content", isConsole || isShare ? "#09090b" : "#05070d");
-        if (!isConsole && !isShare) return;
+        if (!isConsole && !isShare) {
+          root.dataset.theme = "dark";
+          return;
+        }
         try {
           const storedTheme = window.localStorage.getItem("console-theme");
           const theme =

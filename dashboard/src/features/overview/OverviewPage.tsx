@@ -55,8 +55,8 @@ function MemoryBar({ label, value, percent, color }: { readonly label: string; r
       <div className="mb-2.5 flex items-center justify-between gap-3 text-micro font-bold uppercase tracking-wider text-text-tertiary">
         <span>{label}</span><span className="font-mono text-badge normal-case tracking-normal" style={{ color }}>{value}</span>
       </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-black/25">
-        <div className="h-full rounded-full" style={{ width: `${Math.max(3, Math.min(100, percent))}%`, background: color }} />
+      <div className="h-1.5 overflow-hidden rounded-tiny bg-black/25">
+        <div className="h-full rounded-tiny" style={{ width: `${Math.max(3, Math.min(100, percent))}%`, background: color }} />
       </div>
     </div>
   );

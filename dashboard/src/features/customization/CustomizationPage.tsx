@@ -235,8 +235,8 @@ export default function CustomizationPage(): ReactNode {
               <span
                 className={
                   settings.emptyOutline
-                    ? "block size-8 translate-x-8 rounded-pill bg-accent-foreground transition-transform"
-                    : "block size-8 rounded-pill bg-text-secondary transition-transform"
+                    ? "block size-8 translate-x-8 rounded-full bg-accent-foreground transition-transform"
+                    : "block size-8 rounded-full bg-text-secondary transition-transform"
                 }
               />
             </span>
@@ -429,7 +429,7 @@ function BlurSlider({
           onClick={onToggle}
           className={enabled ? "h-10 w-18 shrink-0 rounded-pill bg-accent p-1" : "h-10 w-18 shrink-0 rounded-pill bg-surface-active p-1"}
         >
-          <span className={enabled ? "block size-8 translate-x-8 rounded-pill bg-accent-foreground" : "block size-8 rounded-pill bg-text-secondary"} />
+          <span className={enabled ? "block size-8 translate-x-8 rounded-full bg-accent-foreground" : "block size-8 rounded-full bg-text-secondary"} />
         </button>
       </div>
       <div className={enabled ? "flex flex-col gap-6" : "flex flex-col gap-6 opacity-40"}>

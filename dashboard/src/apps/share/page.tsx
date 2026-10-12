@@ -461,7 +461,7 @@ export function SharePage(): ReactElement {
               ) : null}
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 {data.expiresAt ? (
-                  <span className="inline-flex min-h-7 items-center gap-1.5 rounded-full border border-inner-border bg-surface-2 px-2.5 py-1 text-text-secondary font-mono text-micro leading-[1.3]">
+                  <span className="inline-flex min-h-7 items-center gap-1.5 rounded-chip border border-inner-border bg-surface-2 px-2.5 py-1 text-text-secondary font-mono text-micro leading-[1.3]">
                     Link expires {new Date(data.expiresAt).toLocaleString()}
                   </span>
                 ) : null}

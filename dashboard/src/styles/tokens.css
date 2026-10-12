@@ -117,8 +117,17 @@
   --radius-card: var(--radius-card);
   --radius-hero: var(--radius-hero);
   --radius-sidebar: var(--radius-sidebar);
-  --radius-composer: 22px;
+  --radius-composer: 10px;
   --radius-pill: var(--radius-pill);
+  --radius-full: 9999px;
+  --radius-xs: var(--radius-micro);
+  --radius-sm: var(--radius-tiny);
+  --radius-md: var(--radius-chip);
+  --radius-lg: var(--radius-inset);
+  --radius-xl: var(--radius-control);
+  --radius-2xl: var(--radius-panel);
+  --radius-3xl: var(--radius-card);
+  --radius-4xl: var(--radius-hero);
 
   /* Landing's chapter palette is supplied by the page's runtime theme. */
   --color-story-deep: var(--story-deep);
@@ -126,16 +135,15 @@
   --color-story-ink: var(--story-ink);
   --color-story-muted: var(--story-muted);
   --color-story-accent: var(--story-accent);
-  /* Reference landing uses bare white for borders, washes and figcaption text.
-     Declared here so Tailwind's `/NN` opacity modifier resolves against it. */
-  --color-story-white: #f5faff;
-  --color-story-night: #9deaff;
-  --color-story-core: #7db6ff;
-  --color-story-blossom: #ffafd0;
-  --color-story-voices: #d6c2ff;
-  --color-story-red: #ff9b9b;
-  --color-story-denial: #ffd18f;
-  --color-story-shore: #a8ffe0;
+  /* Landing story accents follow the active shared theme. */
+  --color-story-white: var(--text-primary);
+  --color-story-night: var(--story-night);
+  --color-story-core: var(--story-core);
+  --color-story-blossom: var(--story-blossom);
+  --color-story-voices: var(--story-voices);
+  --color-story-red: var(--story-red);
+  --color-story-denial: var(--story-denial);
+  --color-story-shore: var(--story-shore);
 
   /** Landing chapter headline. Follows the reference simple-variant scale:
       desktop fills its column, compact steps down to a phone-first clamp. */
@@ -215,13 +223,28 @@
 
 /* Shared Tailwind layer, theme tokens, resets, and base elements. */
 :root {
-  /* The landing story is a fixed dark document: it sets `color-scheme: dark` on
-     the html element and never follows the console theme preference. */
-  --story-accent: #9deaff;
-  --story-ink: #f5faff;
-  --story-muted: rgb(225 237 246 / 0.7);
-  --story-deep: #05070d;
-  --story-surface: #0b1220;
+  /* The landing story uses its own accent per chapter, on shared theme surfaces. */
+  --story-accent: var(--status-info);
+  --story-ink: var(--text-primary);
+  --story-muted: var(--text-secondary);
+  --story-deep: var(--page-bg);
+  --story-surface: var(--surface-1);
+  --story-night: var(--status-info);
+  --story-core: var(--purple);
+  --story-blossom: var(--red);
+  --story-voices: var(--purple);
+  --story-red: var(--status-danger);
+  --story-denial: var(--status-warning);
+  --story-shore: var(--teal);
+  --landing-story-max-width: 1496px;
+  --landing-story-gutter: 96px;
+  --landing-story-tablet-gutter: 24px;
+  --landing-story-mobile-gutter: 16px;
+  --landing-story-stack-gap: 36px;
+  --landing-story-figure-height: min(62svh, 480px);
+  --landing-story-tablet-figure-height: min(45svh, 420px);
+  --landing-story-figure-max-width: 600px;
+  --landing-story-mobile-aspect: 3 / 2;
   --page-bg: #f7f3ed;
   --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
   --dur-micro: 150ms;
@@ -232,16 +255,16 @@
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --font-head: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --radius-micro: 3px;
-  --radius-tiny: 4px;
+  --radius-tiny: 5px;
   --radius-chip: 6px;
   --radius-narrow: 7px;
   --radius-inset: 8px;
-  --radius-control: 10px;
-  --radius-panel: 12px;
-  --radius-card: 14px;
-  --radius-hero: 18px;
-  --radius-sidebar: 20px;
-  --radius-pill: 9999px;
+  --radius-control: 9px;
+  --radius-panel: 10px;
+  --radius-card: 12px;
+  --radius-hero: 14px;
+  --radius-sidebar: 12px;
+  --radius-pill: 10px;
   /* App topbar height (38px control + 8px padding ×2 + 1px border ×2). Pages
      that pin a toolbar below it offset by this value. */
   --topbar-height: 56px;
