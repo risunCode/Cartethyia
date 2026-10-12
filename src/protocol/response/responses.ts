@@ -150,18 +150,22 @@ export function parseResponsesResponseToEvents(
     } else if (item["type"] === "reasoning") {
       const summaryParts = (item["summary"] as Array<Record<string, unknown>> | undefined) ?? [];
       const contentParts = (item["content"] as Array<Record<string, unknown>> | undefined) ?? [];
-      const rawParts = summaryParts.length > 0 ? summaryParts : contentParts;
-      const summaries = rawParts
-        .map((part, index) => ({
-          index,
-          text: typeof part["text"] === "string" ? part["text"] : "",
-        }))
-        .filter((part) => part.text.length > 0);
+      const reasoningParts = [
+        ...summaryParts.map((part, index) => ({ part, index, isSummary: true })),
+        ...contentParts
+          .filter((part) => part["type"] === "reasoning_text")
+          .map((part, index) => ({ part, index, isSummary: false })),
+      ].filter((entry) => typeof entry.part["text"] === "string" && entry.part["text"].length > 0);
       const encryptedContent =
         typeof item["encrypted_content"] === "string" ? item["encrypted_content"] : undefined;
       const itemId = typeof item["id"] === "string" ? item["id"] : undefined;
-      const emittedSummaries = summaries.length > 0 ? summaries : [{ index: 0, text: "" }];
-      for (const [position, summary] of emittedSummaries.entries()) {
+      const emittedParts = reasoningParts.length > 0
+        ? reasoningParts
+        : [{ part: {}, index: 0, isSummary: true }];
+      for (const [position, reasoningPart] of emittedParts.entries()) {
+        const text = typeof reasoningPart.part["text"] === "string"
+          ? reasoningPart.part["text"]
+          : "";
         events.push({
           type: "content_delta",
           sequence_number: events.length + 1,
@@ -170,9 +174,13 @@ export function parseResponsesResponseToEvents(
           output_index: outputIndex,
           content: {
             kind: "reasoning",
-            payload: null,
-            ...(summary.text.length > 0 ? { summary: summary.text } : {}),
-            summary_index: summary.index,
+            ...(reasoningPart.isSummary
+              ? {
+                  payload: null,
+                  ...(text.length > 0 ? { summary: text } : {}),
+                  summary_index: reasoningPart.index,
+                }
+              : { payload: text }),
             ...(position === 0 && encryptedContent !== undefined
               ? { encrypted_content: encryptedContent }
               : {}),
@@ -304,6 +312,7 @@ export async function* decodeResponsesSseStream(
   // Many Responses backends emit both delta frames and the complete item
   // in output_item.done; without this tracking the reasoning text duplicates.
   const streamedReasoningItemIds = new Set<string>();
+  const streamedReasoningOutputIndexes = new Set<number>();
   let hasStreamedReasoningDeltas = false;
   yield {
     type: "response_start",
@@ -361,23 +370,27 @@ export async function* decodeResponsesSseStream(
       }
       case "response.reasoning_text.delta":
       case "response.reasoning_summary_text.delta": {
-        const summary = readResponsesReasoningDelta(event);
-        if (typeof summary === "string" && summary.length > 0) {
+        const reasoningDelta = readResponsesReasoningDelta(event);
+        if (typeof reasoningDelta === "string" && reasoningDelta.length > 0) {
           const summaryIndex =
             typeof event["summary_index"] === "number" && Number.isInteger(event["summary_index"])
               ? event["summary_index"]
               : 0;
           const deltaItemId = typeof event["item_id"] === "string" ? event["item_id"] : undefined;
           if (deltaItemId !== undefined) streamedReasoningItemIds.add(deltaItemId);
+          const deltaOutputIndex = readOutputIndex(event);
+          if (deltaOutputIndex !== undefined) streamedReasoningOutputIndexes.add(deltaOutputIndex);
           hasStreamedReasoningDeltas = true;
           yield {
             type: "content_delta",
             sequence_number: seq++,
+            ...(deltaItemId === undefined ? {} : { item_id: deltaItemId }),
+            ...(deltaOutputIndex === undefined ? {} : { output_index: deltaOutputIndex }),
             content: {
               kind: "reasoning",
-              payload: null,
-              summary,
-              summary_index: summaryIndex,
+              ...(eventType === "response.reasoning_summary_text.delta"
+                ? { payload: null, summary: reasoningDelta, summary_index: summaryIndex }
+                : { payload: reasoningDelta }),
             },
           } as CanonicalEvent;
         }
@@ -426,38 +439,6 @@ export async function* decodeResponsesSseStream(
               call_id: callId,
               name: COMPUTER_TOOL_NAME,
               arguments_delta: args,
-            } as CanonicalEvent;
-          }
-        } else if (item?.["type"] === "reasoning") {
-          const summaryParts =
-            (item["summary"] as Array<Record<string, unknown>> | undefined) ?? [];
-          const contentParts =
-            (item["content"] as Array<Record<string, unknown>> | undefined) ?? [];
-          const rawParts = summaryParts.length > 0 ? summaryParts : contentParts;
-          const summaries = rawParts
-            .map((part, index) => ({
-              index,
-              text: typeof part["text"] === "string" ? part["text"] : "",
-            }))
-            .filter((part) => part.text.length > 0);
-          const encryptedContent =
-            typeof item["encrypted_content"] === "string" ? item["encrypted_content"] : undefined;
-          const itemId = typeof item["id"] === "string" ? item["id"] : undefined;
-          const emittedSummaries = summaries.length > 0 ? summaries : [{ index: 0, text: "" }];
-          for (const [position, summary] of emittedSummaries.entries()) {
-            yield {
-              type: "content_delta",
-              sequence_number: seq++,
-              ...(itemId === undefined ? {} : { item_id: itemId }),
-              content: {
-                kind: "reasoning",
-                payload: null,
-                ...(summary.text.length > 0 ? { summary: summary.text } : {}),
-                summary_index: summary.index,
-                ...(position === 0 && encryptedContent !== undefined
-                  ? { encrypted_content: encryptedContent }
-                  : {}),
-              },
             } as CanonicalEvent;
           }
         }
@@ -553,31 +534,37 @@ export async function* decodeResponsesSseStream(
             (item["summary"] as Array<Record<string, unknown>> | undefined) ?? [];
           const contentParts =
             (item["content"] as Array<Record<string, unknown>> | undefined) ?? [];
-          const rawParts = summaryParts.length > 0 ? summaryParts : contentParts;
-          const summaries = rawParts
-            .map((part, index) => ({
-              index,
-              text: typeof part["text"] === "string" ? part["text"] : "",
-            }))
-            .filter((part) => part.text.length > 0);
+          const reasoningParts = [
+            ...summaryParts.map((part, index) => ({ part, index, isSummary: true })),
+            ...contentParts
+              .filter((part) => part["type"] === "reasoning_text")
+              .map((part, index) => ({ part, index, isSummary: false })),
+          ].filter((entry) => typeof entry.part["text"] === "string" && entry.part["text"].length > 0);
           const encryptedContent =
             typeof item["encrypted_content"] === "string" ? item["encrypted_content"] : undefined;
           const itemId = typeof item["id"] === "string" ? item["id"] : undefined;
+          const doneOutputIndex = readOutputIndex(event);
+          const hasItemIdentity = itemId !== undefined || doneOutputIndex !== undefined;
           const alreadyStreamed =
-            itemId !== undefined
-              ? streamedReasoningItemIds.has(itemId)
-              : hasStreamedReasoningDeltas;
-          if (summaries.length > 0 && !alreadyStreamed) {
-            for (const [position, summary] of summaries.entries()) {
+            (itemId !== undefined && streamedReasoningItemIds.has(itemId)) ||
+            (doneOutputIndex !== undefined &&
+              streamedReasoningOutputIndexes.has(doneOutputIndex)) ||
+            (!hasItemIdentity && hasStreamedReasoningDeltas);
+          if (reasoningParts.length > 0 && !alreadyStreamed) {
+            for (const [position, reasoningPart] of reasoningParts.entries()) {
+              const text = typeof reasoningPart.part["text"] === "string"
+                ? reasoningPart.part["text"]
+                : "";
               yield {
                 type: "content_delta",
                 sequence_number: seq++,
                 ...(itemId === undefined ? {} : { item_id: itemId }),
+                ...(doneOutputIndex === undefined ? {} : { output_index: doneOutputIndex }),
                 content: {
                   kind: "reasoning",
-                  payload: null,
-                  summary: summary.text,
-                  summary_index: summary.index,
+                  ...(reasoningPart.isSummary
+                    ? { payload: null, summary: text, summary_index: reasoningPart.index }
+                    : { payload: text }),
                   ...(position === 0 && encryptedContent !== undefined
                     ? { encrypted_content: encryptedContent }
                     : {}),

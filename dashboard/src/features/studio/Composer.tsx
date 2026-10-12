@@ -50,6 +50,7 @@ export function Composer({
   onImages,
   effort,
   onEffort,
+  effortDisabled,
   sending,
   canSend,
   onSend,
@@ -66,6 +67,7 @@ export function Composer({
   readonly onImages: (images: readonly LabImage[]) => void;
   readonly effort: LabEffort;
   readonly onEffort: (value: LabEffort) => void;
+  readonly effortDisabled?: boolean;
   readonly sending: boolean;
   readonly canSend: boolean;
   readonly onSend: () => void;
@@ -189,6 +191,7 @@ export function Composer({
               value={effort}
               options={EFFORTS}
               onValueChange={(next) => onEffort(next as LabEffort)}
+              disabled={effortDisabled}
               className="h-13 min-w-29 w-auto px-4 border-0 bg-transparent text-caption hover:bg-active-pill [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap"
             />
           </span>

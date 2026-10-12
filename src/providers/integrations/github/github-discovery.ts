@@ -29,7 +29,9 @@ import {
   GITHUB_PROVIDER_ID,
   GITHUB_ENDPOINT_PATH,
   GITHUB_RESPONSES_ENDPOINT_PATH,
+  GITHUB_AUTO_MODELS,
   recordGithubLongContextModels,
+  recordGithubModelRoutes,
 } from "./github";
 import { GITHUB_REQUEST_HEADERS, parseGithubCredential } from "./github-oauth";
 
@@ -134,19 +136,19 @@ export async function discoverGithubModels(
     const entries = boundedUpstreamArray(payload.data);
     if (!entries) return null;
     const byId = new Map<string, ModelDefinition>();
+    const discoveredModels: ModelDefinition[] = [];
     for (const entry of entries) {
       if (!isRecord(entry)) continue;
       const definition = toModelDefinition(entry);
-      if (definition !== undefined && !GITHUB_EXCLUDED_MODEL_IDS.has(definition.modelId)) {
-        byId.set(definition.modelId, definition);
-      }
+      if (definition === undefined) continue;
+      discoveredModels.push(definition);
+      if (!GITHUB_EXCLUDED_MODEL_IDS.has(definition.modelId)) byId.set(definition.modelId, definition);
     }
+    recordGithubLongContextModels(input.credential, discoveredModels);
+    recordGithubModelRoutes(input.credential, discoveredModels);
     if (byId.size === 0) return null;
+    for (const model of GITHUB_AUTO_MODELS) byId.set(model.modelId, model);
     const models = [...byId.values()].sort((a, b) => a.modelId.localeCompare(b.modelId));
-    // The dispatch-time request builder cannot see a catalog row, so the
-    // qualifying ids are handed to the adapter here, where the account's real
-    // window is known.
-    recordGithubLongContextModels(input.credential, models);
     return models;
   } catch {
     return null;

@@ -65,6 +65,12 @@ async function capture(request: CanonicalRequest, credential = "account-a"): Pro
 describe("GitHub Copilot request context", () => {
   test("adds initiator, image, and stable correlation headers only to inference requests", async () => {
     const userRequest = await capture(baseRequest);
+    expect(userRequest.headers.get("x-github-api-version")).toBe("2026-08-01");
+    expect(userRequest.headers.get("editor-version")).toBe("vscode/1.141.0");
+    expect(userRequest.headers.get("editor-plugin-version")).toBe("copilot-chat/0.69.0");
+    expect(userRequest.headers.get("editor-device-id")).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
     expect(userRequest.headers.get("x-initiator")).toBe("user");
     expect(userRequest.headers.get("copilot-vision-request")).toBeNull();
     expect(userRequest.headers.get("x-request-id")).toBe("gateway-request-123");
@@ -100,6 +106,9 @@ describe("GitHub Copilot request context", () => {
       }],
     } as unknown as CanonicalRequest);
     expect(imageRequest.headers.get("copilot-vision-request")).toBe("true");
+    expect(agentRequest.headers.get("editor-device-id")).toBe(
+      userRequest.headers.get("editor-device-id"),
+    );
   });
 
   test("adds long-context tier only for the account whose catalog discovered it", async () => {

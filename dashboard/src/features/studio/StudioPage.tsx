@@ -358,6 +358,7 @@ export function StudioPage(): ReactNode {
             onImages={setImages}
             effort={draft.effort}
             onEffort={(effort: LabEffort) => patch({ effort })}
+            effortDisabled={!hydrated}
             sending={sending}
             canSend={canSend}
             onSend={() => void send()}

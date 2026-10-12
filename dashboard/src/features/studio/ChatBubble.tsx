@@ -132,9 +132,9 @@ export function ChatBubble({
                 const panel = event.currentTarget;
                 thinkingAtBottomRef.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight <= 24;
               }}
-              className="scroll-region max-h-[calc(1.5em*5)] overflow-auto px-5 py-4 border border-inner-border rounded-control bg-surface-2 text-text-secondary italic leading-normal whitespace-pre-wrap select-text cursor-text"
+              className="scroll-region max-h-[calc(1.5em*5)] overflow-auto px-5 py-4 border border-inner-border rounded-control bg-surface-2 text-text-secondary leading-normal select-text cursor-text [&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_strong]:font-semibold"
             >
-              {thinking}
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{thinking}</ReactMarkdown>
             </div>
           ) : null}
         </div>

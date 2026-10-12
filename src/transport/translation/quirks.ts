@@ -144,6 +144,12 @@ export function rejectsSamplingParams(modelId: string): boolean {
  */
 const PARAM_QUIRKS: readonly ParamQuirk[] = [
   {
+    provider: "github",
+    // Copilot Auto resolves a concrete model before dispatch; the model's 400
+    // confirms that the selected-model request must not carry temperature.
+    stripControls: ["temperature"],
+  },
+  {
     provider: "anthropic",
     matchModel: rejectsSamplingParams,
     stripControls: ["temperature", "top_p", "top_k"],

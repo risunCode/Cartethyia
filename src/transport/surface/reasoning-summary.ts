@@ -39,9 +39,7 @@ export function reasoningSummaryHasBoundary(
     (previous.outputIndex !== undefined &&
       current.outputIndex !== undefined &&
       previous.outputIndex !== current.outputIndex) ||
-    (previous.summaryIndex !== undefined &&
-      current.summaryIndex !== undefined &&
-      previous.summaryIndex !== current.summaryIndex)
+    previous.summaryIndex !== current.summaryIndex
   );
 }
 
@@ -54,5 +52,10 @@ export function reasoningSummarySeparator(
 ): string {
   if (!reasoningSummaryHasBoundary(previous, current)) return "";
   if (/\s$/.test(previousText ?? "") || /^\s/.test(currentText)) return "";
-  return "\n\n";
+  if (/^(?:#{1,6}\s|\*\*|__)/.test(currentText)) return "\n\n";
+  if (/\*\*$|__$/.test(previousText ?? "")) return "\n\n";
+  if (/[.!?][)"'\]]*$/.test(previousText ?? "")) {
+    return /^[A-ZÀ-ÖØ-Þ]/.test(currentText) ? "\n\n" : " ";
+  }
+  return "";
 }

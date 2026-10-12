@@ -3,6 +3,7 @@ import {
   GITHUB_EXCLUDED_MODEL_IDS,
   GITHUB_MODELS,
   githubModelUsesLongContext,
+  githubModelRoute,
   recordGithubLongContextModels,
 } from "../../src/providers/integrations/github/github";
 import { defineModel } from "../../src/providers/model-definition";
@@ -28,21 +29,41 @@ describe("GitHub Copilot fallback model catalog", () => {
     expect(modelIds.has("gpt-4o-mini")).toBe(true);
   });
 
+  test("publishes all Auto routing tiers in the fallback catalog", () => {
+    const modelIds = new Set(GITHUB_MODELS.map((model) => model.modelId));
+
+    expect(modelIds.has("auto")).toBe(true);
+    expect(modelIds.has("auto-efficiency")).toBe(true);
+    expect(modelIds.has("auto-balance")).toBe(true);
+    expect(modelIds.has("auto-intelligence")).toBe(true);
+  });
+
   test("does not re-add excluded ids from the live account catalog", async () => {
+    const credential = JSON.stringify({ access: "token", apiHost: "copilot.example" });
     const response = new Response(JSON.stringify({
       data: [
-        ...[...GITHUB_EXCLUDED_MODEL_IDS].map((id) => ({ id, supported_endpoints: ["/chat/completions"] })),
+        ...[...GITHUB_EXCLUDED_MODEL_IDS].map((id) => ({
+          id,
+          supported_endpoints: [id === "gpt-6-luna" ? "/responses" : "/chat/completions"],
+        })),
         { id: "gpt-4.1", supported_endpoints: ["/chat/completions"] },
       ],
     }));
     const models = await discoverGithubModels({
-      credential: JSON.stringify({ access: "token", apiHost: "copilot.example" }),
+      credential,
       fetcher: Object.assign(async () => response, {
         preconnect: fetch.preconnect.bind(fetch),
       }),
     });
 
-    expect(models?.map((model) => model.modelId)).toEqual(["gpt-4.1"]);
+    const modelIds = new Set(models?.map((model) => model.modelId));
+    expect(modelIds.has("gpt-4.1")).toBe(true);
+    expect(modelIds.has("gpt-6-luna")).toBe(false);
+    expect(modelIds.has("auto")).toBe(true);
+    expect(githubModelRoute("gpt-6-luna", credential)).toEqual({
+      wireFamily: "responses",
+      endpointPath: "/responses",
+    });
   });
 
   test("scopes the long-context roster to each credential and replaces it on rediscovery", () => {
@@ -90,7 +111,8 @@ describe("GitHub Copilot fallback model catalog", () => {
       ),
     });
 
-    expect(models?.map((model) => model.modelId)).toEqual(["long-model"]);
+    expect(models?.some((model) => model.modelId === "long-model")).toBe(true);
+    expect(models?.some((model) => model.modelId === "auto")).toBe(true);
     expect(githubModelUsesLongContext("long-model", credential)).toBe(true);
   });
 });

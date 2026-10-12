@@ -16,9 +16,16 @@ import { createHash, randomUUID } from "node:crypto";
 import { defineModel } from "../../model-definition";
 import type { ModelDefinition } from "../../model-definition";
 import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
-import { allParts, type CanonicalRequest, type ContentPart } from "../../../protocol/canonical-model";
+import { GatewayError } from "../../../protocol/gateway-error";
+import { isRecord } from "../../../protocol/codecs";
+import { mapUpstreamHttpError } from "../../../transport/failure-policy";
+import { allParts, type CanonicalEvent, type CanonicalRequest, type ContentPart } from "../../../protocol/canonical-model";
 import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compatible-adapter";
+import { postUpstreamJson } from "../../../protocol/upstream/post-json";
 import { providerBaseUrl } from "../../metadata";
+import { getOrCreateInstallId } from "../shared/install-id";
+import { applyParamQuirks } from "../../../transport/translation/quirks";
+import { resolveInboundSessionId } from "../../operations/session-resolution";
 import {
   GITHUB_REQUEST_HEADERS,
   parseGithubCredential,
@@ -51,6 +58,14 @@ export const GITHUB_CONTEXT_TIER = "long_context" as const;
 /** Context window at or above which the account is served from the long tier. */
 export const GITHUB_LONG_CONTEXT_THRESHOLD = 500_000;
 
+/** Supported virtual Copilot Auto catalog ids and their router tiers. */
+export const GITHUB_AUTO_MODEL_TIERS: ReadonlyMap<string, "efficiency" | "balance" | "intelligence"> = new Map([
+  ["auto", "balance"],
+  ["auto-balance", "balance"],
+  ["auto-efficiency", "efficiency"],
+  ["auto-intelligence", "intelligence"],
+]);
+
 /** Copilot model ids excluded from both the fallback and discovered catalogs. */
 export const GITHUB_EXCLUDED_MODEL_IDS: ReadonlySet<string> = new Set([
   "copilot-search-c",
@@ -74,6 +89,14 @@ export const GITHUB_EXCLUDED_MODEL_IDS: ReadonlySet<string> = new Set([
  * Long-context models reported by each account's own model directory.
  */
 const longContextModelIdsByCredential = new Map<string, ReadonlySet<string>>();
+const modelRoutesByCredential = new Map<string, ReadonlyMap<string, GithubModelRoute>>();
+const GITHUB_AUTO_SESSION_CACHE_MAX_ENTRIES = 50;
+const GITHUB_AUTO_SESSION_EXPIRY_SKEW_MS = 5 * 60 * 1_000;
+
+export interface GithubModelRoute {
+  readonly wireFamily: "chat" | "responses";
+  readonly endpointPath: string;
+}
 
 function githubCredentialKey(value: string): string | undefined {
   try {
@@ -114,6 +137,35 @@ export function recordGithubLongContextModels(
   );
 }
 
+/** Replaces this account's discovered model-to-endpoint routing map. */
+export function recordGithubModelRoutes(
+  credential: string,
+  models: readonly ModelDefinition[],
+): void {
+  const key = githubCredentialKey(credential);
+  if (key === undefined) return;
+  const routes = models
+    .filter(
+      (model): model is ModelDefinition & { readonly wireFamily: "chat" | "responses" } =>
+        model.wireFamily === "chat" || model.wireFamily === "responses",
+    )
+    .map((model) => [
+      model.modelId.toLowerCase(),
+      { wireFamily: model.wireFamily, endpointPath: model.endpointPath },
+    ] as const);
+  modelRoutesByCredential.set(key, new Map(routes));
+}
+
+/** Looks up an inference surface reported by this account's model directory. */
+export function githubModelRoute(
+  modelId: string,
+  credential: string,
+): GithubModelRoute | undefined {
+  const key = githubCredentialKey(credential);
+  if (key === undefined) return undefined;
+  return modelRoutesByCredential.get(key)?.get(modelId.toLowerCase());
+}
+
 function isAgentInitiated(request: CanonicalRequest): boolean {
   const lastMessage = request.messages.at(-1);
   if (!lastMessage) return false;
@@ -127,6 +179,66 @@ function containsImage(part: ContentPart): boolean {
   return part.kind === "toolResult" &&
     Array.isArray(part.content) &&
     part.content.some(containsImage);
+}
+
+function autoPromptPart(part: ContentPart): string {
+  switch (part.kind) {
+    case "text":
+    case "refusal":
+      return part.text;
+    case "toolCall":
+      return `Tool call ${part.name}: ${JSON.stringify(part.arguments)}`;
+    case "toolResult":
+      return typeof part.content === "string"
+        ? part.content
+        : part.content.map(autoPromptPart).filter(Boolean).join("\n");
+    case "image":
+      return "[image attached]";
+    case "file":
+      return `[file${part.filename ? `: ${part.filename}` : ""}]`;
+    case "document":
+      return `[document${part.title ? `: ${part.title}` : ""}]`;
+    case "audio":
+      return "[audio attached]";
+    case "reasoning":
+      return part.summary ?? "";
+    case "extension":
+      return "";
+    default: {
+      const exhaustive: never = part;
+      return exhaustive;
+    }
+  }
+}
+
+interface GithubAutoPrompt {
+  readonly prompt: string;
+  readonly hasImage: boolean;
+}
+
+function autoPrompt(request: CanonicalRequest): GithubAutoPrompt {
+  for (let index = request.messages.length - 1; index >= 0; index -= 1) {
+    const message = request.messages[index];
+    if (message?.role !== "user") continue;
+    const parts = message.content.filter(
+      (part) => part.kind !== "toolCall" && part.kind !== "toolResult" &&
+        part.kind !== "reasoning" && part.kind !== "extension",
+    );
+    const prompt = parts.map(autoPromptPart).filter(Boolean).join("\n");
+    if (prompt.length === 0) continue;
+    return {
+      prompt,
+      hasImage: parts.some(containsImage),
+    };
+  }
+  return { prompt: "", hasImage: false };
+}
+
+interface GithubAutoDecision {
+  readonly modelId: string;
+  readonly sessionToken: string;
+  readonly expiresAt: number;
+  readonly hasImage: boolean;
 }
 
 interface CopilotModelOptions {
@@ -153,6 +265,12 @@ function copilotModel(
   });
 }
 
+export const GITHUB_AUTO_MODELS: readonly ModelDefinition[] = [
+  ...[...GITHUB_AUTO_MODEL_TIERS.keys()].map((modelId) =>
+    copilotModel(modelId, 1_000_000, 64_192, { vision: true, reasoning: true }),
+  ),
+];
+
 /**
  * Static fallback catalog.
  *
@@ -165,6 +283,7 @@ function copilotModel(
  * own).
  */
 export const GITHUB_MODELS: readonly ModelDefinition[] = [
+  ...GITHUB_AUTO_MODELS,
   copilotModel("gpt-4.1", 128_000, 32_768, { vision: true }),
   copilotModel("gpt-4o", 128_000, 16_384, { vision: true }),
   copilotModel("gpt-4o-mini", 128_000, 16_384, { vision: true }),
@@ -191,6 +310,8 @@ class GithubAdapter extends OpenAICompatibleAdapter {
    * injected transport to the real network.
    */
   readonly #fetch: typeof fetch | undefined;
+  readonly #autoSessionTokens = new WeakMap<CanonicalRequest, string>();
+  readonly #autoDecisions = new Map<string, GithubAutoDecision>();
 
   constructor(fallbackBaseUrl: string, fetchImpl?: typeof fetch) {
     super(
@@ -206,6 +327,20 @@ class GithubAdapter extends OpenAICompatibleAdapter {
         // threshold. `contextTier` is applied after wire translation so it
         // rides on the serialized body the upstream actually reads.
         prePayload: (payload, request, candidate, context) => {
+          if (
+            this.#autoSessionTokens.has(request) &&
+            candidate.wire_family === "responses"
+          ) {
+            const reasoning = payload["reasoning"];
+            if (!isRecord(reasoning)) {
+              payload["reasoning"] = { summary: "detailed" };
+            } else if (
+              reasoning["summary"] === undefined ||
+              reasoning["summary"] === "auto"
+            ) {
+              payload["reasoning"] = { ...reasoning, summary: "detailed" };
+            }
+          }
           const secret = context.credential.secret;
           if (
             secret === undefined ||
@@ -223,6 +358,211 @@ class GithubAdapter extends OpenAICompatibleAdapter {
     );
     this.#fallbackBaseUrl = fallbackBaseUrl;
     this.#fetch = fetchImpl;
+  }
+
+  override async *dispatch(
+    request: CanonicalRequest,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): AsyncIterable<CanonicalEvent> {
+    const tier = GITHUB_AUTO_MODEL_TIERS.get(candidate.model_id.toLowerCase());
+    if (tier === undefined) {
+      yield* super.dispatch(request, candidate, context);
+      return;
+    }
+
+    const secret = context.credential.secret;
+    if (secret === undefined || secret.length === 0) {
+      throw new GatewayError("authentication_failed", 401, "GitHub Copilot credential is missing");
+    }
+    const credential = new TextDecoder().decode(secret);
+    const autoInput = autoPrompt(request);
+    const sessionId = resolveInboundSessionId(context, request);
+    const cacheKey = sessionId === undefined || sessionId.startsWith("aff_")
+      ? undefined
+      : this.#autoDecisionCacheKey(credential, sessionId, tier);
+    let autoDecision = cacheKey === undefined
+      ? undefined
+      : this.#getCachedAutoDecision(cacheKey, autoInput.hasImage);
+    if (autoDecision === undefined) {
+      if (autoInput.prompt.length === 0) {
+        throw new GatewayError("invalid_request", 400, "Copilot Auto requires a text prompt");
+      }
+      autoDecision = await this.#selectAutoModel(
+        autoInput.prompt,
+        tier,
+        autoInput.hasImage,
+        request,
+        candidate,
+        context,
+      );
+      if (cacheKey !== undefined) this.#cacheAutoDecision(cacheKey, autoDecision);
+    }
+    const selectedModelId = autoDecision.modelId;
+    let route = githubModelRoute(selectedModelId, credential);
+    if (route === undefined) {
+      const { discoverGithubModels } = await import("./github-discovery");
+      const outboundFetch = context.outbound_fetch;
+      const fetcher = outboundFetch === undefined
+        ? this.#fetch ?? globalThis.fetch
+        : Object.assign(
+            (input: RequestInfo | URL, init?: RequestInit) => outboundFetch(input, init),
+            { preconnect: globalThis.fetch.preconnect.bind(globalThis.fetch) },
+          );
+      await discoverGithubModels({
+        credential,
+        fetcher,
+        signal: context.abort_signal,
+      });
+      if (context.abort_signal.aborted) throw context.abort_signal.reason;
+      route = githubModelRoute(selectedModelId, credential);
+    }
+    if (route === undefined) {
+      throw new GatewayError(
+        "upstream_unprocessable",
+        502,
+        "Copilot Auto selected a model without a discovered inference endpoint",
+        { selected_model: selectedModelId },
+        "upstream",
+      );
+    }
+
+    const routedRequest = applyParamQuirks(
+      { ...request, model: selectedModelId },
+      candidate.provider_id,
+    );
+    this.#autoSessionTokens.set(routedRequest, autoDecision.sessionToken);
+    yield* super.dispatch(
+      routedRequest,
+      {
+        ...candidate,
+        model_id: selectedModelId,
+        wire_family: route.wireFamily,
+        endpoint_path: route.endpointPath,
+      },
+      context,
+    );
+  }
+
+  async #selectAutoModel(
+    prompt: string,
+    tier: "efficiency" | "balance" | "intelligence",
+    hasImage: boolean,
+    request: CanonicalRequest,
+    candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
+  ): Promise<GithubAutoDecision> {
+    const headers = await this.prepareHeaders(context, request, candidate);
+    const credential = context.credential.secret === undefined
+      ? undefined
+      : parseGithubCredential(new TextDecoder().decode(context.credential.secret));
+    if (credential === undefined) {
+      throw new GatewayError("authentication_failed", 401, "GitHub Copilot credential is missing");
+    }
+    const payload: Record<string, unknown> = { prompt, tier };
+    if (hasImage) payload.has_image = true;
+    const outboundFetch = context.outbound_fetch ?? this.#fetch ?? globalThis.fetch;
+    const upstream = await postUpstreamJson(
+      `https://${credential.apiHost}/auto`,
+      headers,
+      payload,
+      context,
+      outboundFetch,
+    );
+    let responsePayload: unknown;
+    try {
+      if (!upstream.res.ok) {
+        await mapUpstreamHttpError(upstream.res, GITHUB_PROVIDER_ID);
+      }
+      responsePayload = await upstream.res.json();
+    } catch (error) {
+      if (error instanceof GatewayError) throw error;
+      if (context.abort_signal.aborted || upstream.signal.aborted) throw error;
+      throw new GatewayError(
+        "upstream_unprocessable",
+        502,
+        "Copilot Auto returned an invalid routing response",
+        {},
+        "upstream",
+      );
+    } finally {
+      upstream.release();
+    }
+    if (
+      typeof responsePayload !== "object" ||
+      responsePayload === null ||
+      !("selected_model" in responsePayload) ||
+      typeof responsePayload.selected_model !== "object" ||
+      responsePayload.selected_model === null ||
+      !("id" in responsePayload.selected_model) ||
+      typeof responsePayload.selected_model.id !== "string" ||
+      responsePayload.selected_model.id.trim().length === 0 ||
+      !("session_token" in responsePayload) ||
+      typeof responsePayload.session_token !== "string" ||
+      responsePayload.session_token.trim().length === 0
+    ) {
+      throw new GatewayError(
+        "upstream_unprocessable",
+        502,
+        "Copilot Auto did not return a selected model",
+        {},
+        "upstream",
+      );
+    }
+    const expiresAt =
+      "expires_at" in responsePayload &&
+      typeof responsePayload.expires_at === "number" &&
+      Number.isFinite(responsePayload.expires_at)
+        ? responsePayload.expires_at
+        : 0;
+    return {
+      modelId: responsePayload.selected_model.id.trim(),
+      sessionToken: responsePayload.session_token.trim(),
+      expiresAt,
+      hasImage,
+    };
+  }
+
+  #autoDecisionCacheKey(
+    credentialValue: string,
+    sessionId: string,
+    tier: "efficiency" | "balance" | "intelligence",
+  ): string {
+    const credential = parseGithubCredential(credentialValue);
+    const account = createHash("sha256")
+      .update(`${credential.apiHost}:${credential.access}`)
+      .digest("hex");
+    return `${account}:${tier}:${sessionId}`;
+  }
+
+  #getCachedAutoDecision(
+    cacheKey: string,
+    hasImage: boolean,
+  ): GithubAutoDecision | undefined {
+    const decision = this.#autoDecisions.get(cacheKey);
+    if (decision === undefined) return undefined;
+    if (
+      decision.expiresAt * 1_000 - Date.now() < GITHUB_AUTO_SESSION_EXPIRY_SKEW_MS ||
+      (hasImage && !decision.hasImage)
+    ) {
+      this.#autoDecisions.delete(cacheKey);
+      return undefined;
+    }
+    this.#autoDecisions.delete(cacheKey);
+    this.#autoDecisions.set(cacheKey, decision);
+    return decision;
+  }
+
+  #cacheAutoDecision(cacheKey: string, decision: GithubAutoDecision): void {
+    if (
+      decision.expiresAt * 1_000 - Date.now() < GITHUB_AUTO_SESSION_EXPIRY_SKEW_MS
+    ) return;
+    this.#autoDecisions.delete(cacheKey);
+    if (this.#autoDecisions.size >= GITHUB_AUTO_SESSION_CACHE_MAX_ENTRIES) {
+      const oldestKey = this.#autoDecisions.keys().next().value;
+      if (oldestKey !== undefined) this.#autoDecisions.delete(oldestKey);
+    }
+    this.#autoDecisions.set(cacheKey, decision);
   }
 
   /** The account's host, or the provider default when the credential is unreadable. */
@@ -248,8 +588,13 @@ class GithubAdapter extends OpenAICompatibleAdapter {
     // it and wins — the route-level User-Agent is for generic OpenAI-compatible
     // hosts and would be rejected here.
     Object.assign(headers, GITHUB_REQUEST_HEADERS);
+    const autoSessionToken = this.#autoSessionTokens.get(request);
+    if (autoSessionToken !== undefined) {
+      headers["copilot-session-token"] = autoSessionToken;
+    }
     const requestId = context.request_id ?? randomUUID();
     Object.assign(headers, {
+      "editor-device-id": await getOrCreateInstallId("github"),
       "openai-intent": "conversation-agent",
       "x-agent-task-id": requestId,
       "x-initiator": isAgentInitiated(request) ? "agent" : "user",
