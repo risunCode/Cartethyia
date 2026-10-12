@@ -78,7 +78,7 @@ For an installed CLI, install Bun 1.4.0 or newer and npm, then run:
 ```bash
 npm install --global cartethyia
 cartethyia setup
-cartethyia tray
+carte
 ```
 
 The setup wizard creates the encryption key, asks Lite or Full on a fresh
@@ -92,13 +92,17 @@ configured through `DATABASE_URL`; npm setup does not install PostgreSQL. Redis
 is optional for one process and needed when coordination is shared across
 processes or instances.
 
-`cartethyia start` runs the gateway in the foreground. `cartethyia tray` also
-starts a system-tray menu with **Open Dashboard**, **Update**, **Visit Repository**,
-and **Exit**. Exit and Update request the gateway's authenticated loopback drain
-endpoint before stopping it. Update delegates to npm (`cartethyia update` is the
-terminal equivalent) and restarts the gateway after a successful package update.
-The tray process remains attached to its launching terminal; this does not
-install an OS logon/startup service.
+`cartethyia start` runs the gateway in the foreground. `carte` (or
+`cartethyia tray`) shows a loading message in the launching terminal, then returns
+to the prompt after the gateway is ready. The tray menu shows the installed and
+latest npm versions, the repository, **Open Console**, **Reset password**,
+**Backup & Restore**, and **Exit**. Choosing a newer version installs it and
+starts the new tray/gateway process before the previous tray exits. Exit and
+Update request the gateway's authenticated loopback drain endpoint before
+stopping it. **Reset password** and **Backup & Restore** open Console Settings;
+password changes require the current password, and backup actions re-authenticate.
+Closing the launch terminal does not stop the gateway. This does not install an
+OS logon/startup service; choose **Exit** in the tray menu to stop Cartethyia.
 
 For automation, `cartethyia setup --non-interactive` never prompts and uses the
 persisted user config. Full mode must already have `CARTETHYIA_DB_MODE=full` and

@@ -34,7 +34,7 @@ newer is required to run it**. Install Node.js/npm and Bun first, then install t
 ```bash
 npm install --global cartethyia
 cartethyia setup
-cartethyia tray
+carte
 ```
 
 Setup asks you to choose a database mode:
@@ -45,15 +45,20 @@ Setup asks you to choose a database mode:
   have access to; the installer does not install PostgreSQL. Redis is optional
   for one process and needed when coordination must be shared between processes.
 
-`cartethyia tray` runs the gateway with a system-tray menu for **Open Dashboard**,
-**Update**, **Visit Repository**, and **Exit**. `cartethyia start` runs without the
-tray. Both store configuration in the current user's OS config directory and
-application data in the OS data directory, not inside npm's global package.
+`carte` starts the gateway in the system tray. The terminal shows a loading
+message until the gateway is ready, then returns to the prompt; closing that
+terminal does not stop Cartethyia. `cartethyia tray` is an equivalent command,
+while `cartethyia start` runs in the foreground. Configuration and application
+data remain in the user's OS directories, outside npm's global package.
 
-The tray's **Update** action and `cartethyia update` use npm to install the latest
-published package; the tray action gracefully stops and restarts the gateway.
-The tray command stays attached to the terminal that launched it. To remove the
-CLI, run `npm uninstall --global cartethyia`.
+The tray menu shows the running and latest published versions and offers an
+update when npm has a newer release. Choosing it installs the update and starts
+the new tray/gateway process before the old tray exits. **Open Console** opens
+`http://127.0.0.1:<port>/console`; **Reset password** and **Backup & Restore**
+open Console Settings, where password changes require the current password and
+backup operations re-authenticate. **Exit** stops the gateway and tray. This does
+not install an OS logon/startup service. To remove the CLI, run
+`npm uninstall --global cartethyia`.
 
 ## Why Cartethyia?
 

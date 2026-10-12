@@ -21,10 +21,12 @@
     "self-hosted"
   ],
   "bin": {
-    "cartethyia": "scripts/commands/cli-launcher.cjs"
+    "cartethyia": "scripts/commands/cli-launcher.cjs",
+    "carte": "scripts/commands/carte-launcher.cjs"
   },
   "files": [
     "scripts/commands/cli-launcher.cjs",
+    "scripts/commands/carte-launcher.cjs",
     "scripts/commands/cli.ts",
     "scripts/commands/setup.ts",
     "scripts/internal/env.ts",
