@@ -4,8 +4,6 @@ const failedIcons = new Set<string>();
 
 const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   claude: { file: "claude-code", ext: "svg" },
-  "claude-web": { file: "claude-code", ext: "svg" },
-  "kimi-web": { file: "kimi", ext: "svg" },
   anthropic: { file: "anthropics", ext: "webp" },
   openai: { file: "openai-light", ext: "svg" },
   codex: { file: "codex", ext: "webp" },
@@ -20,7 +18,6 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   grok: { file: "grok-build", ext: "webp" },
   "grok-build": { file: "grok-build", ext: "webp" },
   xai: { file: "grok-build", ext: "webp" },
-  "grok-web": { file: "grok-build", ext: "webp" },
   inferhub: { file: "inferhub", ext: "svg" },
   gemini: { file: "gemini", ext: "webp" },
   alibaba: { file: "alibaba", ext: "svg" },

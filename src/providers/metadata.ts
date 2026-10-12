@@ -62,34 +62,6 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     },
   },
   {
-    id: "claude-web",
-    displayName: "Claude Web",
-    baseUrl: `https://${["claude", "ai"].join(".")}`,
-    bespokeWire: true,
-    hasAdapterUserAgent: true,
-    credentialUrl: `https://${["claude", "ai"].join(".")}`,
-    credentialHint: `Paste a ${["claude", "ai"].join(".")} sessionKey, or a full Cookie header that contains sessionKey.`,
-  },
-
-  {
-    id: "grok-web",
-    displayName: "Grok Web",
-    baseUrl: "https://grok.com",
-    bespokeWire: true,
-    hasAdapterUserAgent: true,
-    credentialUrl: "https://grok.com",
-    credentialHint: "Paste a grok.com Cookie header containing sso and sso-rw, or JSON with those fields.",
-  },
-  {
-    id: "kimi-web",
-    displayName: "Kimi Web",
-    baseUrl: "https://www.kimi.ai",
-    bespokeWire: true,
-    hasAdapterUserAgent: true,
-    credentialUrl: "https://www.kimi.ai",
-    credentialHint: "Paste the www.kimi.ai access_token from localStorage, or a Cookie header containing kimi-auth.",
-  },
-  {
     // The paid xAI API reached with a SuperGrok / X Premium+ subscription token.
     // Distinct from `grok`, which is the Grok Build free CLI surface: different
     // base URL, different header set, different model roster. Same issuer and
@@ -152,6 +124,117 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   // and the registry pins the Messages endpoint separately.
   { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", wireFamilyDefault: "messages", credentialUrl: "https://platform.deepseek.com/api_keys" },
   { id: "gmi", displayName: "GMI Cloud", baseUrl: "https://api.gmi-serving.com/v1", credentialUrl: "https://console.gmicloud.ai" },
+
+  // OpenAI-compatible bearer aggregators. Each is a bare host already rooted at
+  // its own version prefix, so the `/v1`-prefixed wire paths stay pinned by the
+  // shared generic spec. Every one of these carries live `/v1/models` discovery
+  // instead of a hand-maintained catalog — see `default-registry.ts` — so the
+  // model list tracks upstream rather than this file.
+  { id: "groq", displayName: "Groq", baseUrl: "https://api.groq.com/openai/v1", credentialUrl: "https://console.groq.com/keys" },
+  { id: "together", displayName: "Together AI", baseUrl: "https://api.together.xyz/v1", credentialUrl: "https://api.together.ai/settings/api-keys" },
+  { id: "deepinfra", displayName: "DeepInfra", baseUrl: "https://api.deepinfra.com/v1/openai", credentialUrl: "https://deepinfra.com/api_keys" },
+  { id: "siliconflow", displayName: "SiliconFlow", baseUrl: "https://api.siliconflow.com/v1", credentialUrl: "https://cloud.siliconflow.cn/account/ak" },
+  { id: "siliconflowcn", displayName: "SiliconFlow CN", baseUrl: "https://api.siliconflow.cn/v1", credentialUrl: "https://cloud.siliconflow.cn/account/ak" },
+  { id: "novita", displayName: "Novita AI", baseUrl: "https://api.novita.ai/v3/openai", credentialUrl: "https://novita.ai/dashboard/key" },
+  { id: "venice", displayName: "Venice AI", baseUrl: "https://api.venice.ai/api/v1", credentialUrl: "https://venice.ai/api-keys" },
+  { id: "nanogpt", displayName: "NanoGPT", baseUrl: "https://api.nano-gpt.com/v1", credentialUrl: "https://nanogpt.com/api-keys" },
+  { id: "baseten", displayName: "Baseten", baseUrl: "https://inference.baseten.co/v1", credentialUrl: "https://app.baseten.co/settings/api_keys" },
+  { id: "synthetic", displayName: "Synthetic", baseUrl: "https://api.synthetic.new/v1", credentialUrl: "https://app.synthetic.new/api-keys" },
+  { id: "stepfun", displayName: "StepFun", baseUrl: "https://api.stepfun.com/v1", credentialUrl: "https://platform.stepfun.com/console/keys" },
+  { id: "sakana", displayName: "Sakana AI", baseUrl: "https://api.sakana.ai/v1", credentialUrl: "https://console.sakana.ai/api-keys" },
+  { id: "helmcode", displayName: "HelmCode", baseUrl: "https://api.helmcode.com/v1", credentialUrl: "https://helmcode.com/dashboard" },
+  { id: "coralbricks", displayName: "CoralBricks", baseUrl: "https://api.coralbricks.com/v1", credentialUrl: "https://coralbricks.com/api-keys" },
+  { id: "aiand", displayName: "ai&", baseUrl: "https://api.aiand.com/v1", credentialUrl: "https://console.aiand.com/api-keys" },
+  { id: "wafer", displayName: "Wafer Serverless", baseUrl: "https://pass.wafer.ai/v1", credentialUrl: "https://app.wafer.ai/usage" },
+
+  // Providers that are plain bearers on the wire but need one thing the shared
+  // spec cannot express.
+  {
+    // CoreWeave rejects every request that omits `OpenAI-Project: <team>/<project>`,
+    // so a bearer key alone is never sufficient. The value is per-account, so it
+    // is persisted in the account's `auth_state` and injected per dispatch
+    // rather than declared as a static header — one deployment may hold
+    // accounts on different teams. See the registry row.
+    id: "coreweave",
+    displayName: "CoreWeave Serverless",
+    baseUrl: "https://api.inference.wandb.ai/v1",
+    credentialUrl: "https://wandb.ai/settings",
+    credentialHint:
+      "Also set your CoreWeave project as <team>/<project> on the account; every request without the OpenAI-Project header is refused.",
+  },
+  {
+    // Routes at Zhipu's dedicated coding-plan surface rather than the general
+    // BigModel endpoint, so calls bill against plan quota and not account
+    // balance. Same base URL as the general product, different path prefix.
+    id: "zhipucoding",
+    displayName: "Zhipu Coding Plan",
+    baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4",
+    credentialUrl: "https://bigmodel.cn/coding-plan/personal/overview",
+  },
+  {
+    // Fireworks' Fire Pass subscription tier: the same host and wire as
+    // `fireworks`, reached with a Fire Pass key. Registered separately so the
+    // two tiers can hold different accounts and different model rosters.
+    id: "firepass",
+    displayName: "Fireworks Fire Pass",
+    baseUrl: "https://api.fireworks.ai/inference/v1",
+    credentialUrl: "https://fireworks.ai/account/api-keys",
+    credentialHint: "Requires a Fire Pass subscription key, not a pay-as-you-go key.",
+  },
+  {
+    // Qwen Portal rejects a request carrying more than one system message with a
+    // 500 from its default chat template, so the registry coalesces them.
+    id: "qwen-portal",
+    displayName: "Qwen Portal",
+    baseUrl: "https://portal.qwen.ai/v1",
+    credentialUrl: "https://chat.qwen.ai",
+  },
+  {
+    // MiniMax serves its models over the Anthropic Messages wire at an
+    // `/anthropic` root, not the OpenAI chat wire. The token plans are the same
+    // surface with a subscription key rather than a pay-as-you-go one, so they
+    // are separate ids rather than one provider with two key kinds — their
+    // quotas and their rosters are reported separately.
+    id: "minimax",
+    displayName: "MiniMax",
+    baseUrl: "https://api.minimax.io/anthropic",
+    wireFamilyDefault: "messages",
+    credentialUrl: "https://platform.minimax.io/user-center/basic-information/interface-key",
+  },
+  {
+    id: "minimaxcode",
+    displayName: "MiniMax Token Plan",
+    baseUrl: "https://api.minimax.io/anthropic",
+    wireFamilyDefault: "messages",
+    credentialUrl: "https://platform.minimax.io/subscribe/token-plan",
+    credentialHint: "Requires a Token Plan subscription key, not a pay-as-you-go key.",
+  },
+  {
+    id: "minimaxcodecn",
+    displayName: "MiniMax Token Plan (China)",
+    baseUrl: "https://api.minimaxi.com/anthropic",
+    wireFamilyDefault: "messages",
+    credentialUrl: "https://platform.minimaxi.com/subscribe/token-plan",
+    credentialHint: "Mainland China endpoint; keys are not interchangeable with the international plan.",
+  },
+  {
+    // Umans is an Anthropic-Messages gateway that authenticates with
+    // `x-api-key` rather than a bearer envelope.
+    id: "umans",
+    displayName: "UMANS Coding Plan",
+    baseUrl: "https://api.code.umans.ai",
+    wireFamilyDefault: "messages",
+    credentialUrl: "https://umans.ai",
+  },
+  {
+    // Baidu's OpenAI-compatible surface is rooted at `/v2`, not `/v1`, so its
+    // chat path is `/chat/completions` below that root. It therefore cannot use
+    // the shared generic spec; the registry row pins the paths explicitly.
+    id: "qianfan",
+    displayName: "Qianfan",
+    baseUrl: "https://qianfan.baidubce.com/v2",
+    credentialUrl: "https://console.bce.baidu.com/qianfan/ais/console/apiKey",
+  },
   {
     // The Z.AI Coding Plan subscription endpoint is a dedicated coding-plan
     // surface: different base path, a durable key minted by the sign-in flow,
@@ -160,6 +243,33 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     displayName: "Z.AI Coding Plan",
     baseUrl: "https://api.z.ai/api/coding/paas/v4",
     credentialUrl: "https://chat.z.ai",
+  },
+  {
+    // Factory Droid's LLM proxy. The base URL is the global residency host; an
+    // EU account resolves to `api.eu.factory.ai` from the region recorded in
+    // account state, because the two hosts serve different accounts.
+    id: "factory-droid",
+    displayName: "Factory Droid",
+    baseUrl: "https://api.factory.ai",
+    credentialUrl: "https://app.factory.ai",
+  },
+  {
+    // A gateway rather than a model host: the account and gateway slugs are
+    // path segments of the base URL and are stored with the token, so the
+    // origin below is the root the per-account URL is built from.
+    id: "cloudflare-ai-gateway",
+    displayName: "Cloudflare AI Gateway",
+    baseUrl: "https://gateway.ai.cloudflare.com",
+    credentialUrl: "https://dash.cloudflare.com/ai-gateway",
+  },
+  {
+    // Alibaba Token Plan. Two plans exist — international and mainland China —
+    // on different hosts whose keys are not interchangeable. The region travels
+    // with the token; the default below is the international host.
+    id: "alibaba-coding-plan",
+    displayName: "Alibaba Coding Plan",
+    baseUrl: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+    credentialUrl: "https://bailian.console.aliyun.com/",
   },
   { id: "hermes", displayName: "Nous Research", baseUrl: "https://inference-api.nousresearch.com/v1", credentialUrl: "https://portal.nousresearch.com" },
   { id: "bai", displayName: "B.AI", baseUrl: "https://api.b.ai/v1", credentialUrl: "https://b.ai" },

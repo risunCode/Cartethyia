@@ -17,6 +17,15 @@ import { providers } from "../../../persistence/schema";
 import type { WireFamily } from "../../../protocol/canonical-model";
 import type { ProviderRecord } from "./contracts";
 
+/**
+ * The one registry fact this module needs. Narrower than `ProviderRegistry` on
+ * purpose: the projection should not be able to reach a loader, so the type
+ * cannot drift into "call something expensive to answer a boolean".
+ */
+export interface ProviderDiscoveryLookup {
+  hasModelDiscovery(providerId: string): boolean;
+}
+
 export const DEFAULT_ENDPOINT_BY_WIRE_FAMILY: Record<WireFamily, string> = {
   chat: "/v1/chat/completions",
   responses: "/v1/responses",
@@ -53,8 +62,20 @@ export function endpointPathForProviderModel(
   return endpointPath;
 }
 
-/** Projects a `providers` row into the console's provider record shape. */
-export function mapProviderRow(row: typeof providers.$inferSelect): ProviderRecord {
+/**
+ * Projects a `providers` row into the console's provider record shape.
+ *
+ * `supportsModelDiscovery` is read from the registry rather than derived from
+ * `isBuiltIn`. A builtin that registers a discovery resolver cannot list any
+ * model until an operator syncs it, so reporting `false` for every builtin
+ * leaves those providers permanently empty with the control hidden. The
+ * `|| !isBundledProviderId` tail keeps a BYOK row on `true`: it has no
+ * registration, and discovery is always available for one.
+ */
+export function mapProviderRow(
+  row: typeof providers.$inferSelect,
+  registry: ProviderDiscoveryLookup,
+): ProviderRecord {
   const supportedWireFamilies = supportedWireFamiliesForProvider(
     row.id,
     row.wireFamilyDefault,
@@ -70,7 +91,8 @@ export function mapProviderRow(row: typeof providers.$inferSelect): ProviderReco
     requiresAccount: row.requiresAccount,
     serviceKinds: providerServiceKinds(row.id),
     supportsWebSearch: providerSupportsWebSearch(row.id),
-    supportsModelDiscovery: !isBundledProviderId(row.id),
+    supportsModelDiscovery:
+      registry.hasModelDiscovery(row.id) || !isBundledProviderId(row.id),
     ...(supportedWireFamilies ? { supportedWireFamilies } : {}),
     ...(row.capabilityProfile
       ? { capabilityProfile: row.capabilityProfile as Record<string, unknown> }

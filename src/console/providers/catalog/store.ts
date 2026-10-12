@@ -283,7 +283,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
         ),
       )
       .orderBy(asc(providers.id));
-    return rows.map(mapProviderRow);
+    return rows.map((row) => mapProviderRow(row, this.providerRegistry));
   }
   async get(tenantId: string, providerId: string): Promise<ProviderRecord | undefined> {
     const rows = await this.db
@@ -297,7 +297,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
       )
       .limit(1);
     const row = rows[0];
-    return row ? mapProviderRow(row) : undefined;
+    return row ? mapProviderRow(row, this.providerRegistry) : undefined;
   }
   async create(record: ProviderRecord): Promise<void> {
     if (isBundledProviderId(record.providerId))
@@ -358,7 +358,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
               ),
             );
     const row = rows[0];
-    return row ? mapProviderRow(row) : undefined;
+    return row ? mapProviderRow(row, this.providerRegistry) : undefined;
   }
   async delete(tenantId: string, providerId: string): Promise<boolean> {
     if (isBundledProviderId(providerId))
@@ -412,7 +412,7 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             .from(providers)
             .where(and(eq(providers.id, providerId), isNull(providers.tenantId)));
     const row = rows[0];
-    return row ? mapProviderRow(row) : undefined;
+    return row ? mapProviderRow(row, this.providerRegistry) : undefined;
   }
 
   async deleteGlobal(providerId: string): Promise<boolean> {
@@ -936,36 +936,6 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
             oauthRefreshCiphertext = encryptCredential(encodeMimoStudioCredential(creds));
             oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             effectiveSecret = encodeMimoStudioCredential(creds);
-            oauthHasRefreshToken = true;
-          } else if (request.credentialKind === "oauth" && providerId === "claude-web") {
-            const { parseClaudeWebCredential, encodeClaudeWebCredential } = await import(
-              "../../../providers/integrations/claude-web/claude-web-auth"
-            );
-            const creds = parseClaudeWebCredential(trimmed);
-            const encoded = encodeClaudeWebCredential(creds);
-            oauthRefreshCiphertext = encryptCredential(encoded);
-            oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-            effectiveSecret = encoded;
-            oauthHasRefreshToken = true;
-          } else if (request.credentialKind === "oauth" && providerId === "grok-web") {
-            const { parseGrokWebCredential, encodeGrokWebCredential } = await import(
-              "../../../providers/integrations/grok-web/grok-web-auth"
-            );
-            const creds = parseGrokWebCredential(trimmed);
-            const encoded = encodeGrokWebCredential(creds);
-            oauthRefreshCiphertext = encryptCredential(encoded);
-            oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-            effectiveSecret = encoded;
-            oauthHasRefreshToken = true;
-          } else if (request.credentialKind === "oauth" && providerId === "kimi-web") {
-            const { parseKimiWebCredential, encodeKimiWebCredential } = await import(
-              "../../../providers/integrations/kimi-web/kimi-web-auth"
-            );
-            const creds = parseKimiWebCredential(trimmed);
-            const encoded = encodeKimiWebCredential(creds);
-            oauthRefreshCiphertext = encryptCredential(encoded);
-            oauthExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-            effectiveSecret = encoded;
             oauthHasRefreshToken = true;
           } else {
             const parts = parsePastedOAuthCredential(trimmed);

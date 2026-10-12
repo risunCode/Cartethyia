@@ -240,6 +240,21 @@ export class ProviderRegistry {
     return this.#registrations.get(parseProviderId(providerId))?.loadQuotaCollector !== undefined;
   }
 
+  /**
+   * Whether a provider declares a model-discovery resolver. Sync declaration
+   * check — no module is loaded — for list projections that must hide the
+   * "Fetch models" control from providers with no discovery endpoint.
+   *
+   * This is the question the projection should be asking. "Is this a builtin?"
+   * was a proxy for it that was true for every provider when the catalog had no
+   * discovery-backed builtins, and wrong for every one added since: a builtin
+   * that registers a resolver cannot list any model until an operator runs a
+   * sync, so hiding the control leaves it permanently empty.
+   */
+  hasModelDiscovery(providerId: string): boolean {
+    return this.#registrations.get(parseProviderId(providerId))?.loadModelDiscovery !== undefined;
+  }
+
   /** Lazily resolves and caches one provider's quota collector. */
   async resolveQuotaCollector(providerId: string): Promise<QuotaFetcher | undefined> {
     const normalized = parseProviderId(providerId);

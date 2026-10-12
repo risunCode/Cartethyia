@@ -182,6 +182,15 @@ const MODELS_DEV_PROVIDER_IDS: Readonly<Record<string, string>> = {
   // falls through to the bare lookup — which fails closed when providers
   // disagree about the id — so the catalog would publish invented defaults.
   github: "github-copilot",
+  // Discovery-backed aggregators whose models.dev key is spelled differently.
+  // `qianfan` and `helmcode` are deliberately absent: models.dev files no rows
+  // for either, and an entry pointing at a provider the catalog does not carry
+  // would make every lookup miss and publish invented limits.
+  siliconflowcn: "siliconflow-cn",
+  nanogpt: "nano-gpt",
+  novita: "novita-ai",
+  together: "togetherai",
+  wafer: "wafer.ai",
 };
 
 /**

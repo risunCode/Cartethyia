@@ -1,11 +1,21 @@
-import { GENERIC_API_KEY_SPECS } from "./specs/configured-openai-providers";
+import {
+  GENERIC_API_KEY_SPECS,
+  VERSIONED_ROOT_API_KEY_SPECS,
+  type GenericApiKeyProviderId,
+  type VersionedRootApiKeyProviderId,
+} from "./specs/configured-openai-providers";
 import { createApiKeyAdapter } from "./integrations/shared/configured-provider";
+import type { ApiKeyProviderSpec } from "./integrations/shared/configured-provider";
 import { ProviderRegistry, toRegistration, type ProviderAuthentication, type ProviderModule } from "./registry";
 import type { OAuthLoginClient } from "./authentication/oauth-flow-store";
 import type { QuotaFetcher } from "./quota/quota-support";
-import { BUNDLED_PROVIDER_METADATA, PROVIDER_COMPATIBILITY_PROFILES, providerRequiresAccount, providerUpstreamHost, providerDefaultWireFamily, type BundledProviderId } from "./metadata";
+import { BUNDLED_PROVIDER_METADATA, PROVIDER_COMPATIBILITY_PROFILES, providerBaseUrl, providerRequiresAccount, providerUpstreamHost, providerDefaultWireFamily, type BundledProviderId } from "./metadata";
+import { createAnthropicCompatibleAdapter } from "./adapters/anthropic";
 import { defineModel } from "./model-definition";
 import type { ProviderModelDiscovery } from "./discovery/discovery-types";
+import type { ProviderDispatchContext } from "./contracts";
+import type { WireFamily } from "../protocol/canonical-model";
+import type { CanonicalRequest } from "../protocol/canonical-model";
 
 /**
  * Builds a lazy OAuth authentication loader from a dynamic module import and the
@@ -48,6 +58,61 @@ function configuredProvider(
   return {
     loadAdapter: async () => createApiKeyAdapter(GENERIC_API_KEY_SPECS[providerId]),
     ...(loadModels === undefined ? {} : { loadModels }),
+  };
+}
+
+/**
+ * Builds the `loadAdapter` + `loadModelDiscovery` pair every plain bearer
+ * provider needs.
+ *
+ * Only the base URL differs between them, so both halves are shared: the
+ * adapter is the generic spec and the discovery call is a bearer
+ * `GET {base}/models`. Keeping them in one function is what stops the pairing
+ * from drifting — registering a provider with one half and not the other is
+ * exactly how `gmi`, `nvidia`, and `fireworks` came to ship with no catalog
+ * *and* no discovery, which is a provider that lists zero models with no way to
+ * fetch any. `test/providers/generic-provider-completeness.test.ts` holds both.
+ */
+function discoveryBackedProvider(providerId: GenericApiKeyProviderId): ProviderModuleCapabilities {
+  return discoveryBacked(
+    providerId,
+    GENERIC_API_KEY_SPECS[providerId],
+  );
+}
+
+/**
+ * The same pair for a base already rooted at a version segment.
+ *
+ * Separate from {@link discoveryBackedProvider} because the two spec shapes
+ * differ in exactly one way that matters: a `/v1`-prefixed path appended to a
+ * `/openai/v1` or `/v2` base doubles the segment. Keeping the shapes apart
+ * means the registry row cannot pick the wrong one by accident — the row's id
+ * decides, and the id is typed to its shape.
+ */
+function versionedRootDiscoveryBackedProvider(
+  providerId: VersionedRootApiKeyProviderId,
+): ProviderModuleCapabilities {
+  return discoveryBacked(providerId, VERSIONED_ROOT_API_KEY_SPECS[providerId]);
+}
+
+function discoveryBacked(
+  providerId: string,
+  spec: ApiKeyProviderSpec,
+): ProviderModuleCapabilities {
+  return {
+    // The registry map is what discovery and probing read
+    // (`discoveryPathsFor`), while the spec's copy is what the adapter
+    // dispatches on. Setting only the spec leaves a discovered model resolving
+    // its wire from the generic default instead of the path the adapter will
+    // actually call, which is how a probe verifies one endpoint while dispatch
+    // hits another.
+    ...(spec.endpoint_paths_by_wire_family === undefined
+      ? {}
+      : { endpointPathsByWireFamily: spec.endpoint_paths_by_wire_family }),
+    loadAdapter: async () => createApiKeyAdapter(spec),
+    loadModelDiscovery: openAIModelDiscovery(providerId, {
+      headers: (credential) => ({ authorization: `Bearer ${credential}` }),
+    }),
   };
 }
 
@@ -390,22 +455,6 @@ export const PROVIDER_CAPABILITIES = {
     loadAuthentication: oauthCapability(() => import("./integrations/xiaomi-mimo/mimostudio-oauth"), "mimoStudioOAuthClient", { withRefresher: true }),
     loadQuotaCollector: quotaCapability(() => import("./integrations/xiaomi-mimo/mimostudio-quota"), "fetchMimoStudioQuota"),
   },
-  "claude-web": {
-    loadAdapter: async () => (await import("./integrations/claude-web/claude-web")).createClaudeWebAdapter(),
-    loadModels: async () => (await import("./integrations/claude-web/claude-web")).CLAUDE_WEB_MODELS,
-    loadAuthentication: oauthCapability(() => import("./integrations/claude-web/claude-web-oauth"), "claudeWebOAuthClient", { withRefresher: true }),
-  },
-
-  "grok-web": {
-    loadAdapter: async () => (await import("./integrations/grok-web/grok-web")).createGrokWebAdapter(),
-    loadModels: async () => (await import("./integrations/grok-web/grok-web")).GROK_WEB_MODELS,
-    loadAuthentication: oauthCapability(() => import("./integrations/grok-web/grok-web-oauth"), "grokWebOAuthClient", { withRefresher: true }),
-  },
-  "kimi-web": {
-    loadAdapter: async () => (await import("./integrations/kimi-web/kimi-web")).createKimiWebAdapter(),
-    loadModels: async () => (await import("./integrations/kimi-web/kimi-web")).KIMI_WEB_MODELS,
-    loadAuthentication: oauthCapability(() => import("./integrations/kimi-web/kimi-web-oauth"), "kimiWebOAuthClient", { withRefresher: true }),
-  },
   zcode: {
     loadAdapter: async () => createApiKeyAdapter((await import("./specs/zcode")).ZCODE_SPEC),
     loadModels: async () => (await import("./specs/zcode")).ZCODE_MODELS,
@@ -417,6 +466,38 @@ export const PROVIDER_CAPABILITIES = {
     // No `withRefresher`: the sign-in flow ends by minting a durable API key,
     // and Z.AI publishes no refresh grant for it (`refresh "none"` upstream).
     loadAuthentication: oauthCapability(() => import("./specs/zcode-oauth"), "zcodeOAuthClient"),
+  },
+  "factory-droid": {
+    loadAdapter: async () => (await import("./integrations/factory-droid/factory-droid")).factoryDroidAdapter,
+    // WorkOS re-authenticates against the same token endpoint the device flow
+    // used, so a real refresh grant exists. Registering no refresher here would
+    // make an expired access token a dead account instead of a recoverable one.
+    loadAuthentication: oauthCapability(
+      () => import("./integrations/factory-droid/factory-droid-oauth"),
+      "factoryDroidOAuthClient",
+      { withRefresher: true },
+    ),
+  },
+  "cloudflare-ai-gateway": {
+    loadAdapter: async () =>
+      (await import("./integrations/cloudflare-ai-gateway/cloudflare-ai-gateway")).cloudflareAiGatewayAdapter,
+    // No `withRefresher`: a gateway token is durable and Cloudflare publishes no
+    // refresh grant for it. The client mirrors `access` into the `refresh` slot
+    // because `refresh_ciphertext` is NOT NULL, and never presents it anywhere.
+    loadAuthentication: oauthCapability(
+      () => import("./integrations/cloudflare-ai-gateway/cloudflare-ai-gateway-oauth"),
+      "cloudflareAiGatewayOAuthClient",
+    ),
+  },
+  "alibaba-coding-plan": {
+    loadAdapter: async () =>
+      (await import("./integrations/alibaba-coding-plan/alibaba-coding-plan")).alibabaCodingPlanAdapter,
+    // No `withRefresher`, same reason as the gateway token: the plan key is
+    // durable and there is no grant to present.
+    loadAuthentication: oauthCapability(
+      () => import("./integrations/alibaba-coding-plan/alibaba-coding-plan-oauth"),
+      "alibabaCodingPlanOAuthClient",
+    ),
   },
   perplexity: {
     loadAdapter: async () => (await import("./adapters/perplexity")).createPerplexityAdapter(),
@@ -471,7 +552,169 @@ export const PROVIDER_CAPABILITIES = {
     loadQuotaCollector: quotaCapability(() => import("./specs/ollama-cloud-quota"), "fetchOllamaQuota"),
     loadModelDiscovery: openAIModelDiscovery("ollamacloud", { headers: (credential) => ({ authorization: `Bearer ${credential}` }) }),
   },
+
+  // Plain OpenAI-compatible bearer aggregators. Each is two lines because the
+  // adapter (the generic spec) and the discovery strategy (a bearer
+  // `GET {base}/models`) are both shared; see `discoveryBackedProvider`.
+  groq: versionedRootDiscoveryBackedProvider("groq"),
+  together: discoveryBackedProvider("together"),
+  deepinfra: versionedRootDiscoveryBackedProvider("deepinfra"),
+  siliconflow: discoveryBackedProvider("siliconflow"),
+  siliconflowcn: discoveryBackedProvider("siliconflowcn"),
+  novita: versionedRootDiscoveryBackedProvider("novita"),
+  venice: versionedRootDiscoveryBackedProvider("venice"),
+  nanogpt: discoveryBackedProvider("nanogpt"),
+  baseten: discoveryBackedProvider("baseten"),
+  synthetic: discoveryBackedProvider("synthetic"),
+  stepfun: discoveryBackedProvider("stepfun"),
+  sakana: discoveryBackedProvider("sakana"),
+  helmcode: discoveryBackedProvider("helmcode"),
+  coralbricks: discoveryBackedProvider("coralbricks"),
+  aiand: discoveryBackedProvider("aiand"),
+  wafer: discoveryBackedProvider("wafer"),
+  firepass: versionedRootDiscoveryBackedProvider("firepass"),
+  zhipucoding: versionedRootDiscoveryBackedProvider("zhipucoding"),
+
+  coreweave: {
+    // Same OpenAI-compatible bearer wire as every other aggregator, plus one
+    // requirement none of the shared shapes express: CoreWeave refuses every
+    // request that lacks `OpenAI-Project: <team>/<project>`.
+    //
+    // The value is per-account — one deployment may hold accounts on different
+    // teams — so it lives in the account's `auth_state` and is injected per
+    // dispatch through the adapter's `buildExtraHeaders` hook. A static
+    // `extra_headers` value would pin every account to one team.
+    ...endpointPathsOf(GENERIC_API_KEY_SPECS.coreweave),
+    loadAdapter: async () =>
+      createApiKeyAdapter({
+        ...GENERIC_API_KEY_SPECS.coreweave,
+        // `OpenAI-Project` is not in `BASE_PROTECTED_HEADERS`, so an operator
+        // may also set it as a per-account custom header. Reading both means an
+        // account configured either way dispatches.
+        buildExtraHeaders: (context) => {
+          const project = readCoreWeaveProject(context);
+          return project === undefined ? {} : { "OpenAI-Project": project };
+        },
+      }),
+    loadModelDiscovery: openAIModelDiscovery("coreweave", {
+      headers: (credential) => ({ authorization: `Bearer ${credential}` }),
+    }),
+  },
+
+  // Qwen Portal rejects more than one system message with a 500 from its default
+  // chat template, so its system parts are coalesced before serialization rather
+  // than emitted as separate blocks.
+  "qwen-portal": {
+    ...endpointPathsOf(GENERIC_API_KEY_SPECS["qwen-portal"]),
+    loadAdapter: async () =>
+      createApiKeyAdapter({
+        ...GENERIC_API_KEY_SPECS["qwen-portal"],
+        prepareRequest: coalesceSystemParts,
+      }),
+    loadModelDiscovery: openAIModelDiscovery("qwen-portal", {
+      headers: (credential) => ({ authorization: `Bearer ${credential}` }),
+    }),
+  },
+
+// Anthropic-Messages providers reached with a plain key. The wire path is
+  // appended to the base, so each base URL already carries the surface's root
+  // (`/anthropic`, or the bare host for Umans) exactly as DeepSeek's does.
+  minimax: anthropicWireProvider("minimax"),
+  minimaxcode: anthropicWireProvider("minimaxcode"),
+  minimaxcodecn: anthropicWireProvider("minimaxcodecn"),
+  umans: anthropicWireProvider("umans"),
+
+  qianfan: versionedRootDiscoveryBackedProvider("qianfan"),
 } satisfies Readonly<Record<BundledProviderId, ProviderModuleCapabilities>>;
+
+/**
+ * Joins every system part into one, for providers whose chat template rejects
+ * more than one system message.
+ *
+ * Qwen Portal answers a 500 from its default template when a request carries
+ * several system blocks, so the parts are merged before serialization rather
+ * than after — the split happens in `canonicalToChatPayload`, below this hook,
+ * so coalescing the request is the only seam that reaches it.
+ *
+ * Non-text parts are dropped rather than stringified: they carry data the chat
+ * wire has no representation for, and this provider's chat surface does not
+ * accept them. A single part is returned untouched, so a request that was
+ * already well-formed is byte-identical to what it would have been.
+ */
+function coalesceSystemParts(request: CanonicalRequest): CanonicalRequest {
+  const parts = request.system ?? [];
+  if (parts.length < 2) return request;
+  const text = parts
+    .map((part) => (part.kind === "text" ? part.text : ""))
+    .filter((value) => value.length > 0);
+  if (text.length === 0) return { ...request, system: [] };
+  if (text.length === 1) return { ...request, system: [{ kind: "text", text: text[0]! }] };
+  return { ...request, system: [{ kind: "text", text: text.join("\n\n") }] };
+}
+
+/**
+ * An Anthropic-Messages provider authenticated with a plain key.
+ *
+ * Discovery is the one wrinkle: the dispatch base carries the `/anthropic`
+ * root, and `/v1/models` is published at the host root above it, so the
+ * discovery call strips the suffix rather than asking the Messages surface for
+ * a listing it does not serve. Without the strip every model lookup 404s and the
+ * provider lists nothing.
+ */
+function anthropicWireProvider(
+  providerId: "minimax" | "minimaxcode" | "minimaxcodecn" | "umans",
+): ProviderModuleCapabilities {
+  return {
+    endpointPathsByWireFamily: { messages: "/v1/messages" },
+    loadAdapter: async () =>
+      createAnthropicCompatibleAdapter({
+        provider_id: providerId,
+        base_url: providerBaseUrl(providerId),
+      }),
+    loadModelDiscovery: openAIModelDiscovery(providerId, {
+      transformBaseUrl: (baseUrl) => baseUrl.replace(/\/anthropic$/, ""),
+      headers: (credential) => ({
+        "x-api-key": credential,
+        "anthropic-version": "2023-06-01",
+      }),
+    }),
+  };
+}
+
+/**
+ * The registry map form of a spec's endpoint paths, or nothing when the spec
+ * declares none. `exactOptionalPropertyTypes` forbids assigning `undefined` to
+ * an optional property, so the spread is the way to say "omit this key".
+ */
+function endpointPathsOf(spec: ApiKeyProviderSpec): {
+  endpointPathsByWireFamily?: Readonly<Partial<Record<WireFamily, string>>>;
+} {
+  return spec.endpoint_paths_by_wire_family === undefined
+    ? {}
+    : { endpointPathsByWireFamily: spec.endpoint_paths_by_wire_family };
+}
+
+/**
+ * The CoreWeave project this account is bound to, or `undefined` when it has
+ * none.
+ *
+ * Reads `auth_state` first because that is where the console persists it when
+ * an account is created, then falls back to the account's custom headers so an
+ * operator who set the header on the account instead still dispatches. A
+ * missing value is not an error here: the upstream answers 401 with a message
+ * naming the header, and failing closed here with our own prose would replace
+ * a precise upstream answer with a vaguer one.
+ */
+function readCoreWeaveProject(context: ProviderDispatchContext): string | undefined {
+  const fromAuthState = context.credential.auth_state?.["coreweaveProject"];
+  if (typeof fromAuthState === "string" && fromAuthState.trim().length > 0) {
+    return fromAuthState.trim();
+  }
+  const fromHeaders = context.credential.custom_headers?.["openai-project"];
+  return typeof fromHeaders === "string" && fromHeaders.trim().length > 0
+    ? fromHeaders.trim()
+    : undefined;
+}
 
 /** Canonical provider registry; every provider subsystem consumes these rows. */
 export const BUNDLED_PROVIDER_MODULES: readonly ProviderModule[] = BUNDLED_PROVIDER_METADATA.map((definition) => {

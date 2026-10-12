@@ -43,6 +43,17 @@ const NATIVE_HEADER_REQUEST: CanonicalRequest = {
 export interface OpenAICompatibleAdapterConfig {
   readonly provider_id: ProviderId;
   readonly base_url: string;
+  /**
+   * Credential-derived origin override, applied at transport time.
+   *
+   * A few upstreams put per-account state in the path *prefix* rather than in a
+   * header — Alibaba's plan region, Factory's residency host — so the origin
+   * cannot live in `base_url`, which is fixed when the adapter is built. The
+   * resolver returns the origin to use instead; returning `undefined` keeps
+   * `base_url`. Throwing is how a credential that cannot be decoded fails
+   * closed: dispatching to the default host would be a silent wrong-region call.
+   */
+  readonly resolveBaseUrl?: (context: ProviderDispatchContext) => string | undefined;
   readonly authentication_header_shape: AuthHeaderShape;
   readonly endpoint_paths_by_wire_family?: Partial<Record<WireFamily, string>>;
   readonly extra_headers?: Readonly<Record<string, string>>;
@@ -240,7 +251,7 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
       candidate?.endpoint_path && candidate.endpoint_path.length > 0
         ? candidate.endpoint_path
         : resolveEndpoint(wireFamily, this.config.endpoint_paths_by_wire_family);
-    const baseEndpointUrl = joinUrl(this.config.base_url, endpointPath);
+    const baseEndpointUrl = joinUrl(this.config.resolveBaseUrl?.(context) ?? this.config.base_url, endpointPath);
     const fetchUrl = (() => {
       if (!this.config.extra_query_params || Object.keys(this.config.extra_query_params).length === 0)
         return baseEndpointUrl;

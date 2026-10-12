@@ -124,14 +124,15 @@ Three auth client shapes exist:
 | Shape | Base class | Family examples |
 | --- | --- | --- |
 | Browser PKCE | `OAuthClient.buildAuthorizeUrl`/`exchangeCode` (`src/providers/authentication/oauth-client.ts:61,95`) | claude, antigravity, kiro, codex, mimodesktop, mimostudio, openrouter, zcode |
-| Device code (RFC 8628) | `OAuthDeviceFlow` (`src/providers/authentication/oauth-device-flow.ts:26`) | codex, github, cursor, grok, xai, kimi, cline, kiro, kilo, muse, qoder |
+| Device code (RFC 8628) | `OAuthDeviceFlow` (`src/providers/authentication/oauth-device-flow.ts:26`) | codex, github, cursor, grok, xai, kimi, cline, kiro, kilo, muse, qoder, factory-droid |
 | No OAuth | plain key path; `probeApiKeyConnectivity` is the account test (`src/providers/quota/quota-support.ts:16`) | openai, anthropic, mistral, meta, most `specs/` providers |
 
 Whether a refresher is registered is per-family and deliberate. A family whose
 grant is absent or dead registers no refresher, because a refresh call that
 always throws turns a recoverable 401 into a permanent one — see the comments on
-`kilo` (`:351`), `qoder` (`:369`), `openrouter` (`:387`), and `zcode` (`:421`) in
-`default-registry.ts`. GitHub is the opposite case: its Copilot token is
+`kilo` (`:351`), `qoder` (`:369`), `openrouter` (`:387`), `zcode` (`:421`),
+`cloudflare-ai-gateway`, and `alibaba-coding-plan` in `default-registry.ts`.
+GitHub is the opposite case: its Copilot token is
 short-lived and re-minted from the device-flow token, so it does register one
 (`:446`).
 
@@ -167,6 +168,13 @@ declare `modelDiscoveryRequiresCredential: true` — Kiro's list answers with wh
 static rows are only an offline seed. Persisted rows get `source: 'discovered'`
 or `'auto_free'` (`src/providers/discovery/probing-service.ts:800`), which keeps
 a free-tier row distinguishable at the only point it is still known.
+
+Whether the dashboard offers the "Fetch models" control is
+`supportsModelDiscovery`, which asks `registry.hasModelDiscovery(providerId)`
+(`src/providers/registry.ts:239`) — does a resolver exist for this provider — not
+whether it is a custom provider. A bundled provider that registers no resolver
+(`gmi`, `nvidia`, `fireworks`) still reports `false` and has no button; a BYOK row
+reports `true` regardless.
 
 Static and discovered rows are not rivals: discovery adds to the static floor
 and never resets `enabled`. Catalog presence is not availability — a row is not
@@ -209,10 +217,12 @@ protocol instead of going through a canonical codec (`metadata.ts:316`).
 | openrouter / zcode | PKCE ends by minting a **durable API key**, not an access token, so no refresher is registered (`:387`, `:421`). |
 | xiaomi-mimo | Four ids: `xiaomipg`, `xiaomitp` (both key-based), `mimodesktop` (OAuth), `mimostudio` (browser cookies pasted from a signed-in session, `metadata.ts:182`). |
 | cb / cbcn / workbuddy | One billing system, so `BUDDY_PROVIDER_IDS` (`metadata.ts:251`) names the family for health, request prep, and daily check-in. |
-| claude-web / grok-web / kimi-web | Pasted web sessions, not refreshable OAuth grants. Claude accepts `sessionKey`; Grok requires `sso` and `sso-rw`; Kimi accepts `access_token` or `kimi-auth`. Catalogs are static. Grok tools are only `bash`, `readFile`, `webSearch`, and `browsePage`. Kimi has no function tools. |
 | opencodeft | `requires_account: false` and `ipScopedRateLimit: true` (`metadata.ts:124`): rate limits follow the egress address, so a 429 cools the pool, not the account. |
 | exa / parallel | `serviceKinds: ["websearch"]` only; served by `/v1/search`, never by the chat pipeline. Their route ids are `exa` and `parallel`. No account uses the public MCP; a stored API key uses the provider's higher-limit HTTP API. |
 | mistral, fireworks, nvidia, gmi, ollamacloud, deepseek | One shared spec, no module of their own: bearer + `/v1` paths (`specs/configured-openai-providers.ts:13`). |
+| factory-droid | WorkOS device code against a proxy that multiplexes four wires by model family, so `dispatch` branches on `wire_family` rather than declaring one path (`factory-droid.ts:1-30`). The credential is `{accessToken, orgId}` — the org id is the JWT's `external_org_id` claim and is sent as `X-Factory-Org-Id` — and the host comes from the account's residency region, not from metadata. A real refresh grant exists (`refresh` re-posts to the same WorkOS endpoint), and the token request is issued in the client rather than through `pollGenericDeviceAuth` because the shared helper drops `refresh_token` from the response. |
+| cloudflare-ai-gateway | A gateway, not a model host: the account and gateway slugs are path segments of the base URL (`https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`) and are stored with the token, so the base URL is built at dispatch time. Auth is `cf-aig-authorization`, not `Authorization` or `x-api-key` (`cloudflare-ai-gateway.ts:11-19`). Messages wire only. No refresh grant. |
+| alibaba-coding-plan | Two plans — international and mainland China — served by different hosts whose keys are not interchangeable, so the region is stored with the token and resolved to a base URL at dispatch time. The resolved host already ends in `/compatible-mode/v1`, so the endpoint paths are unprefixed (`alibaba-coding-plan.ts:27-33`). No refresh grant. |
 
 ## Where to change what
 
@@ -223,6 +233,7 @@ protocol instead of going through a canonical codec (`metadata.ts:316`).
 | Wire a bundled provider's adapter/auth/quota/discovery | `src/providers/default-registry.ts:82` |
 | Behavior of one provider's wire | its module under `src/providers/integrations/<family>/` or `src/providers/adapters/` |
 | A provider that speaks standard OpenAI chat/responses | add an `ApiKeyProviderSpec`, not an adapter (`integrations/shared/configured-provider.ts:24`) |
+| A provider whose base URL carries per-account state (a plan region, a residency host) | the spec's `resolveBaseUrl`, which overrides `base_url` at transport time from the decoded credential (`compatible-adapter.ts:45`) |
 | Shared HTTP/SSE adapter behavior | `src/providers/compatible-adapter.ts:138`, `base-adapter.ts:19` |
 | Provider registration, caching, lazy loading | `src/providers/registry.ts:114` |
 | BYOK wire/header derivation | `src/providers/operations/byok-wire-profile.ts:55` |

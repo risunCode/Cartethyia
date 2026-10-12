@@ -13,6 +13,33 @@ Released 2026-10-12.
 
 ### Added
 
+**Providers**
+
+- 28 providers added, in three auth shapes.
+- **API key, live discovery.** `groq`, `together`, `deepinfra`, `siliconflow`,
+  `siliconflow-cn`, `novita`, `venice`, `nanogpt`, `baseten`, `synthetic`,
+  `stepfun`, `sakana`, `helmcode`, `coralbricks`, `aiand`, `wafer-serverless`,
+  `qianfan`, `coreweave`, `qwen-portal`, `zhipu-coding-plan`, `umans`,
+  `minimax`, `minimax-code`, `minimax-code-cn`, `firepass`. Each lists its
+  models from the provider's own `/v1/models` rather than a restated catalog,
+  with limits and pricing resolved from the bundled `base-models.json` rows.
+- **OAuth.** `factory-droid` signs in with the WorkOS device-code grant and
+  keeps a real refresher — the access token expires with its JWT, and the
+  organization claim that Factory requires on every call travels with it.
+  `cloudflare-ai-gateway` and `alibaba-coding-plan` take a pasted credential
+  instead: the gateway needs the account and gateway slugs that form its base
+  URL, and the Alibaba plan needs the region that selects which of two hosts
+  serves it. Neither has a refresh grant, so neither registers a refresher.
+- Provider-specific wire rules that are not a bare bearer: `coreweave` sends the
+  `OpenAI-Project` header from account state, `qwen-portal` coalesces multiple
+  system messages into one (the portal answers 500 otherwise), `minimax*` and
+  `umans` serve Anthropic Messages rather than OpenAI chat, and `firepass`
+  carries a Kimi context cap.
+- The dashboard's **Fetch models** control now appears for any provider that
+  registers a discovery resolver, instead of only for custom ones. A bundled
+  provider with no resolver still shows no button; nothing that worked before
+  changes.
+
 **CLI and system tray**
 
 - The package installs globally as `cartethyia` and `carte`. `cartethyia setup`
@@ -150,7 +177,20 @@ Released 2026-10-12.
 - The agent guide names `agent-browser` as the mandatory tool for UI verification
   and consolidates the gate list into one owner.
 
+### Removed
+
+- The pasted web-session providers `claude-web`, `grok-web`, and `kimi-web`, with
+  the `shared/web-session` module only they used. `mimodesktop` and `mimostudio`
+  are the remaining signed-in-session providers and now share the console's
+  "Web Session Providers" section on their own.
+
 ### Fixed
+
+**Packaging**
+
+- The root manifest version was `2.2.0` while the dashboard manifest carried
+  `2.2`, so the version guard failed and the Console and tray header disagreed
+  with the published package. The root is now `2.2`.
 
 **Gateway**
 

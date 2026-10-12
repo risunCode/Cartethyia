@@ -35,6 +35,12 @@ export interface ApiKeyProviderSpec {
   readonly endpoint_paths_by_wire_family?: Partial<Record<WireFamily, string>>;
   /** Static headers applied to every dispatch, before `buildExtraHeaders`. */
   readonly extra_headers?: Readonly<Record<string, string>>;
+  /**
+   * Credential-derived origin override for upstreams that carry per-account
+   * state in the path prefix (a plan region, a residency host). Defaults to
+   * `base_url`; the resolved value replaces it at transport time only.
+   */
+  readonly resolveBaseUrl?: (context: ProviderDispatchContext) => string | undefined;
   /** Per-dispatch header hook for providers needing fresh values (correlation IDs, credential-derived auth). */
   readonly buildExtraHeaders?: (
     context: ProviderDispatchContext,
@@ -76,6 +82,7 @@ export function createApiKeyAdapter(
       base_url: spec.base_url ?? providerBaseUrl(spec.provider_id),
       endpoint_paths_by_wire_family: spec.endpoint_paths_by_wire_family ?? {},
       ...(spec.extra_headers ? { extra_headers: spec.extra_headers } : {}),
+      ...(spec.resolveBaseUrl ? { resolveBaseUrl: spec.resolveBaseUrl } : {}),
       ...(spec.buildExtraHeaders ? { buildExtraHeaders: spec.buildExtraHeaders } : {}),
       ...(spec.credential_forwarding ? { credential_forwarding: spec.credential_forwarding } : {}),
       ...(spec.promptCache === false ? { supports_prompt_caching: false } : {}),

@@ -1,6 +1,6 @@
 {
   "name": "cartethyia",
-  "version": "2.2.0",
+  "version": "2.2",
   "description": "A powerful, self-hosted reverse proxy for OpenAI- and Anthropic-compatible AI clients, powered by native Bun and Elysia. It serves both protocols from a single server, routes every model across any configured provider, and translates requests and responses in real time — streaming and prompt caching included. Underneath it runs a full delivery engine: per-account health tracking, quota and cooldown enforcement, automatic failover across pools and providers, usage accounting, and telemetry. Point OpenCode, Cline, Claude Code, Codex, or any compatible client at Cartethyia and it keeps its native protocol while the gateway absorbs every provider-specific difference behind it. Runs on embedded SQLite or external PostgreSQL with optional Redis coordination, ships as a global CLI with a system-tray console, and needs only Bun 1.4+ alongside Node.js/npm.",
   "license": "GPL-3.0-only",
   "type": "module",
