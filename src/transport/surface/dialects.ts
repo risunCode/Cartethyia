@@ -46,7 +46,7 @@ function parseToolObject(item: Record<string, unknown>, dialect: ToolDialect): T
     const wrapperName = readString(chatWrapper, "name");
     if (wrapperName !== undefined) name = wrapperName;
   }
-  // A hosted tool on an [OI]-compatible wire is declared as a bare
+  // A hosted tool on an OpenAI-compatible wire is declared as a bare
   // `{"type": "web_search"}` with no `name` and no `function` envelope. It is
   // still a real tool, and dropping it here silently turned a search request
   // into a search-less one, so the type supplies the name.

@@ -14,7 +14,7 @@ import type { CanonicalEvent, CanonicalRequest, ToolDefinition } from "../../pro
  * for the rest of the session.
  *
  * A hosted declaration always announces itself: Anthropic sends
- * `type: "web_search_20250305"`, an [OI]-compatible wire sends
+ * `type: "web_search_20250305"`, an OpenAI-compatible wire sends
  * `type: "web_search"` / `web_search_preview`. Both are explicit, and neither
  * is a name.
  */

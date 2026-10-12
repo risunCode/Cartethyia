@@ -119,7 +119,7 @@ Released 2026-10-12.
   model row. A discovery gap could previously filter a capable route out of
   native search.
 - Hosted search tools are translated per wire instead of forwarded verbatim —
-  Codex receives `{"type":"web_search"}`, an `[OI]` wire receives
+  Codex receives `{"type":"web_search"}`, an OpenAI wire receives
   `web_search_preview`, and a bare `web_search` declaration on
   `/v1/chat/completions` is recognized rather than dropped.
 - The provider-detail "Test search" control reports the probe's latency, result
@@ -302,6 +302,29 @@ Released 2026-10-12.
   separate axes — a built-in row can be disabled and a fetched one can be too —
   so a group the operator has mostly switched off no longer fills the top of the
   list with entries that cannot be routed.
+- Every provider now carries a "Fetch models" button, including one that
+  publishes no model-listing endpoint. The button used to be hidden for those,
+  which left the operator with no way to find out why their provider listed
+  nothing. Syncing one now names the actual reason: add an account first when
+  there is no credential, and a "no listing endpoint" message when a credential
+  exists and the catalog is the compiled one. A fetch that genuinely found
+  nothing is still reported as a successful zero, which is a different thing.
+- Gemini serves `POST /v1/search`. It already grounded through Google Search,
+  but every Gemini model was registered as an ordinary chat row, so the search
+  route had no resolvable target and the Search tab listed nothing. The two
+  grounding models — `gemini-2.5-flash`, the adapter's own fallback, and
+  `gemini-3-flash-preview` — are registered on the websearch service kind under
+  their real names, at the per-model `:generateContent` path grounding posts to.
+- A provider with no account is no longer skipped when the compiled catalog is
+  seeded. It shipped with no models at all until an account was added, and the
+  orphan prune in the same walk never ran for it, so a row left behind by an
+  older catalog survived forever. That is what left the `gemini-search` alias
+  in the catalog with a route pointing at a model id nobody serves; it is gone.
+- The Add Custom Provider dialog's two switches move to the right edge of their
+  rows. They were sitting in the row body, left of the label.
+- The console no longer abbreviates OpenAI as `[OI]` in any label or in-code
+  reference. The one remaining spelling is a literal upstream header name, which
+  is a wire value rather than a label.
 
 **Packaging**
 

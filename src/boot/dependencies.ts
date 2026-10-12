@@ -142,7 +142,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   // edited from the console) must resolve their SSRF binding immediately.
   const byokUpstreamHosts = liveProviderUpstreamHosts(registry);
   await registerByokProviders(registry, db, ssrfPolicy);
-  const bundledCatalog = await bundledModelCatalog(registry, db);
+  const bundledCatalog = await bundledModelCatalog(registry);
   await seedBundledModels(db, bundledCatalog.modelsByProvider);
   const snapshotService = new InMemoryRouteSnapshotService(
     createDatabaseSnapshotBuilder(db, () => refreshActiveProviderCatalogs(db, registry)),

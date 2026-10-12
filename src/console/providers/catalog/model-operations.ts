@@ -10,6 +10,7 @@
  */
 import type { AccessDecision } from "../../../security/access-control";
 import { ConsoleDomainError, requireScope, requireTenantAnyScope } from "../../shared/errors";
+import { GatewayError } from "../../../protocol/gateway-error";
 import { MODEL_READ_SCOPES, MODEL_WRITE_SCOPES } from "./contracts";
 import type {
   ByokConnectionTestRequest,
@@ -131,9 +132,20 @@ export function createModelCatalogOperations(config: ProviderCatalogConfig) {
       ): Promise<{ synced: number }> {
         requireScope(access, "platform:admin");
         const a = requireTenantAnyScope(access, MODEL_READ_SCOPES);
-        const result = await config.store.syncModels(a.tenantId, providerId);
-        await config.snapshotInvalidator?.invalidate();
-        return result;
+        try {
+          const result = await config.store.syncModels(a.tenantId, providerId);
+          await config.snapshotInvalidator?.invalidate();
+          return result;
+        } catch (error) {
+          // Discovery runs in the provider layer and raises `GatewayError`; the
+          // console speaks `ConsoleDomainError`. Translating here keeps the
+          // upstream-vs-operator distinction and the status code intact, so the
+          // dashboard toast names the real reason instead of a generic failure.
+          if (error instanceof GatewayError) {
+            throw new ConsoleDomainError(error.code, error.status, error.message);
+          }
+          throw error;
+        }
       }
       /** Manually registers additional model ids on an existing provider (tenant-bound, no upstream call). */,
     async registerModels(

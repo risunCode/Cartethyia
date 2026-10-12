@@ -111,7 +111,7 @@ export function responsesImageResult(event: unknown): string | undefined {
   return undefined;
 }
 
-/** Created timestamp in unix seconds, matching the [OI] image response. */
+/** Created timestamp in unix seconds, matching the OpenAI image response. */
 export function imageCreatedSeconds(): number {
   return Math.floor(Date.now() / 1000);
 }

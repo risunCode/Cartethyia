@@ -1,6 +1,6 @@
 import type { ServiceKind, WireFamily } from "../protocol/canonical-model";
 
-/** [OI]-compatible wire overrides persisted for bundled and BYOK providers. */
+/** OpenAI-compatible wire overrides persisted for bundled and BYOK providers. */
 export interface CompatibilityProfile {
   readonly extra_headers?: Readonly<Record<string, string>>;
   readonly extra_query_params?: Readonly<Record<string, string>>;
@@ -11,7 +11,7 @@ export interface CompatibilityProfile {
     readonly pattern: string;
     readonly wire_family: WireFamily;
   }>;
-  /** Whether requests to [OI]/Anthropic-compatible upstream should send official CLI headers. Defaults to true. */
+  /** Whether requests to OpenAI/Anthropic-compatible upstream should send official CLI headers. Defaults to true. */
   readonly cli_identity?: boolean;
   /**
    * Opts this provider into the gateway identity (`user-agent:

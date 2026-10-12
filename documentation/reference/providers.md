@@ -209,7 +209,7 @@ protocol instead of going through a canonical codec (`metadata.ts:316`).
 | muse | Device-code login yields an OAuth token, which a follow-up `POST /muse-code/key` exchanges for the `api_key` the model backend accepts; the stored `oauth` secret is a `{oauthAccessToken, apiKey}` JSON blob (`muse.ts:1-12`). |
 | meta | The *other* Meta surface: a plain developer-dashboard API key, no OAuth (`default-registry.ts:172`). |
 | claude / codex | Subscription OAuth on Messages / Responses. Codex also serves websearch (`metadata.ts:43`). Its image path is separate from the chat turn: a Responses `image_generation` tool on a chat carrier, without the chat identity envelope. A catalog row is not an entitlement; a ChatGPT account can reject the tool. |
-| gemini | `x-goog-api-key` header, per-model `:generateContent`/`:streamGenerateContent` paths; not [OI]-shaped (`adapters/gemini.ts:2-3`). Image generation uses the same path and asks for `responseModalities: ["IMAGE"]` only. |
+| gemini | `x-goog-api-key` header, per-model `:generateContent`/`:streamGenerateContent` paths; not OpenAI-shaped (`adapters/gemini.ts:2-3`). Image generation uses the same path and asks for `responseModalities: ["IMAGE"]` only. |
 | xai / grok | Same issuer and JWKS, different surfaces: `grok` is the free Grok Build CLI proxy, `xai` is the paid API (`metadata.ts:64-78`). |
 | kilo | Resells the OpenRouter catalog behind a `{accessToken, orgId}` JSON credential decoded at the auth boundary (`kilo.ts:1-14`). No refresh grant. |
 | qoder | Device flow whose refresh endpoint answers 403; no refresher (`default-registry.ts:369`). |

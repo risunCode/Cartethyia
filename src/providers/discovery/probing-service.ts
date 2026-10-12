@@ -61,7 +61,7 @@ import type { TelemetryBatchBuffer } from "../../observability/telemetry-buffer"
 import { computeTokensPerSec } from "../../observability/token-speed";
 import { TelemetryPayloadCapture } from "../../observability/payload-capture";
 import { providerBaseUrl } from "../metadata";
-import { parseProviderId, type ProviderDispatchTarget as AdapterDispatchTarget, type ValidatedOutboundFetch } from "../contracts";
+import { isBundledProviderId, parseProviderId, type ProviderDispatchTarget as AdapterDispatchTarget, type ValidatedOutboundFetch } from "../contracts";
 import type { ModelDefinition } from "../model-definition";
 import type { ProviderRegistry } from "../registry";
 
@@ -692,7 +692,45 @@ export class ProviderProbingService {
         }
       }
 
-      return { synced: 0 };
+      // Two reasons a sync reaches here with nothing dialed, and the operator
+      // needs to be told which one. Returning `{synced: 0}` for both made an
+      // unsupported provider indistinguishable from a successful fetch that
+      // found nothing — the console showed a green "0 synced" for a provider
+      // it can never sync.
+      const bundled = isBundledProviderId(providerId);
+      if (!bundled) {
+        // A custom provider has a row and a base URL but no usable credential.
+        // The fix is an account, and saying "no listing endpoint" would send the
+        // operator looking for a capability the provider may well have.
+        throw new GatewayError(
+          "invalid_request",
+          400,
+          `Add an account for ${providerId} first — model listing needs a credential.`,
+          {},
+          "cartethyia",
+        );
+      }
+      if (!(await this.usableAccountSecret(tenantId, providerId))) {
+        // A bundled provider with an account would have gone through the
+        // resolver branch above, so reaching here means none is registered.
+        // Add one first, then fetch.
+        throw new GatewayError(
+          "invalid_request",
+          400,
+          `Add an account for ${providerId} before fetching its models.`,
+          {},
+          "cartethyia",
+        );
+      }
+      // A credential exists and the provider still has no listing path: the
+      // catalog is the compiled one, and new models arrive with an update.
+      throw new GatewayError(
+        "capability_unsupported",
+        400,
+        `${providerId} publishes no model-listing endpoint. Its catalog ships with Cartethyia; new models appear with an update.`,
+        {},
+        "cartethyia",
+      );
     } finally {
       outbound.release?.();
     }

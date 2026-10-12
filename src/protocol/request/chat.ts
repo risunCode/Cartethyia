@@ -410,7 +410,7 @@ export function canonicalToChatPayload(
           },
         };
       }
-      // Hosted web search is not a `function` tool on any [OI]-compatible
+      // Hosted web search is not a `function` tool on any OpenAI-compatible
       // upstream; sending it as one (or emitting `{"type": null}`) is rejected.
       // The wire's own name for the capability is `web_search_preview`.
       if (isWebSearchTool(t)) return { type: "web_search_preview" };

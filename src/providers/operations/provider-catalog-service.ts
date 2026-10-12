@@ -13,7 +13,7 @@ import { BUNDLED_PROVIDER_MODULES } from "../default-registry";
 import { getCachedModels } from "./model-catalog-cache";
 import { seedBundledModels } from "./provider-catalog-seeder";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
-import { providerAccounts, providers } from "../../persistence/schema";
+import { providers } from "../../persistence/schema";
 import type { CompatibilityProfile } from "../metadata";
 import { resolveCustomCliHeaders } from "./custom-cli-headers";
 import { GATEWAY_USER_AGENT } from "./gateway-user-agent";
@@ -124,14 +124,22 @@ export interface BundledProviderCatalog {
   readonly modelsByProvider: ReadonlyMap<string, readonly ModelDefinition[]>;
 }
 
+/**
+ * Every bundled provider's compiled catalog.
+ *
+ * All of them, whether or not the provider has an account. The compiled
+ * catalog is a property of the provider, not of this deployment's
+ * credentials, and gating the seed on `providersWithAccounts` meant a provider
+ * with no account yet listed no models at all — the console showed an empty
+ * catalog for a provider it had just shipped. It also meant the orphan prune
+ * in `seedBundledModels` never ran for those providers, so a row left behind by
+ * an older catalog survived forever, since pruning is part of the same walk.
+ */
 export async function bundledModelCatalog(
   registry: ProviderRegistry,
-  db?: CartethyiaDatabase,
 ): Promise<BundledProviderCatalog> {
-  const activeProviders = db === undefined ? undefined : await providersWithAccounts(db);
   const modelsByProvider = new Map<string, readonly ModelDefinition[]>();
   for (const registration of registry.registrations()) {
-    if (activeProviders !== undefined && !activeProviders.has(registration.provider_id)) continue;
     const definitions = registration.loadModels
       ? await getCachedModels(registration.provider_id, registration.loadModels)
       : [];
@@ -158,29 +166,20 @@ export async function bundledModelCatalog(
   return { modelsByProvider };
 }
 
-/** Loads and persists static catalogs for providers that gained an account after boot. */
+/**
+ * Re-seeds the compiled catalogs, called when a provider gains an account after
+ * boot. Seeding is no longer account-gated, so this is now simply the same walk
+ * as at boot; it exists because an account makes the rows routable and the
+ * snapshot must reflect that without waiting for a restart.
+ */
 export async function refreshActiveProviderCatalogs(
   db: CartethyiaDatabase,
   registry: ProviderRegistry,
 ): Promise<void> {
-  const catalog = await bundledModelCatalog(registry, db);
+  const catalog = await bundledModelCatalog(registry);
   await seedBundledModels(db, catalog.modelsByProvider);
 }
 
-/**
- * Providers whose static catalogs must be resident.
- *
- * A bundled catalog is only needed once the provider has an account to route
- * through. Loading every registration at boot imports adapters and model arrays
- * the process will never dispatch. Providers with no accounts stay unloaded
- * until an account is added and the catalog is rebuilt.
- */
-async function providersWithAccounts(db: CartethyiaDatabase): Promise<ReadonlySet<string>> {
-  const rows = await db
-    .selectDistinct({ providerId: providerAccounts.providerId })
-    .from(providerAccounts);
-  return new Set(rows.map((row) => row.providerId));
-}
 
 /**
  * Last successfully applied BYOK config per normalized provider ID.

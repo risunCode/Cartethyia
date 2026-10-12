@@ -566,22 +566,25 @@ export default function ProviderDetail(): ReactNode {
                 value={thinkingEffort}
                 onChange={setThinkingEffort}
               />
-              {provider?.supportsModelDiscovery !== false ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={
-                    <RefreshCw
-                      size={13}
-                      className={syncModels.isPending || autoSyncModels.isPending ? "animate-spin" : ""}
-                    />
-                  }
-                  disabled={syncModels.isPending || autoSyncModels.isPending}
-                  onClick={() => syncModels.mutate(id)}
-                >
-                  {syncModels.isPending || autoSyncModels.isPending ? "Fetching..." : "Fetch models"}
-                </Button>
-              ) : null}
+              {/* Every provider gets the button, including one that publishes
+                  no model-listing endpoint. Hiding it left the operator with no
+                  way to find out why their provider has no models; the route
+                  answers with a specific error for the providers that cannot be
+                  synced, and the mutation toasts it. */}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={
+                  <RefreshCw
+                    size={13}
+                    className={syncModels.isPending || autoSyncModels.isPending ? "animate-spin" : ""}
+                  />
+                }
+                disabled={syncModels.isPending || autoSyncModels.isPending}
+                onClick={() => syncModels.mutate(id)}
+              >
+                {syncModels.isPending || autoSyncModels.isPending ? "Fetching..." : "Fetch models"}
+              </Button>
               <Button
                 variant="secondary"
                 size="sm"

@@ -70,6 +70,49 @@ export const GEMINI_MODELS: readonly ModelDefinition[] = [
   ),
 ];
 
+/**
+ * Gemini's Google Search grounding rows, served by `POST /v1/search`.
+ *
+ * The chat catalog above already declares `gemini-2.5-flash` as an ordinary
+ * `llm` row, and that is what `GEMINI_SEARCH_MODEL` falls back to — but a
+ * `serviceKind: "llm"` row is not a search route, so `POST /v1/search` had no
+ * resolvable target and the Search tab listed nothing for Gemini despite the
+ * provider serving hosted grounding. These rows declare the same models on the
+ * `websearch` service kind, which is the dimension the search route resolves
+ * against. The chat rows stay: the same model serves both surfaces, and one
+ * model id cannot carry two service kinds.
+ *
+ * `gemini-2.5-flash` is the documented default and the one the adapter falls
+ * back to when a caller sends no model. `gemini-3-flash` is the newer generation
+ * on the same grounding support.
+ *
+ * The endpoint differs from the chat row's `/v1beta/models` on purpose: the
+ * unique key on a catalog row is `(provider, model, endpoint)`, so a search
+ * row sharing the chat row's endpoint would upsert over it and lose the
+ * service kind — the provider would keep one `llm` row and the Search tab
+ * would list nothing. Grounding posts to the per-model `:generateContent`
+ * path, which is the route it actually takes.
+ */
+export const GEMINI_SEARCH_MODELS: readonly ModelDefinition[] = [
+  "gemini-2.5-flash",
+  "gemini-3-flash-preview",
+].map((id) =>
+  defineModel({
+    id,
+    providerId: GEMINI_PROVIDER_ID,
+    serviceKind: "websearch",
+    wireFamily: "chat",
+    endpoint: `/v1beta/models/${id}:generateContent`,
+    ctx: 1_000_000,
+    out: 32_768,
+    vision: true,
+    reasoning: true,
+    // Grounding is a hosted Google Search tool, not a function the gateway
+    // declares on the caller's behalf, so the row exposes no tool calls.
+    toolCall: false,
+  }),
+);
+
 import type { DiscoveryInput } from "../discovery/discovery-types";
 
 

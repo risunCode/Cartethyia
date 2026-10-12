@@ -335,7 +335,13 @@ export const PROVIDER_CAPABILITIES = {
   },
   gemini: {
     loadAdapter: async () => (await import("./adapters/gemini")).createGeminiAdapter(),
-    loadModels: async () => (await import("./adapters/gemini")).GEMINI_MODELS,
+    loadModels: async () => {
+      const gemini = await import("./adapters/gemini");
+      // One module, two catalog halves: the chat rows and the Google Search
+      // grounding rows are the same Gemini models on two service kinds, and
+      // importing the module twice would load it twice.
+      return [...gemini.GEMINI_MODELS, ...gemini.GEMINI_SEARCH_MODELS];
+    },
     loadModelDiscovery: async () => async ({ credential }) => (await import("./adapters/gemini")).discoverGeminiModels({ credential }),
   },
   aihubmix: {

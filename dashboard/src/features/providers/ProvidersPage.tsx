@@ -243,7 +243,7 @@ function AddCompatibleModal({
     <Dialog
       open={open}
       onClose={onClose}
-      title={isAnthropic ? "Add Custom Anthropic Provider" : "Add Custom [OI] Provider"}
+      title={isAnthropic ? "Add Custom Anthropic Provider" : "Add Custom OpenAI Provider"}
       footer={
         <>
           <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
@@ -365,16 +365,19 @@ function AddCompatibleModal({
             </>
           ) : null}
         </div>
-        <ListRow className="justify-between">
+        <ListRow
+          actions={<Switch checked={autoFetchModels} onChange={setAutoFetchModels} id="compat-autofetch" />}
+        >
           <div>
             <div className="text-body font-semibold">Auto-fetch models</div>
             <div className="mt-1 text-badge text-text-tertiary">
               Discover this provider's model list automatically after creation
             </div>
           </div>
-          <Switch checked={autoFetchModels} onChange={setAutoFetchModels} id="compat-autofetch" />
         </ListRow>
-        <ListRow className="justify-between">
+        <ListRow
+          actions={<Switch checked={sendCliIdentity} onChange={setSendCliIdentity} id="compat-cli-identity" />}
+        >
           <div>
             <div className="text-body font-semibold">
               {isAnthropic ? "Send request as Claude CLI" : "Send request as Codex CLI"}
@@ -385,7 +388,6 @@ function AddCompatibleModal({
                 : "Emits official codex_cli_rs User-Agent and originator headers to upstream"}
             </div>
           </div>
-          <Switch checked={sendCliIdentity} onChange={setSendCliIdentity} id="compat-cli-identity" />
         </ListRow>
         <HeaderPairsEditor pairs={headerPairs} onChange={setHeaderPairs} />
       </form>
