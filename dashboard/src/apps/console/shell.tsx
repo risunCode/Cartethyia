@@ -9,7 +9,6 @@ import {
   Moon,
   Network,
   Rocket,
-  Search,
   Server,
   Settings as SettingsIcon,
   ShieldAlert,
@@ -20,11 +19,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Palette } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { usePresence } from "../../hooks/use-presence";
-import { useModalFocus } from "../../hooks/use-modal-focus";
 import { applyConsoleTheme, isDarkEffective, readConsoleTheme, writeConsoleTheme } from "../../lib/theme";
 import { BackgroundLayer } from "../../features/customization/BackgroundLayer";
 import { applyCustomization, readCustomizationSettings } from "../../features/customization/settings";
@@ -303,147 +300,6 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
   );
 }
 
-function CommandPalette({ open, close }: { readonly open: boolean; readonly close: () => void }) {
-  const navigate = useNavigate();
-  const [query, setQuery] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const items = useMemo(() => navigationGroups.flatMap((group) => group.items), []);
-  const filtered = items.filter((item) => item.label.toLowerCase().includes(query.toLowerCase()));
-
-  const { mounted, closing } = usePresence(open);
-  // Shared modal focus contract: initial focus, Tab containment, opener
-  // restore, and Escape handling.
-  useModalFocus({ open, mounted, panelRef, onClose: close });
-
-  useEffect(() => {
-    if (open) {
-      setQuery("");
-      setActiveIndex(0);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [query]);
-
-  // Keep the highlighted option scrolled into view during keyboard travel.
-  useEffect(() => {
-    if (!mounted) return;
-    listRef.current
-      ?.querySelector<HTMLElement>('[aria-selected="true"]')
-      ?.scrollIntoView({ block: "nearest" });
-  }, [activeIndex, mounted]);
-
-  if (!mounted) return null;
-
-  const clampedIndex =
-    filtered.length === 0 ? 0 : Math.min(Math.max(activeIndex, 0), filtered.length - 1);
-
-  const activate = (index: number) => {
-    const item = filtered[index];
-    if (!item) return;
-    navigate(item.path);
-    close();
-  };
-
-  const onInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveIndex(filtered.length === 0 ? 0 : (clampedIndex + 1) % filtered.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveIndex(
-        filtered.length === 0 ? 0 : (clampedIndex - 1 + filtered.length) % filtered.length,
-      );
-    } else if (event.key === "Enter") {
-      activate(clampedIndex);
-    }
-  };
-  return createPortal(
-    <div
-      className={`dialog-overlay fixed inset-0 z-drawer box-border flex items-center justify-center overflow-y-auto bg-overlay p-8 backdrop-blur-dialog max-small:p-6${closing ? " closing" : ""}`}
-      role="presentation"
-      onMouseDown={close}
-    >
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        className={`dialog-panel m-auto box-border flex max-h-[calc(100dvh-var(--spacing)*24)] flex-col overflow-hidden rounded-sidebar border border-border-strong bg-surface-1 shadow-window max-small:max-h-[calc(100dvh-var(--spacing)*12)]${closing ? " closing" : ""}`}
-        style={VIEWPORT_CAPPED_WIDTH}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="palette-title"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div
-          className="flex items-center gap-5 border-b border-inner-border py-7 px-9"
-        >
-          <Search size={16} className="text-text-tertiary" />
-          <h2
-            id="palette-title"
-            className="sr-only"
-          >
-            Command palette
-          </h2>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onInputKeyDown}
-            placeholder="Go to page… (e.g. Providers, Quota)"
-            role="combobox"
-            aria-expanded="true"
-            aria-autocomplete="list"
-            aria-controls="command-palette-listbox"
-            aria-activedescendant={
-              filtered.length === 0 ? undefined : `command-palette-option-${clampedIndex}`
-            }
-            className="flex-1 border-none bg-transparent text-body-lg text-text-primary outline-none"
-          />
-          <kbd
-            className="rounded-chip border border-inner-border bg-hover py-1 px-3 text-micro text-text-tertiary"
-          >
-            ESC
-          </kbd>
-        </div>
-        <div
-          ref={listRef}
-          id="command-palette-listbox"
-          role="listbox"
-          aria-label="Pages"
-          className="max-h-160 overflow-y-auto p-4"
-        >
-          {filtered.map((item, index) => (
-            <button
-              key={item.path}
-              id={`command-palette-option-${index}`}
-              type="button"
-              role="option"
-              aria-selected={index === clampedIndex}
-              tabIndex={-1}
-              onClick={() => activate(index)}
-              onMouseEnter={() => setActiveIndex(index)}
-              className={`w-full cursor-pointer items-center rounded-control bg-transparent px-7 py-5 text-left font-medium text-body text-text-primary transition-colors duration-(--dur-micro) ease-spring ${index === clampedIndex ? "bg-hover" : ""}`}
-            >
-              <item.icon size={16} className="text-text-secondary" />
-              <span className="flex-1">{item.label}</span>
-              <span className="text-badge text-text-tertiary">↵</span>
-            </button>
-          ))}
-          {filtered.length === 0 ? (
-            <p
-              className="p-8 text-center text-caption text-text-tertiary"
-            >
-              No matching pages found.
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
 
 function SidebarNavGroup({
   group,
@@ -537,7 +393,6 @@ export function DashboardShell({
   const navigate = useNavigate();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
   const healthQuery = useSafeSystemHealth();
@@ -554,17 +409,6 @@ export function DashboardShell({
   const prefetchIntent = (path: string): void => {
     void prefetchRouteIntent(queryClient, path);
   };
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setPaletteOpen((v) => !v);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   useEffect(() => {
     setDrawerOpen(false);
@@ -705,20 +549,6 @@ export function DashboardShell({
             </div>
 
             <div className="topbar-actions">
-              <button
-                type="button"
-                onClick={() => setPaletteOpen(true)}
-                className="topbar-button"
-                aria-label="Command palette"
-              >
-                <Search size={14} />
-                <span>Command palette</span>
-                <kbd
-                  className="rounded-tiny border border-inner-border bg-surface-1 px-2.5 py-0.5 text-micro"
-                >
-                  ⌘K
-                </kbd>
-              </button>
               <ThemeToggle />
               <NotificationsPopover isHealthy={Boolean(isHealthy)} />
             </div>
@@ -732,7 +562,6 @@ export function DashboardShell({
         </div>
       </div>
       </div>
-      <CommandPalette open={paletteOpen} close={() => setPaletteOpen(false)} />
       <ConfirmDialog
         open={logoutOpen}
         onClose={() => setLogoutOpen(false)}

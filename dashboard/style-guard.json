@@ -1,7 +1,7 @@
 {
   "src/apps/console/shell.tsx": {
     "staticInline": 0,
-    "arbitrary": 2
+    "arbitrary": 0
   },
   "src/apps/landing/page.tsx": {
     "staticInline": 0,

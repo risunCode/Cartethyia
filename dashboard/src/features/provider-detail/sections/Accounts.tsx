@@ -16,7 +16,7 @@ import { consoleRequest } from "../../../data/api";
 import { accountErrorLabel, authInvalidatedLabel } from "../../../lib/format/labels";
 import { useMysteriousAccounts } from "../../../lib/privacy-mode";
 import { Badge } from "../../../components/ui/badge";
-import { Button } from "../../../components/ui/button";
+import { Button, buttonClass } from "../../../components/ui/button";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 import { HealthEventsModal } from "../../../components/HealthEventsModal";
 import { Dialog } from "../../../components/ui/dialog";
@@ -1069,27 +1069,31 @@ export function AddAccountModal({
                 </p>
               ) : null}
           </div>
-          <Inline gap="8px" align="flex-start" className="min-w-0">
-            <textarea
-              value={secret}
-              onChange={(event) => setSecret(event.target.value)}
-              placeholder="Paste one credential, or many — one per line, a JSON array, or newline-delimited OAuth exports. Kind and account naming are detected automatically…"
-              rows={6}
-              spellCheck={false}
-              className="font-mono tabular-nums flex-1 min-w-0 min-h-65 rounded-control border border-inner-border bg-input-bg px-6 py-5 text-caption text-text-primary resize-y box-border"
-            />
+          <textarea
+            value={secret}
+            onChange={(event) => setSecret(event.target.value)}
+            placeholder="Paste one credential, or many — one per line, a JSON array, or newline-delimited OAuth exports. Kind and account naming are detected automatically…"
+            rows={6}
+            spellCheck={false}
+            className="font-mono tabular-nums w-full min-w-0 min-h-65 rounded-control border border-inner-border bg-input-bg px-6 py-5 text-caption text-text-primary resize-y box-border"
+          />
+          {/* Paste and import feed the same field, so they sit under it rather
+              than beside it: sharing a row with the textarea stole ~120px of its
+              width and left the two actions floating beside a six-row input.
+              Right-aligned so the slack collects at the start of the row instead
+              of between the field and its actions. */}
+          <Inline gap="8px" className="justify-end">
             <Button
               variant="secondary"
               size="sm"
               onClick={() => void handlePaste()}
-              className="shrink-0"
             >
               Paste
             </Button>
             {/* Same field, same parser — the file only replaces typing. Accepts
                 the JSON export this dialog produces, plus .txt/.jsonl carrying
                 one credential per line. */}
-            <label className="btn btn-secondary shrink-0 cursor-pointer">
+            <label className={buttonClass({ size: "sm", className: "cursor-pointer" })}>
               <input
                 type="file"
                 accept=".json,.txt,.jsonl,.ndjson,application/json,text/plain"

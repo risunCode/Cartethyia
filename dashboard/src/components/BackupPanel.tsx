@@ -329,7 +329,12 @@ export function BackupPanel(): ReactNode {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           autoComplete="current-password"
-          autoFocus
+          // `useModalFocus` moves initial focus itself, and it reads
+          // `[data-autofocus]` — not React's `autoFocus`, which fires once at
+          // mount and is then overridden by the hook's effect. Without this the
+          // dialog opened with focus on the panel's first control instead of
+          // the one field every one of these three flows needs typed into.
+          data-autofocus
         />
       </Stack>
     </Dialog>

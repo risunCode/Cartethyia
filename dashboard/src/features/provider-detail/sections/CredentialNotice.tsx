@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card, CardBody } from "../../../components/ui/card";
+import { buttonClass } from "../../../components/ui/button";
 import { Inline } from "../../../components/ui/inline";
 import type { ProviderResponse } from "../../../data/contracts";
 
@@ -47,7 +48,13 @@ export function CredentialNotice({
             // A real anchor rather than a button with a click handler: the
             // external page opens without a popup blocker, and middle-click,
             // keyboard activation, and "open in new tab" all keep working.
-            <a href={url} target="_blank" rel="noreferrer" title={url} className="btn btn-secondary btn-sm shrink-0 no-underline">
+            <a
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              title={url}
+              className={buttonClass({ size: "sm", className: "shrink-0 no-underline" })}
+            >
               <span className="btn-icon-wrapper" aria-hidden="true">
                 <ExternalLink size={13} />
               </span>

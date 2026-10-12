@@ -41,6 +41,38 @@ const SIZE: Record<ButtonSize, string> = {
   icon: "btn-icon size-17 p-0 grid place-items-center [&_svg]:size-7.5",
 };
 
+/**
+ * The button's own visual recipe, for the call sites that need an element the
+ * `Button` atom cannot emit.
+ *
+ * Two exist and both were broken in the same way: a hand-written
+ * `className="btn btn-secondary btn-sm"` on an `<a>` (the credential notice's
+ * external link) and on the file-input `<label>` in the add-account dialog.
+ * Those `btn*` names are markers — they exist for `primitives.test.tsx` and
+ * the `@container rule-row` collapse — and nothing in the stylesheet styles
+ * them, so both elements rendered as unstyled text while every neighbouring
+ * `<Button>` was styled. Composing the recipe keeps one source for the shape.
+ *
+ * Anything that CAN be a `<button>` should use `Button` itself; this exists for
+ * the anchors and labels where it cannot.
+ */
+export function buttonClass({
+  variant = "secondary",
+  size = "md",
+  className,
+}: {
+  readonly variant?: ButtonVariant;
+  readonly size?: ButtonSize;
+  readonly className?: string;
+} = {}): string {
+  return cn(
+    "btn inline-flex items-center justify-center gap-3.5 rounded-control font-semibold text-caption px-7 py-2 transition-all active:scale-[0.97]",
+    VARIANT[variant],
+    SIZE[size],
+    className,
+  );
+}
+
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {
@@ -62,14 +94,17 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         type={type}
-        className={cn(
-          "btn inline-flex items-center justify-center gap-3.5 rounded-control font-semibold text-caption px-7 py-2 transition-all active:scale-[0.97]",
-          VARIANT[variant],
-          labeled
-            ? "btn-labeled h-15 px-5 gap-3 text-badge [&_svg]:size-6.5"
-            : SIZE[size],
-          className,
-        )}
+        className={buttonClass({
+          variant,
+          // The labeled form supplies its own h-15/px-5 sizing, so the icon
+          // variant's square `size-17 p-0 grid place-items-center` must not be
+          // merged in alongside it — the two are mutually exclusive and
+          // emitting both leaves the width decided by CSS source order.
+          size: labeled ? ("md" as const) : size,
+          className: labeled
+            ? cn("btn-labeled h-15 px-5 gap-3 text-badge [&_svg]:size-6.5", className)
+            : className,
+        })}
         aria-busy={loading || undefined}
         {...props}
       >

@@ -74,4 +74,51 @@ describe("authless MCP search providers", () => {
     expect(requests[1]?.url).toBe("https://api.parallel.ai/v1beta/search");
     expect(requests[1]?.headers.get("x-api-key")).toBe("parallel-key");
   });
+
+  test("a Parallel MCP reply whose rows only live in the text block still yields results", async () => {
+    // The public MCP is a `tools/call`, so the payload arrives twice. This is
+    // the shape observed live against `search.parallel.ai/mcp` with no
+    // credential: `content[0].text` holds the whole result set JSON-encoded,
+    // and `structuredContent` is absent. A normalizer that reads only
+    // `structuredContent` answers 200 with zero results and nothing upstream
+    // looks broken.
+    const fetcher: ValidatedOutboundFetch = async () =>
+      Response.json({
+        result: {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                search_id: "search_abc",
+                results: [
+                  { url: "https://bun.sh/docs", title: "Bun Runtime", excerpts: ["fast runtime"], publish_date: null },
+                ],
+              }),
+            },
+          ],
+        },
+      });
+    const adapter = createSearchAdapter(SEARCH_PROVIDER_SPECS.parallel);
+    const parallelTarget = { ...target, provider_id: "parallel" as const, model_id: "parallel" };
+
+    const outcome = await adapter.websearch!({ query: "bun" }, parallelTarget, context("parallel", undefined, fetcher));
+    expect(outcome.results).toEqual([
+      { title: "Bun Runtime", url: "https://bun.sh/docs", snippet: "fast runtime", published_at: null, score: null },
+    ]);
+  });
+
+  test("a non-JSON Parallel text block is empty results, not a thrown error", async () => {
+    // Upstream answers usage notes and refusals as plain text. That has to read
+    // as "no hits" the way an empty result set already does, rather than
+    // turning every such response into a 502.
+    const fetcher: ValidatedOutboundFetch = async () =>
+      Response.json({
+        result: { content: [{ type: "text", text: "Rate limit reached. Retry shortly." }] },
+      });
+    const adapter = createSearchAdapter(SEARCH_PROVIDER_SPECS.parallel);
+    const parallelTarget = { ...target, provider_id: "parallel" as const, model_id: "parallel" };
+
+    const outcome = await adapter.websearch!({ query: "bun" }, parallelTarget, context("parallel", undefined, fetcher));
+    expect(outcome.results).toEqual([]);
+  });
 });

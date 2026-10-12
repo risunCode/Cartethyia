@@ -220,6 +220,9 @@ Released 2026-10-12.
   are the remaining signed-in-session providers and now share the console's
   "Web Session Providers" section on their own.
 
+- The console command palette: its `⌘K` shortcut, its topbar button, and the
+  component behind them. The sidebar is the navigation surface.
+
 ### Fixed
 
 **Providers**
@@ -236,6 +239,37 @@ Released 2026-10-12.
   specs now declare the path below the version root they actually sit under, so
   a wrong path reaches the operator as the wrong URL instead of being quietly
   corrected into a different address.
+
+**Web search**
+
+- The keyless Parallel route no longer depends on one response shape. The public
+  MCP answers a `tools/call` with the same payload twice — once in
+  `result.structuredContent`, once JSON-encoded in the text block at
+  `result.content[0].text`. Only the first was read, so an upstream that drops it
+  turned every credential-free search into a 200 with zero results and no error.
+  The text block is now the fallback, and a non-JSON block (a rate-limit notice,
+  a refusal) reads as an empty result set rather than a failed request.
+
+**Console**
+
+- Two controls that carried only the `btn*` marker classes rendered with no
+  styling at all, because those names exist for tests and one container query
+  and nothing in the stylesheet paints them: the credential notice's external
+  "Sign in" link and the add-account dialog's "Import file" label. The button
+  atom's recipe is now exported and composed by both.
+- A provider whose identity is fixed shows a real disabled dropdown. The
+  hand-built stand-in carried the select's marker class without the utilities
+  the real trigger owns, so the value and its chevron stacked as loose text.
+- The routing slider is sized to sit beside the text inputs in its row rather
+  than tower over them (20px track, 12px thumb).
+- "Paste" and "Import file" moved out of the credential textarea's row to their
+  own line, right-aligned. Sharing the row took ~120px from the textarea and
+  left the actions floating beside a six-row input.
+- Backup export, restore, and delete-all focus the console password field when
+  the dialog opens. The field asked for React `autoFocus`, which fires once at
+  mount and is then overridden by the modal focus hook — the hook reads
+  `[data-autofocus]`, and no caller had used it, so the dialog opened focused on
+  the panel instead of the one field all three flows require.
 
 **Packaging**
 

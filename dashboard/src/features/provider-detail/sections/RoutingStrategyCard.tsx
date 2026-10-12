@@ -1,4 +1,4 @@
-import { Cable, ChevronDown, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
+import { Cable, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card, CardBody, CardHeader } from "../../../components/ui/card";
 import { Inline } from "../../../components/ui/inline";
@@ -79,6 +79,12 @@ export function RoutingStrategyCard({
     const label = userAgentOptions.find((option) => option.value === next)?.label ?? next;
     toast.success("Client identity updated", label);
   };
+
+  // The provider's own discovered client, shown verbatim when its identity is
+  // fixed — the same string the editable path lists as a preset.
+  const fixedIdentity = clientVersion
+    ? `${clientVersion.client} ${clientVersion.version}`
+    : "Provider default";
 
   return (
     <Card>
@@ -198,14 +204,17 @@ export function RoutingStrategyCard({
                   onValueChange={handleUserAgentChange}
                 />
               ) : (
-                <div aria-label="Client identity" className="radix-select-trigger" aria-disabled="true">
-                  <span>
-                    {clientVersion
-                      ? `${clientVersion.client} ${clientVersion.version}`
-                      : "Provider default"}
-                  </span>
-                  <ChevronDown size={14} aria-hidden="true" />
-                </div>
+                // A real disabled `Select`, not a hand-built trigger. The fake one
+                // carried the `radix-select-trigger` marker with none of the
+                // utilities the real trigger owns, so the value and its chevron
+                // stacked as loose text instead of reading as a control.
+                <Select
+                  id="routing-user-agent-fixed"
+                  aria-label="Client identity"
+                  disabled
+                  value={fixedIdentity}
+                  options={[{ value: fixedIdentity, label: fixedIdentity }]}
+                />
               )}
               <div className="text-badge text-text-tertiary mt-2">
                 {userAgentEditable

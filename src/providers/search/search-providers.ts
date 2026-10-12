@@ -162,16 +162,42 @@ function parallelRequest(params: SearchParams, token: string): SearchRequestInit
   };
 }
 
-function parallelNormalize(data: unknown): readonly { title: string; url: string; snippet: string; published_at?: string | null; score?: number | null }[] {
+/**
+ * Pull the result rows out of whichever shape Parallel answered in.
+ *
+ * The keyed REST route returns `results` at the top level. The public MCP route
+ * is an MCP `tools/call`, so the same payload arrives twice: once in
+ * `result.structuredContent.results` and again JSON-encoded into the text
+ * block at `result.content[0].text`. Both are live today — verified against
+ * `search.parallel.ai/mcp` with no credential — and which one survives an
+ * upstream change is not something this file should depend on, so the text
+ * block is parsed as the fallback rather than trusted as dead weight.
+ */
+function parallelResultItems(data: unknown): readonly unknown[] {
   const record = asRecord(data);
   const result = asRecord(record?.result);
   const structured = asRecord(result?.structuredContent);
-  const items = Array.isArray(structured?.results)
-    ? structured.results
-    : Array.isArray(record?.results)
-      ? record.results
-      : [];
-  return items.flatMap((raw) => {
+  if (Array.isArray(structured?.results)) return structured.results;
+  if (Array.isArray(record?.results)) return record.results;
+  const content = Array.isArray(result?.content) ? result.content : [];
+  for (const part of content) {
+    const text = asRecord(part)?.text;
+    if (typeof text !== "string") continue;
+    // A non-JSON block is a normal outcome here, not an error to surface: an
+    // upstream usage note or a refusal arrives as text and simply yields no
+    // rows, which is what an empty result set already means to the caller.
+    try {
+      const results = asRecord(JSON.parse(text))?.results;
+      if (Array.isArray(results)) return results;
+    } catch {
+      continue;
+    }
+  }
+  return [];
+}
+
+function parallelNormalize(data: unknown): readonly { title: string; url: string; snippet: string; published_at?: string | null; score?: number | null }[] {
+  return parallelResultItems(data).flatMap((raw) => {
     const item = asRecord(raw);
     if (!item) return [];
     const url = stringField(item, "url");

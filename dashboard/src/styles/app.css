@@ -901,11 +901,13 @@ html[data-app="landing"] #root {
 }
 
 /* Range input tracks and thumbs require browser-specific pseudo-elements. The
-   fill percentage and unlimited state are supplied by the routing control. */
+   fill percentage and unlimited state are supplied by the routing control.
+   Sized to sit beside the text inputs in the same row rather than tower over
+   them: 20px track, 12px thumb. */
 .routing-slider {
   -webkit-appearance: none;
   appearance: none;
-  height: 28px;
+  height: 20px;
   border-radius: var(--radius-control);
   border: 1px solid var(--inner-border);
   background: var(--surface-2);
@@ -920,7 +922,7 @@ html[data-app="landing"] #root {
   border-color: var(--accent);
 }
 .routing-slider::-webkit-slider-runnable-track {
-  height: 28px;
+  height: 20px;
   border-radius: var(--radius-control);
   background: linear-gradient(
     to right,
@@ -932,27 +934,27 @@ html[data-app="landing"] #root {
   -webkit-appearance: none;
   appearance: none;
   width: 8px;
-  height: 18px;
-  margin-top: 5px;
-  border-radius: 4px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 3px;
   background: var(--accent-foreground);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 35%, transparent);
 }
 .routing-slider::-moz-range-track {
-  height: 28px;
+  height: 20px;
   border-radius: var(--radius-control);
   background: transparent;
 }
 .routing-slider::-moz-range-progress {
-  height: 28px;
+  height: 20px;
   border-radius: var(--radius-control) 0 0 var(--radius-control);
   background: var(--slider-fill);
 }
 .routing-slider::-moz-range-thumb {
   width: 8px;
-  height: 18px;
+  height: 12px;
   border: none;
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--accent-foreground);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 35%, transparent);
 }
