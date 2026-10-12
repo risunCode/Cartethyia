@@ -1,8 +1,8 @@
 /**
- * Converts a 9Router database export into a Cartethyia backup payload.
+ * Converts a supported legacy database export into a Cartethyia backup payload.
  *
- * The input is the JSON that router's own "download database backup" action
- * produces: top-level arrays keyed `providerConnections`, `providerNodes`,
+ * The input is the JSON produced by the source application's database export:
+ * top-level arrays keyed `providerConnections`, `providerNodes`,
  * `proxyPools`, `apiKeys`, `combos`, plus `settings`, `modelAliases`,
  * `customModels`, `mitmAlias`, and `pricing`.
  *
@@ -526,4 +526,3 @@ export function convert9RouterBackup(input: unknown, tenantId: string): Conversi
     },
   };
 }
-

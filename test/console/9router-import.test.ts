@@ -1,7 +1,7 @@
 /**
- * The 9Router import, against the router's real export shape.
+ * Legacy backup import, against a captured export shape.
  *
- * The mapping lives in `9router-map.ts` and is exercised here as data: a row is
+ * The provider mapping is exercised here as data: a row is
  * imported, refused, or remapped, and the report says which. The cases are the
  * ones a real file actually contained — measured against an operator's own
  * backup — plus the two defects that shape taught us:
@@ -43,7 +43,7 @@ function backup(overrides: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
-describe("9router provider mapping", () => {
+describe("legacy provider mapping", () => {
   test("maps the upstreams we carry, and refuses the ones we do not", () => {
     // Same upstream, different spelling.
     expect(UPSTREAM_PROVIDERS["grok-cli"]).toBe("grok");
@@ -102,7 +102,7 @@ describe("9router provider mapping", () => {
   });
 });
 
-describe("9router proxy pools", () => {
+describe("legacy proxy pools", () => {
   test("a hosted runtime imports as the protocol it speaks", () => {
     // These four are TLS front doors; `isRelayHost` dials them through the relay
     // contract, which is the only way a serverless host answers at all.
@@ -168,7 +168,7 @@ describe("9router proxy pools", () => {
   });
 });
 
-describe("9router accounts", () => {
+describe("legacy accounts", () => {
   test("the credential travels under the secret's name and is re-sealed on restore", () => {
     const { payload, report } = convert9RouterBackup(
       backup({
@@ -251,7 +251,7 @@ describe("9router accounts", () => {
   });
 });
 
-describe("9router combos", () => {
+describe("legacy combos", () => {
   test("a strategy we do not carry is reported, not silently substituted", () => {
     expect(COMBO_STRATEGIES["round-robin"]).toBe("round_robin");
     // `null` is the router's own unset value, and `fallback` is its default.
@@ -279,7 +279,7 @@ describe("9router combos", () => {
   });
 });
 
-describe("9router payload validity", () => {
+describe("legacy payload validity", () => {
   test("the converted payload validates against the live schema", () => {
     const { payload } = convert9RouterBackup(
       backup({

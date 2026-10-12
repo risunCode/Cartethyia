@@ -50,8 +50,8 @@ export const GEMINI_MODELS: readonly ModelDefinition[] = [
       reasoning: true,
     }),
   ),
-  // 9router's Gemini image catalog. These answer `:generateContent` with
-  // `inlineData`, not the chat text path.
+  // Image-generation models answer `:generateContent` with `inlineData`, not
+  // the chat text path.
   ...[
     "gemini-3.1-flash-image-preview",
     "gemini-3-pro-image-preview",

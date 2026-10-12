@@ -4,12 +4,11 @@
  * Qoder's login is a custom device flow, not RFC 8628: the PKCE pair, nonce,
  * and machine id are generated locally, the user opens
  * `qoder.com/device/selectAccounts` in a browser, and the gateway polls the
- * region's deviceToken endpoint until a `dt-...` token appears. Ported from
- * the 9router reference (`src/lib/oauth/services/qoder.js`), which speaks the
- * same endpoints.
+ * region's deviceToken endpoint until a `dt-...` token appears. The flow uses
+ * the same endpoints as the upstream client.
  *
- * The issued token is used directly at dispatch (like 9router: `dt-...`
- * tokens skip the PAT→jobToken exchange). There is no working refresh grant —
+ * The issued token is used directly at dispatch: `dt-...` tokens skip the
+ * PAT→jobToken exchange. There is no working refresh grant —
  * the upstream refresh endpoint answers 403 for this flow — so no refresher
  * is registered and the token is used exactly as issued until the operator
  * re-runs login. The account's Qoder user id and machine id travel in

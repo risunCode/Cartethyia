@@ -102,8 +102,8 @@ export const CODEX_MODELS: readonly ModelDefinition[] = [
   codexResponsesModel("gpt-5.6-terra", 1_000_000, 128_000),
   codexResponsesModel("gpt-5.6-luna", 1_000_000, 128_000),
   codexResponsesModel("gpt-5.5", 272_000, 128_000),
-  // 9router's Codex image catalog. Dedicated image tools plus the `-image`
-  // variants of the chat models, all served on the same Responses endpoint.
+  // Dedicated image tools plus the `-image` variants of chat models, all
+  // served on the same Responses endpoint.
   codexResponsesModel("gpt-image-2.5", 400_000, 128_000, true),
   codexResponsesModel("gpt-image-2.5-flare", 400_000, 128_000, true),
   codexResponsesModel("gpt-image-2.5-sunburst", 400_000, 128_000, true),

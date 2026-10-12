@@ -1,4 +1,5 @@
 import {
+  Copy,
   KeyRound,
   Pencil,
   Plus,
@@ -23,12 +24,15 @@ import { SortableList } from "./SortableList";
 import { toast } from "../lib/toast";
 import { getErrorMessage } from "../data/api";
 import { compactTokens, limitLabel } from "../lib/format/tokens";
-import { useSessionUser } from "../hooks/system";import type { ApiKeyResponse } from "../data/contracts";
+import { useSessionUser } from "../hooks/system";
+import { useClipboard } from "../hooks/use-clipboard";
+import type { ApiKeyResponse } from "../data/contracts";
 import {
   useApiKeys,
   useCreateApiKey,
   useRegenerateApiKey,
   useReorderApiKeys,
+  useRevealApiKey,
   useRevokeApiKey,
   useUpdateApiKey,
 } from "../hooks/api-keys";
@@ -46,7 +50,9 @@ export function ApiKeysPanel(): ReactNode {
   const updateKey = useUpdateApiKey();
   const revokeKey = useRevokeApiKey();
   const regenerateKey = useRegenerateApiKey();
+  const revealKey = useRevealApiKey();
   const reorderKeys = useReorderApiKeys();
+  const { copy } = useClipboard();
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiKeyResponse | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyResponse | null>(null);
@@ -66,6 +72,19 @@ export function ApiKeysPanel(): ReactNode {
   const openShare = (key: ApiKeyResponse) => {
     setRevealedSecret(null);
     setShareTarget(key);
+  };
+
+  const copyApiKey = async (key: ApiKeyResponse) => {
+    try {
+      const { secret } = await revealKey.mutateAsync({ keyId: key.id });
+      if (await copy(secret)) {
+        toast.success("API key copied");
+      } else {
+        toast.error("Clipboard unavailable on this origin");
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Could not reveal API key."));
+    }
   };
 
   // A personal key rotates its own credential; a share template has none, so its
@@ -221,6 +240,17 @@ export function ApiKeysPanel(): ReactNode {
                   >
                     Edit
                   </Button>
+                  {!key.revokedAt && key.keyMode !== "share" ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Copy size={13} />}
+                      onClick={() => void copyApiKey(key)}
+                      disabled={revealKey.isPending}
+                    >
+                      Copy
+                    </Button>
+                  ) : null}
                   {!key.revokedAt && <Button
                     variant="secondary"
                     size="sm"

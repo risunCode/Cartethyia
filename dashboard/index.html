@@ -84,14 +84,10 @@
           const theme =
             storedTheme === "light" || storedTheme === "dark" || storedTheme === "system"
               ? storedTheme
-              : // The public share page presents dark by default; the console
-                // keeps following the OS until the operator chooses.
-                isShare
-                ? "dark"
-                : "system";
+              : "dark";
           root.dataset.theme = theme;
         } catch {
-          root.dataset.theme = isShare ? "dark" : "system";
+          root.dataset.theme = "dark";
         }
         try {
           if (window.localStorage.getItem("console-ambient-glow") === "off") {

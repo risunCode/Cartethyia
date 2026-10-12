@@ -38,6 +38,8 @@ import { redisEvalTuple, type RedisClient } from "../persistence/redis";
 export interface ModelAbuseBan {
   /** The client address the ban is keyed on. */
   readonly ip: string;
+  /** Model-abuse policy that triggered this address-wide ban. */
+  readonly reason: "repeated_invalid_model_requests";
   /** Epoch ms the ban lapses on its own. */
   readonly expiresAt: number;
 }
@@ -179,7 +181,7 @@ export class InMemoryModelAbuseStore implements ModelAbuseStore {
     const bans: ModelAbuseBan[] = [];
     for (const [ip, expiresAt] of [...this.bans]) {
       if (expiresAt <= now) this.bans.delete(ip);
-      else bans.push({ ip, expiresAt });
+      else bans.push({ ip, reason: "repeated_invalid_model_requests", expiresAt });
     }
     return bans;
   }
@@ -284,7 +286,7 @@ export class RedisModelAbuseStore implements ModelAbuseStore {
       const ip = entries[index];
       const score = entries[index + 1];
       if (ip === undefined || score === undefined) break;
-      bans.push({ ip, expiresAt: Number(score) });
+      bans.push({ ip, reason: "repeated_invalid_model_requests", expiresAt: Number(score) });
     }
     return bans;
   }

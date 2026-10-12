@@ -101,8 +101,8 @@ describe("deepseek catalog", () => {
   });
 
   test("drops the retired and alias ids", async () => {
-    // 9router records `v4.1-flash` as replacing `v4-flash` — dropped from the
-    // published server list — and `v4-flash-vision-exp` routes to it upstream.
+    // `v4.1-flash` replaces `v4-flash` in the published server list, and
+    // `v4-flash-vision-exp` routes to it upstream.
     // `v4-pro-max` / `v4-pro-none` are aliases of `v4-pro`, not models.
     const ids = (await catalogFor("deepseek")).map((m) => m.modelId);
     expect(ids).not.toContain("deepseek-v4-flash");
@@ -134,10 +134,9 @@ describe("deepseek catalog", () => {
     expect(pro?.toolCall).toBe(true);
     expect(pro?.modalities.input).not.toContain("image");
     // `v4.1-flash` is filed under other providers upstream, so it resolves
-    // through the majority row — 1048576, which is how that row is published,
-    // rather than the 1000000 9router's capability table states. Both are the
-    // same 1M window expressed differently; the catalog's number is what the
-    // client sees, so it is what is pinned here.
+    // through the majority row. Its 1048576-token limit and the 1000000-token
+    // value used elsewhere express the same 1M window; pin the catalog value
+    // because that is what the client sees.
     const flash = byId.get("deepseek-v4.1-flash");
     expect(flash?.contextLimit).toBe(1_048_576);
     expect(flash?.outputLimit).toBe(384_000);

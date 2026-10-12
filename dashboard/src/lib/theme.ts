@@ -17,10 +17,10 @@ export type ConsoleThemeChoice = "system" | "light" | "dark";
 export const CONSOLE_THEME_KEY = "console-theme";
 
 export function parseConsoleTheme(value: unknown): ConsoleThemeChoice {
-  return value === "light" || value === "dark" || value === "system" ? value : "system";
+  return value === "light" || value === "dark" || value === "system" ? value : "dark";
 }
 
-export function readConsoleTheme(fallback: ConsoleThemeChoice = "system"): ConsoleThemeChoice {
+export function readConsoleTheme(fallback: ConsoleThemeChoice = "dark"): ConsoleThemeChoice {
   if (typeof window === "undefined" || !window.localStorage) return fallback;
   try {
     return parseConsoleTheme(window.localStorage.getItem(CONSOLE_THEME_KEY) ?? fallback);

@@ -1,9 +1,8 @@
 /**
- * The 9Router ↔ Cartethyia mapping, as data.
+ * A legacy backup mapping, expressed as data.
  *
- * `nine-router.ts` converts a router export; every value translation it makes
- * lives here so the mapping can be read, reviewed, and corrected in one place
- * instead of being rediscovered inside a converter's control flow.
+ * The backup converter reads every value translation from this map, keeping
+ * them in one place instead of scattering them through conversion logic.
  *
  * Two rules shape every entry:
  *

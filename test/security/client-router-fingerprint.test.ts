@@ -10,9 +10,8 @@
  * follows is adversarial input that must NOT match.
  *
  * The other half is the persisted contract. A denylist entry is stored on an API
- * key and read back at the matching boundary, so the ids are durable data:
- * `omniroute` folded into `9router` and the alias has to keep resolving, or an
- * operator's existing refusal silently stops applying after a rename.
+ * key and read back at the matching boundary, so the canonical id and its
+ * historical alias must keep resolving.
  */
 import { describe, expect, test } from "bun:test";
 import {
@@ -34,7 +33,7 @@ function headerProbe(headers: Record<string, string> = {}): ClientRouterProbe {
   return { headers: new Headers(headers) };
 }
 
-/** The one product this table currently recognises. */
+/** The canonical id currently used by the fingerprint table. */
 const NINE_ROUTER = "9router";
 
 describe("CLIENT_ROUTERS — the table's own invariants", () => {
@@ -119,7 +118,7 @@ describe("detectClientRouter — a caller with no signal", () => {
     // The module's header records that a "corroborating" tier was tried and
     // removed on evidence: these are the *real* client's own values, which is
     // exactly what these routers imitate. Measured against captured traffic they
-    // labelled a real Claude Code request as OmniRoute — worse than no signal.
+    // labelled a real Claude Code request as a different client — worse than no signal.
     // Pinned so nobody re-adds them.
     expect(
       detectClientRouter(
@@ -156,11 +155,8 @@ describe("detectClientRouter — a caller with no signal", () => {
   });
 
   test("the UA pattern's word boundary treats punctuation as a boundary", () => {
-    // MEASURED: the pattern is `/(^|[^a-z0-9])9router([^a-z0-9]|$)/i`, so a
-    // hyphen, slash, or parenthesis beside the name counts as a boundary and the
-    // UA matches. Pinned because "not-9router-like" reads like a near-miss but is
-    // not one — the module matches on the *word*, deliberately, because a product
-    // name in a UA is how these clients identify themselves.
+    // Punctuation around a standalone token counts as a boundary. Pin this
+    // because a token surrounded by hyphens is still a match.
     expect(detectClientRouter(probe({ "user-agent": "not-9router-like" }))?.routerId).toBe(
       NINE_ROUTER,
     );
@@ -212,8 +208,7 @@ describe("detectClientRouter — each documented signal", () => {
   });
 
   test("the UA pattern matches the product name as a whole word", () => {
-    // `/(^|[^a-z0-9])9router([^a-z0-9]|$)/i` — the boundaries are what stop a
-    // longer token that merely contains the name from matching.
+    // The boundaries stop a longer token from matching accidentally.
     for (const value of [
       "9router",
       "9Router/1.0",
@@ -277,7 +272,7 @@ describe("detectClientRouter — each documented signal", () => {
     // The label is what the operator sees in the refusal message and the console;
     // the id is what the denylist stores.
     const match = detectClientRouter(probe({ "x-msh-platform": "9router" }));
-    expect(match?.label).toBe("9Router and OmniRoute");
+    expect(match?.label).toBe("Compatible AI router");
     expect(match?.label).not.toBe(match?.routerId);
   });
 });
@@ -336,9 +331,8 @@ describe("normalizeClientRouterId", () => {
   });
 
   test("the legacy alias resolves to its current id", () => {
-    // The persisted contract: a denylist stored before the merge still contains
-    // `omniroute`, and detection now always returns `9router`. Without the alias,
-    // an operator's existing refusal silently stops applying.
+    // A denylist stored with a historical id must continue resolving to the
+    // current canonical id.
     expect(normalizeClientRouterId("omniroute")).toBe(NINE_ROUTER);
   });
 
@@ -357,9 +351,8 @@ describe("normalizeClientRouterId", () => {
   });
 
   test("the alias is not itself listed as an id", () => {
-    // The table's comment: `omniroute` survives only as a legacy alias, never as
-    // its own entry — otherwise the dashboard would offer two ids for one product
-    // and the two entries could drift.
+    // Historical values remain accepted without adding duplicate entries to the
+    // dashboard list.
     expect(CLIENT_ROUTER_IDS).not.toContain("omniroute");
     expect(CLIENT_ROUTERS.some((router) => router.id === "omniroute")).toBe(false);
   });
@@ -373,23 +366,22 @@ describe("deniedClientRouter", () => {
     return found;
   }
 
-  test("a denylist naming the detected product returns its label", () => {
+  test("a denylist naming the detected router returns its label", () => {
     // The label, not the id: the caller puts it in the refusal message the client
     // reads.
-    expect(deniedClientRouter([NINE_ROUTER], match())).toBe("9Router and OmniRoute");
+    expect(deniedClientRouter([NINE_ROUTER], match())).toBe("Compatible AI router");
   });
 
-  test("the legacy alias in a stored denylist still denies", () => {
-    // The end-to-end consequence of the alias: a key whose denylist was saved
-    // before the merge keeps refusing the product.
-    expect(deniedClientRouter(["omniroute"], match())).toBe("9Router and OmniRoute");
+  test("a historical alias in a stored denylist still denies", () => {
+    // A key whose denylist was saved before the id change keeps applying.
+    expect(deniedClientRouter(["omniroute"], match())).toBe("Compatible AI router");
   });
 
   test("a Set works as well as an array", () => {
     // The snapshot's list fields accept either, so the boundary canonicalises
     // both.
-    expect(deniedClientRouter(new Set([NINE_ROUTER]), match())).toBe("9Router and OmniRoute");
-    expect(deniedClientRouter(new Set(["omniroute"]), match())).toBe("9Router and OmniRoute");
+    expect(deniedClientRouter(new Set([NINE_ROUTER]), match())).toBe("Compatible AI router");
+    expect(deniedClientRouter(new Set(["omniroute"]), match())).toBe("Compatible AI router");
   });
 
   test("a denylist naming a different product does not deny", () => {
@@ -418,19 +410,19 @@ describe("deniedClientRouter", () => {
   });
 
   test("a non-string entry beside a valid one does not break the valid one", () => {
-    expect(deniedClientRouter([null, 9, {}, NINE_ROUTER], match())).toBe("9Router and OmniRoute");
+    expect(deniedClientRouter([null, 9, {}, NINE_ROUTER], match())).toBe("Compatible AI router");
   });
 
   test("an unlabelled caller is never denied", () => {
-    // The guard's first check. A client that sent no signal cannot be the denied
-    // product, so even a denylist naming it must not refuse this request.
+    // A client that sent no signal cannot be identified, so even a denylist
+    // entry must not refuse this request.
     expect(deniedClientRouter([NINE_ROUTER], null)).toBeNull();
     expect(deniedClientRouter(["omniroute"], null)).toBeNull();
   });
 
   test("an empty-string entry does not normalize into a match", () => {
-    // `normalizeClientRouterId("")` is undefined, and `undefined === "9router"`
-    // is false. Pinned because a truthy-check refactor could invert it.
+    // A blank id does not normalize; pin this so a truthy-check refactor cannot
+    // turn it into a match.
     expect(deniedClientRouter(["   "], match())).toBeNull();
   });
 });

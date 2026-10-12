@@ -191,10 +191,8 @@ dbDescribe("gateway authentication", () => {
   });
 
   describe("client-router denylist", () => {
-    // The detector's only registered fingerprint is 9Router/OmniRoute, matched
-    // on its own headers and on a User-Agent naming it. These cases use that
-    // real signal rather than an invented client name, so the suite proves the
-    // denylist path rather than the fixture's spelling.
+    // These cases use a registered fingerprint signal so the suite proves the
+    // denylist path rather than relying on a fixture's spelling.
     const NINE_ROUTER_HEADERS = { "x-msh-platform": "9router" };
 
     test("a denied client router is refused before a route is planned", async () => {
@@ -231,8 +229,8 @@ dbDescribe("gateway authentication", () => {
     });
 
     test("the pre-merge id still matches after the rename", async () => {
-      // `omniroute` folded into `9router`; a denylist persisted before that
-      // rename must keep refusing the same client instead of silently lapsing.
+      // A denylist persisted with a historical id must keep applying instead
+      // of silently lapsing.
       const legacy = await world.createKey({ clientRouterDenylist: ["omniroute"] });
       const response = await gateway.json(
         "/v1/chat/completions",

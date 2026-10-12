@@ -104,10 +104,20 @@ describe("gpt-6-luna on the buddy roster", () => {
     expect(CODEBUDDY_CN_MODELS.some((model) => model.modelId === "hy4-preview-x")).toBe(false);
   });
 
-  test("WorkBuddy CN mirrors WorkBuddy models while keeping its provider identity", () => {
-    const internationalIds = new Set(WORKBUDDY_MODELS.map((model) => model.modelId));
-    expect(new Set(WORKBUDDY_CN_MODELS.map((model) => model.modelId))).toEqual(internationalIds);
-    const cnRow = luna(WORKBUDDY_CN_MODELS);
-    expect(cnRow?.endpointPath).toBe("/v2/chat/completions");
+  test("WorkBuddy CN uses exactly the CodeBuddy CN catalog with its own endpoint", () => {
+    expect(WORKBUDDY_CN_MODELS.map((model) => model.modelId)).toEqual(
+      CODEBUDDY_CN_MODELS.map((model) => model.modelId),
+    );
+    for (let index = 0; index < CODEBUDDY_CN_MODELS.length; index += 1) {
+      const codebuddyCn = CODEBUDDY_CN_MODELS[index];
+      const workbuddyCn = WORKBUDDY_CN_MODELS[index];
+      expect(workbuddyCn).toBeDefined();
+      expect(workbuddyCn?.endpointPath).toBe("/v2/chat/completions");
+      expect(workbuddyCn?.contextLimit).toBe(codebuddyCn?.contextLimit);
+      expect(workbuddyCn?.outputLimit).toBe(codebuddyCn?.outputLimit);
+      expect(workbuddyCn?.modalities).toEqual(codebuddyCn?.modalities);
+      expect(workbuddyCn?.reasoning).toBe(codebuddyCn?.reasoning);
+      expect(workbuddyCn?.toolCall).toBe(codebuddyCn?.toolCall);
+    }
   });
 });

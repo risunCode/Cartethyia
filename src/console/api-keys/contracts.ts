@@ -40,7 +40,7 @@ export interface CreateApiKeyRequest {
   label?: string;
   keyMode?: ApiKeyMode;
   scopes?: readonly string[];
-  /** Public leading fragment used for generated keys; defaults to `rk_`. */
+  /** Public leading fragment used for generated keys; defaults to the product prefix. */
   keyPrefix?: string;
   /** Owner-supplied raw key value; valid only for personal keys. */
   key?: string;
@@ -155,8 +155,8 @@ export interface ShareLinkResponse {
   readonly lastViewedAt: string | null;
 }
 
-/** Default public prefix for generated keys, matching the console form hint. */
-export const DEFAULT_API_KEY_PREFIX = "rk_";
+/** Default prefix for newly generated API keys. */
+export const DEFAULT_API_KEY_PREFIX = "carte_";
 
 /** Label of the default gateway API key seeded at first boot; never revoked. */
 export const DEFAULT_API_KEY_LABEL = "Default Cartethyia API key";
@@ -167,7 +167,7 @@ export function generateApiKeySecret(prefix = DEFAULT_API_KEY_PREFIX): {
   hash: string;
   prefix: string;
 } {
-  const secret = `${prefix}${randomBytes(32).toString("base64url")}`;
+  const secret = `${prefix}${randomBytes(9).toString("base64url")}`;
   return { secret, hash: hashSecret(secret), prefix };
 }
 
@@ -369,4 +369,3 @@ export function mapShareLinkResponse(link: ShareLinkSummary): ShareLinkResponse 
     lastViewedAt: link.lastViewedAt === null ? null : link.lastViewedAt.toISOString(),
   };
 }
-

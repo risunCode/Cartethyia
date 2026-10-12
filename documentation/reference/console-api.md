@@ -125,7 +125,7 @@ into the next.
 | `share/` | `/share/:token/*` | Public enrollment and handoff links, mounted separately by `createShareRouter` (`src/boot/app.ts`), not under `/console/api` |
 | `cli-tools/` | `/console/api/cli-tools/*` | Per-tool status, per-(tenant, tool, key) slot mappings, download, apply |
 | `settings/` | `/console/api/settings/runtime` | Per-tenant preferences: telemetry payloads, privacy mode, RTK prune, PonyTail |
-| `backup/` | `/console/api/backup/*` | Export, import, delete-all. `nine-router.ts` converts a foreign router export, never guessing a provider id |
+| `backup/` | `/console/api/backup/*` | Export, import, delete-all. Recognized legacy exports are converted without guessing provider ids |
 | `studio/` | `/console/api/studio/*` | Model lab sessions, bounded to 50 per tenant with oldest-first eviction |
 | `quota/` | `/console/api/quota/*`, `/console/api/accounts/*`, `/console/api/global/accounts/*` | Quota windows, refresh, check-in, resets; tenant routes and platform-admin routes are separate modules onto one instance |
 | `observability/` | `/console/api/system/*` (including `/system/performance`), `/telemetry/*`, `/logs/*`, `/live/*` | File-log reads, log ring SSE, live in-flight gauge, pool health streams |

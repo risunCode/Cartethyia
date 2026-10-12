@@ -44,27 +44,24 @@ describe("parseConsoleTheme", () => {
     expect(parseConsoleTheme("system")).toBe("system");
   });
 
-  test("anything else resolves to system", () => {
-    // The fallback direction matters: an unrecognised value must become a real
-    // choice. `system` is the safe one because it defers to the OS rather than
-    // forcing a theme the operator did not pick.
-    expect(parseConsoleTheme(null)).toBe("system");
-    expect(parseConsoleTheme(undefined)).toBe("system");
-    expect(parseConsoleTheme("")).toBe("system");
-    expect(parseConsoleTheme("DARK")).toBe("system");
-    expect(parseConsoleTheme("Dark")).toBe("system");
-    expect(parseConsoleTheme("  dark  ")).toBe("system");
-    expect(parseConsoleTheme("auto")).toBe("system");
-    expect(parseConsoleTheme(0)).toBe("system");
-    expect(parseConsoleTheme({ theme: "dark" })).toBe("system");
+  test("anything else resolves to the dark default", () => {
+    expect(parseConsoleTheme(null)).toBe("dark");
+    expect(parseConsoleTheme(undefined)).toBe("dark");
+    expect(parseConsoleTheme("")).toBe("dark");
+    expect(parseConsoleTheme("DARK")).toBe("dark");
+    expect(parseConsoleTheme("Dark")).toBe("dark");
+    expect(parseConsoleTheme("  dark  ")).toBe("dark");
+    expect(parseConsoleTheme("auto")).toBe("dark");
+    expect(parseConsoleTheme(0)).toBe("dark");
+    expect(parseConsoleTheme({ theme: "dark" })).toBe("dark");
   });
 
   test("the comparison is exact, so a near-miss is rejected", () => {
     // `"dark "` with a trailing space is not `"dark"`. Pinned because a
     // `.trim()`-based reader would accept it, and the two would then disagree
     // with the bootstrap script in `index.html`.
-    expect(parseConsoleTheme("dark ")).toBe("system");
-    expect(parseConsoleTheme(" dark")).toBe("system");
+    expect(parseConsoleTheme("dark ")).toBe("dark");
+    expect(parseConsoleTheme(" dark")).toBe("dark");
   });
 
   test("the result is always in the documented union", () => {
@@ -83,8 +80,8 @@ describe("readConsoleTheme", () => {
     expect(readConsoleTheme()).toBe("light");
   });
 
-  test("nothing stored falls back to system", () => {
-    expect(readConsoleTheme()).toBe("system");
+  test("nothing stored defaults to dark", () => {
+    expect(readConsoleTheme()).toBe("dark");
   });
 
   test("a caller-supplied fallback is used when nothing is stored", () => {
@@ -101,15 +98,9 @@ describe("readConsoleTheme", () => {
     expect(readConsoleTheme("dark")).toBe("light");
   });
 
-  test("a corrupt stored value resolves to system, not to the fallback", () => {
-    // MEASURED, and it is the subtle case: the read is
-    // `parseConsoleTheme(getItem(key) ?? fallback)`. A stored-but-invalid value is
-    // not nullish, so the `??` does not fire and the invalid string is passed to
-    // the parser, which returns `system`. So a caller passing `"dark"` as the
-    // fallback still gets `system` when the stored value is garbage. Pinned
-    // because it is not what "fallback" suggests.
+  test("a corrupt stored value resolves to the dark default", () => {
     window.localStorage.setItem(CONSOLE_THEME_KEY, "chartreuse");
-    expect(readConsoleTheme("dark")).toBe("system");
+    expect(readConsoleTheme("light")).toBe("dark");
   });
 
   test("a storage read that throws returns the fallback", () => {
@@ -120,7 +111,7 @@ describe("readConsoleTheme", () => {
       throw new Error("storage is blocked");
     };
     try {
-      expect(readConsoleTheme()).toBe("system");
+      expect(readConsoleTheme()).toBe("dark");
       expect(readConsoleTheme("light")).toBe("light");
     } finally {
       window.localStorage.getItem = original;

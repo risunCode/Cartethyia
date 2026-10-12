@@ -132,8 +132,8 @@ export function parsePastedOAuthCredential(raw: string): {
  * The account configuration a pasted export carries beside its tokens.
  *
  * Kiro refuses a generation request that omits the profile the account is bound
- * to, and an export from this gateway or from 9router carries that profile under
- * a different key. Reading neither is how an imported account probes with no
+ * to, and legacy exports carry that profile under a different key. Reading
+ * neither is how an imported account probes with no
  * profile and is answered `400 profileArn is required`.
  */
 function pastedAuthState(

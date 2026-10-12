@@ -9,13 +9,9 @@
 // A client that removes every header looks like a plain SDK caller, so the
 // label is evidence for an operator, not a security boundary.
 //
-// Every signal here names its product literally. A "corroborating" tier was
-// tried and removed on evidence: the candidate signals for it — the Claude Code
-// system prompt, `x-anthropic-billing-header`, `x-claude-code-session-id` — are
-// the *genuine* first-party client's own values, which is exactly what these
-// routers imitate. Measured against captured traffic, those signals labelled a
-// real Claude Code request as OmniRoute, so they are worse than no signal: they
-// cannot separate the imitator from the imitated.
+// Signals are limited to distinctive wire values. Generic first-party headers
+// were tested and removed because they also occur on ordinary client traffic,
+// making them unreliable evidence.
 
 /**
  * A product whose traffic can be recognised on the wire.
@@ -39,8 +35,8 @@ export interface ClientRouterDefinition {
  * is deliberately absent: a false positive here refuses a paying customer.
  *
  * With no matcher set, the header's mere presence is the signal. That is only
- * safe for a name no other client sends — `x-omniroute-peer-trace` — so a
- * header whose value is what distinguishes it must name a matcher instead.
+ * safe for a uniquely named header; a header whose value distinguishes it must
+ * name a matcher instead.
  */
 export interface ClientRouterSignal {
   /** Header name, lowercase. */
@@ -56,12 +52,10 @@ export interface ClientRouterSignal {
 }
 
 /**
- * Products recognised as of this writing.
+ * Client fingerprints currently recognised by the gateway.
  *
- * 9Router and OmniRoute are the same product under two names, so they share one
- * entry and one denylist id: an operator who refuses one refuses the other, and
- * the signals are matched together. `omniroute` survives only as a legacy alias
- * in `normalizeClientRouterId`, never as its own entry.
+ * Related wire signatures share one entry and denylist id. Historical
+ * denylist values continue resolving through `normalizeClientRouterId`.
  *
  * Scope note, so a future reader does not over-trust this table: these are the
  * signals the product emits on the paths that were inspected. It also lets an
@@ -73,35 +67,35 @@ export interface ClientRouterSignal {
 export const CLIENT_ROUTERS: readonly ClientRouterDefinition[] = [
   {
     id: "9router",
-    label: "9Router and OmniRoute",
+    label: "Compatible AI router",
     signals: [
       {
         field: "x-msh-platform",
         equals: "9router",
-        description: "9Router's platform header",
+        description: "Platform fingerprint header",
       },
       {
         field: "x-client-type",
         equals: "9router",
-        description: "9Router's client-type header",
+        description: "Client-type fingerprint header",
       },
       {
         field: "user-agent",
         pattern: /(^|[^a-z0-9])9router([^a-z0-9]|$)/i,
-        description: "User-Agent naming 9Router",
+        description: "User-Agent fingerprint",
       },
       {
         field: "x-omniroute-peer-trace",
-        description: "OmniRoute's peer-trace header",
+        description: "Peer-trace fingerprint header",
       },
       {
         field: "x-omniroute-fallback-hint",
-        description: "OmniRoute's fallback-hint header",
+        description: "Fallback-hint fingerprint header",
       },
       {
         field: "user-agent",
         equals: "mozilla/5.0 (compatible; openai compatible)",
-        description: "OmniRoute's rewritten OpenAI-compatible User-Agent",
+        description: "Rewritten OpenAI-compatible User-Agent",
       },
       {
         field: "user-agent",
@@ -113,8 +107,7 @@ export const CLIENT_ROUTERS: readonly ClientRouterDefinition[] = [
 ];
 
 /**
- * Ids an operator may have stored before a rename. `omniroute` folded into
- * `9router`; keeping the alias means a persisted denylist still resolves.
+ * Historical ids remain accepted so saved denylists keep resolving.
  */
 const LEGACY_CLIENT_ROUTER_IDS: Readonly<Record<string, string>> = { omniroute: "9router" };
 
@@ -214,9 +207,8 @@ export function deniedClientRouter(
   match: ClientRouterMatch | null,
 ): string | null {
   if (match === null || denylist == null) return null;
-  // Canonicalise every persisted entry at the matching boundary. Older keys may
-  // still contain the pre-merge `omniroute` id, while detection always returns
-  // the current `9router` id.
+  // Canonicalise every persisted entry at the matching boundary so historical
+  // ids continue to work with the current fingerprint.
   const ids: readonly unknown[] = Array.isArray(denylist) ? denylist : [...denylist];
   return ids.some(
     (id) => typeof id === "string" && normalizeClientRouterId(id) === match.routerId,

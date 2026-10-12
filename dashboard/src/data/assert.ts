@@ -351,7 +351,12 @@ export function assertModelBans(value: unknown): ModelAbuseBan[] {
     throw invalidResponse("Invalid model ban response");
   }
   return value.bans.map((ban) => {
-    if (!isRecord(ban) || typeof ban.ip !== "string" || !isFiniteNumber(ban.expiresAt)) {
+    if (
+      !isRecord(ban) ||
+      typeof ban.ip !== "string" ||
+      ban.reason !== "repeated_invalid_model_requests" ||
+      !isFiniteNumber(ban.expiresAt)
+    ) {
       throw invalidResponse("Invalid model ban response");
     }
     return ban as unknown as ModelAbuseBan;

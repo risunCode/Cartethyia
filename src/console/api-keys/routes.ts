@@ -205,7 +205,11 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
         (modeChanged || patchRequest.key !== undefined || prefixChanged)
       ) {
         const generated = patchRequest.key === undefined
-          ? generateApiKeySecret(resolveKeyPrefix(patchRequest.keyPrefix ?? current.keyPrefix))
+          ? generateApiKeySecret(
+              patchRequest.keyPrefix === undefined
+                ? undefined
+                : resolveKeyPrefix(patchRequest.keyPrefix),
+            )
           : {
               ...prepareCustomKey(patchRequest.key),
               prefix: resolveKeyPrefix(patchRequest.keyPrefix ?? current.keyPrefix),
@@ -280,8 +284,8 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
 
       // Denylist / allowlist / scopes are auth-snapshot fields: cache
       // invalidation above is enough. Only quota/concurrency edits need an
-      // admission purge — otherwise blocking 9Router would also wipe RPM /
-      // daily counters for every recipient mid-day.
+      // admission purge — otherwise changing a client denylist would also wipe
+      // RPM / daily counters for every recipient mid-day.
       //
       // And only a *tightened* limit needs it. The dashboard edit form always
       // sends all five limit fields, so a `!== undefined` test treated every
@@ -527,7 +531,7 @@ export function createApiKeyOperations(config: ApiKeyConfig) {
           409,
           "Only a personal key can be regenerated; rotate a share template's link instead",
         );
-      const generated = generateApiKeySecret(current.keyPrefix ?? undefined);
+      const generated = generateApiKeySecret();
       const updated = await config.store.update(authorized.tenantId, keyId, {
         keyHash: generated.hash,
         keyEncrypted: encryptCredential(generated.secret),

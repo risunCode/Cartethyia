@@ -7,10 +7,9 @@
  * offending name instead of writing a partial row, and a hostile payload cannot
  * name a column that does not exist.
  *
- * Detection is by shape, not by a flag, because the user imports one file and
- * the file says what it is: our own backups carry `app: "cartethyia"`, and a
- * 9Router export carries the table names it dumps (`providerConnections`,
- * `providerNodes`, `apiKeys`, …).
+ * Detection is by shape, not by a flag: native backups carry
+ * `app: "cartethyia"`, while supported legacy exports carry their own table
+ * names.
  */
 import type { Table } from "drizzle-orm";
 import { getTableColumns } from "drizzle-orm";
@@ -99,9 +98,9 @@ export type DetectedFormat =
   | { readonly kind: "unknown"; readonly reason: string };
 
 /**
- * Table names a 9Router export always writes. Requiring several keeps a
- * coincidental key from misclassifying a file — a lone `apiKeys` key is not
- * enough, and neither is `settings`, which both formats could plausibly carry.
+ * Table names used to recognize a supported legacy export. Requiring several
+ * keeps a coincidental key from misclassifying a file — a lone `apiKeys` key is
+ * not enough, and neither is `settings`, which both formats could plausibly carry.
  */
 const NINE_ROUTER_MARKERS = ["providerConnections", "providerNodes", "apiKeys", "combos"] as const;
 

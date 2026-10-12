@@ -24,7 +24,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as fullSchema from "../../src/persistence/schema";
 import { DrizzleApiKeyStore } from "../../src/persistence/stores/api-key-store";
 import { createApiKeyOperations } from "../../src/console/api-keys/routes";
-import { DEFAULT_API_KEY_LABEL } from "../../src/console/api-keys/contracts";
+import {
+  DEFAULT_API_KEY_LABEL,
+  DEFAULT_API_KEY_PREFIX,
+} from "../../src/console/api-keys/contracts";
 import { TENANT_KEY_SCOPES } from "../../src/security/access-control";
 import { createRunId, requireDatabase, withRollback } from "../helpers/database";
 import { createApiKey, createTenant } from "../helpers/fixtures";
@@ -192,7 +195,7 @@ describe("default gateway API key", () => {
     });
   });
 
-  test("a key created from the console is never the default", async () => {
+  test("new and rotated console keys use short Cartethyia credentials and are never the default", async () => {
     await withRollback(async (client) => {
       const tenant = await createTenant(client, RUN_ID);
       const db = drizzle(client as never, { schema: fullSchema });
@@ -207,8 +210,14 @@ describe("default gateway API key", () => {
         scopes: [...TENANT_KEY_SCOPES],
       });
       expect(created.isDefault).toBe(false);
+      expect(created.keyPrefix).toBe(DEFAULT_API_KEY_PREFIX);
+      expect(created.secret).toMatch(/^carte_[A-Za-z0-9_-]{12}$/);
 
-      // So it stays revocable.
+      const rotated = await operations.regenerateKey(owner(tenant.tenantId), created.id);
+      expect(rotated.secret).toMatch(/^carte_[A-Za-z0-9_-]{12}$/);
+      expect((await operations.listKeys(owner(tenant.tenantId))).find((key) => key.id === created.id)?.keyPrefix)
+        .toBe(DEFAULT_API_KEY_PREFIX);
+
       await operations.revokeKey(owner(tenant.tenantId), created.id);
     });
   });

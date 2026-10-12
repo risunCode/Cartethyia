@@ -10,10 +10,9 @@ const DEEPSEEK_PROVIDER_ID = "deepseek" as const;
  * source — it is the floor that keeps these models listed when discovery has not
  * run or the endpoint does not answer.
  *
- * Only two rows, and the retired ones are gone rather than marked: 9router's
- * capability tables record that `deepseek-v4.1-flash` replaces `v4-flash` — it
- * was dropped from the published server list and, with `v4-flash-vision-exp`,
- * now routes to `v4.1-flash` upstream. `v4-pro-max` and `v4-pro-none` are
+ * Only two rows are needed; retired and alias ids are omitted. `deepseek-v4.1-flash`
+ * replaces `v4-flash` and `v4-flash-vision-exp` routes to it upstream.
+ * `v4-pro-max` and `v4-pro-none` are
  * likewise routing aliases of `deepseek-v4-pro`, not models of their own.
  *
  * Limits and pricing resolve from the base catalog via `providerId`, so no
@@ -23,9 +22,9 @@ const DEEPSEEK_PROVIDER_ID = "deepseek" as const;
  * provider-scoped one. That is the honest resolution — inventing limits here
  * would publish a guess as a measurement.
  *
- * There is no `v4.1-pro`: neither 9router nor the base catalog carries that id,
- * so `v4-pro` stays as the Pro row. `deepseek-chat` and `deepseek-reasoner` are
- * excluded as V3.2 families, not V4.
+ * There is no `v4.1-pro` in the available model list, so `v4-pro` stays as the
+ * Pro row. `deepseek-chat` and `deepseek-reasoner` are excluded as V3.2
+ * families, not V4.
  */
 export const DEEPSEEK_MODELS: readonly ModelDefinition[] = [
   defineModel({

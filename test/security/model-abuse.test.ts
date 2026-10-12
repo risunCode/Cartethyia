@@ -206,7 +206,13 @@ describe("InMemoryModelAbuseStore — bans", () => {
     const start = clock.now();
     await store.record(attempt({ ip: "203.0.113.1", threshold: 1, banTtlMs: HOUR }));
     const listed = await store.listBans();
-    expect(listed).toEqual([{ ip: "203.0.113.1", expiresAt: start + HOUR }]);
+    expect(listed).toEqual([
+      {
+        ip: "203.0.113.1",
+        reason: "repeated_invalid_model_requests",
+        expiresAt: start + HOUR,
+      },
+    ]);
   });
 
   test("unban lifts a live ban and reports that it did", async () => {
@@ -328,7 +334,11 @@ describe("ModelStrikeService — the policy layer over the store", () => {
     expect(first).toEqual({ banned: false, strikes: 1, bannedNow: false });
     expect(second).toEqual({ banned: true, strikes: 2, bannedNow: true });
     expect(await store.listBans()).toEqual([
-      { ip: "203.0.113.1", expiresAt: clock.now() + MINUTE },
+      {
+        ip: "203.0.113.1",
+        reason: "repeated_invalid_model_requests",
+        expiresAt: clock.now() + MINUTE,
+      },
     ]);
   });
 

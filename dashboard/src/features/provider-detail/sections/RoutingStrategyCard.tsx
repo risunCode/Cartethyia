@@ -1,6 +1,7 @@
-import { Cable, Fingerprint, Gauge, Info, Layers, RefreshCw, Repeat } from "lucide-react";
+import { Cable, Fingerprint, Gauge, Info, Layers, Minus, Plus, Repeat } from "lucide-react";
 import type { ReactNode } from "react";
 import { Card, CardBody, CardHeader } from "../../../components/ui/card";
+import { Button } from "../../../components/ui/button";
 import { Inline } from "../../../components/ui/inline";
 import { ListRow } from "../../../components/ui/list-row";
 import { Select } from "../../../components/ui/select";
@@ -73,6 +74,9 @@ export function RoutingStrategyCard({
   const unlimited = routing.maxInflight === null;
   const sliderValue = unlimited ? SLIDER_MAX + 1 : Math.min(SLIDER_MAX + 1, Math.max(1, routing.maxInflight));
   const shownValue = unlimited ? "∞" : String(routing.maxInflight);
+  const adjustRotateCount = (delta: number) => {
+    routing.setRotateCount(Math.min(1000, Math.max(1, routing.rotateCount + delta)));
+  };
   const handleUserAgentChange = (next: string) => {
     if (next === routing.userAgent) return;
     routing.setUserAgent(next);
@@ -93,11 +97,46 @@ export function RoutingStrategyCard({
         <div className="grid gap-5 w-full min-w-0">
           <Row
             action={
-              <Switch
-                checked={routing.roundRobinEnabled}
-                onChange={routing.setRoundRobinEnabled}
-                id="routing-round-robin"
-              />
+              <>
+                {routing.roundRobinEnabled ? (
+                  <div
+                    role="group"
+                    aria-label="Accounts per rotation"
+                    className="inline-flex items-center gap-1 rounded-control border border-inner-border bg-surface-1 p-1"
+                  >
+                    <span className="px-2 text-badge text-text-secondary">Accounts/rotation</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-9 rounded-tiny"
+                      aria-label="Decrease accounts per rotation"
+                      disabled={routing.rotateCount <= 1}
+                      icon={<Minus size={14} />}
+                      onClick={() => adjustRotateCount(-1)}
+                    />
+                    <output
+                      className="min-w-8 text-center text-body font-semibold tabular-nums"
+                      aria-live="polite"
+                    >
+                      {routing.rotateCount}
+                    </output>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-9 rounded-tiny"
+                      aria-label="Increase accounts per rotation"
+                      disabled={routing.rotateCount >= 1000}
+                      icon={<Plus size={14} />}
+                      onClick={() => adjustRotateCount(1)}
+                    />
+                  </div>
+                ) : null}
+                <Switch
+                  checked={routing.roundRobinEnabled}
+                  onChange={routing.setRoundRobinEnabled}
+                  id="routing-round-robin"
+                />
+              </>
             }
           >
             <div className="min-w-0">
@@ -112,47 +151,11 @@ export function RoutingStrategyCard({
                 </Inline>
               </label>
               <div className="mt-1 text-badge text-text-tertiary">
-                Off = failover: use accounts in priority order, fall through on failure. On = rotate
-                requests across this provider's accounts.
+                Off uses priority order with failover. On rotates requests across this provider's
+                accounts.
               </div>
             </div>
           </Row>
-
-          {routing.roundRobinEnabled ? (
-            <Row
-              action={
-                <input
-                  id="routing-rotate-count"
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={routing.rotateCount}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    if (Number.isFinite(value))
-                      routing.setRotateCount(Math.min(1000, Math.max(1, Math.round(value))));
-                  }}
-                  className="form-input w-36 shrink-0 text-center px-4 py-3"
-                />
-              }
-            >
-              <div className="min-w-0">
-                <label htmlFor="routing-rotate-count">
-                  <Inline gap="6px" className="text-body font-semibold">
-                    <RefreshCw
-                      size={15}
-                      aria-hidden="true"
-                      className="text-text-tertiary shrink-0"
-                    />
-                    Accounts per rotation
-                  </Inline>
-                </label>
-                <div className="mt-1 text-badge text-text-tertiary">
-                  Requests served before the rotation advances
-                </div>
-              </div>
-            </Row>
-          ) : null}
 
           <Row
             action={
@@ -185,7 +188,7 @@ export function RoutingStrategyCard({
               utility. */}
           <div className="provider-grid grid gap-5 min-w-0">
             <div
-              className="px-6 py-5 rounded-control border border-inner-border min-w-0"
+              className="px-6 py-5 rounded-control border border-inner-border bg-surface-2 min-w-0"
             >
               <Inline gap="6px" className="text-body font-semibold mb-3">
                 <Fingerprint
@@ -224,7 +227,7 @@ export function RoutingStrategyCard({
             </div>
 
             <div
-              className="px-6 py-5 rounded-control border border-inner-border min-w-0"
+              className="px-6 py-5 rounded-control border border-inner-border bg-surface-2 min-w-0"
             >
               <label htmlFor="routing-max-inflight" className="form-label">
                 <Inline gap="6px" className="text-body font-semibold">

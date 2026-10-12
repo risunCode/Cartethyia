@@ -6,15 +6,20 @@ import type { ModelDefinition } from "../../model-definition";
 import { providerBaseUrl } from "../../metadata";
 import { getWorkBuddyCnClientVersion } from "../../operations/client-versions";
 import { BUDDY_INTL_MODELS_PATH, fetchBuddyDirectoryModels } from "./buddy-discovery-shared";
-import { makeWorkBuddyModels, workbuddyPrePayload, WORKBUDDY_SYSTEM_PROMPT } from "./workbuddy";
+import { CODEBUDDY_CN_MODELS } from "./codebuddy-cn";
+import { workbuddyPrePayload, WORKBUDDY_SYSTEM_PROMPT } from "./workbuddy";
 import { workbuddyAdapterConfig, workbuddyHeaders, WORKBUDDY_CHAT_PATH } from "./workbuddy-shared";
 
 export const WORKBUDDY_CN_PROVIDER_ID = "workbuddycn" as const;
 export const WORKBUDDY_CN_DOMAIN = "www.workbuddy.cn" as const;
 export const WORKBUDDY_CN_BASE_URL = providerBaseUrl(WORKBUDDY_CN_PROVIDER_ID);
 
-export const WORKBUDDY_CN_MODELS: readonly ModelDefinition[] =
-  makeWorkBuddyModels(WORKBUDDY_CN_PROVIDER_ID);
+export const WORKBUDDY_CN_MODELS: readonly ModelDefinition[] = [
+  ...CODEBUDDY_CN_MODELS.map((model) => ({
+    ...model,
+    endpointPath: WORKBUDDY_CHAT_PATH,
+  })),
+];
 
 export async function discoverWorkBuddyCnModels(
   input: DiscoveryInput,

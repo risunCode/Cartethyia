@@ -6,11 +6,11 @@
  * looks like legacy residue and is tempting to delete, so this file records the
  * measurement that keeps it: it is not only old data.
  *
- * The 9Router importer (`console/backup/nine-router.ts`) maps that router's
- * `kimi` provider onto ours and stores the credential **verbatim** — it takes
+ * The legacy backup importer maps the source `kimi` provider onto ours and
+ * stores the credential **verbatim** — it takes
  * `apiKey ?? accessToken ?? credential ?? token` off the export row and
- * re-encrypts it without reshaping. A 9Router export holds a raw token, so an
- * import performed today produces exactly the bare shape. Deleting the fallback
+ * re-encrypts it without reshaping. The exported credential is a raw token, so
+ * an import performed today produces exactly the bare shape. Deleting the fallback
  * would make every imported Kimi account unparseable, which is a fresh-install
  * regression, not a legacy-data one.
  *
@@ -37,7 +37,7 @@ describe("parseKimiCredential", () => {
   });
 
   test("reads a bare token, which is what an import produces", () => {
-    // The live path: 9Router stores a raw token and the importer preserves it.
+    // The import path stores a raw token and the importer preserves it.
     const parsed = parseKimiCredential("tok_raw");
     expect(parsed.accessToken).toBe("tok_raw");
     expect(parsed.deviceId.length).toBeGreaterThan(0);

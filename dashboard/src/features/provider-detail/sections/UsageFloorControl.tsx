@@ -44,6 +44,12 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
 
   const parsed = Number(value);
   const valid = Number.isInteger(parsed) && parsed >= 0 && parsed <= 1_000_000;
+  const allowanceTone =
+    allowance === null || allowance.remaining <= 0
+      ? "text-status-danger"
+      : allowance.percent <= 10
+        ? "text-status-warning"
+        : "text-status-success";
 
   const commit = (next: number | null, nextUnit: "credit" | "percent") => {
     if (next !== null && !valid) return;
@@ -57,7 +63,9 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
           <div className="flex items-center gap-3 text-body font-semibold text-text-primary">
             <Gauge size={14} />
             <span>Usage floor</span>
-            <span className="badge text-micro tracking-label">BETA</span>
+            <span className="badge border border-warning-line bg-surface-2 text-micro tracking-label text-status-warning">
+              BETA
+            </span>
           </div>
           <p className="mt-0.5 text-badge leading-normal text-text-tertiary">
             Per account. Skip an account once its remaining allowance reaches this, and send the request to the next one.
@@ -68,16 +76,18 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-micro font-semibold tracking-label uppercase text-text-tertiary">
                 <span>Active accounts</span>
-                <strong className="text-text-secondary">{allowance.accounts}</strong>
+                <strong className="text-status-success">{allowance.accounts}</strong>
                 <span className="ml-2">Total quota</span>
               </div>
               <div
                 className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-caption font-semibold tabular-nums text-text-primary"
                 title="Combined allowance across active accounts; the usage floor is evaluated per account"
               >
-                <strong className="font-bold">{formatCount(allowance.remaining)} credits available</strong>
+                <strong className={`font-bold ${allowanceTone}`}>
+                  {formatCount(allowance.remaining)} credits available
+                </strong>
                 <span className="font-medium opacity-75">of {formatCount(allowance.total)}</span>
-                <span className="font-medium opacity-75">({allowance.percent}%)</span>
+                <span className={`font-bold ${allowanceTone}`}>({allowance.percent}%)</span>
               </div>
             </div>
           )}

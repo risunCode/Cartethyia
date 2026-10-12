@@ -45,7 +45,7 @@ export function ModelBansDialog({ onClose }: { readonly onClose: () => void }): 
         open={true}
         onClose={onClose}
         title="Banned Users"
-        description="Client addresses banned for repeated invalid-model requests. Lifting a ban lets the address reach the gateway again."
+        description="A client address is banned after repeated invalid-model requests. The ban applies to every API key used from that address, not just one credential."
         size="lg"
       >
         <div className="flex flex-col gap-7 min-w-0">
@@ -70,11 +70,23 @@ export function ModelBansDialog({ onClose }: { readonly onClose: () => void }): 
               />
             ) : (
               <div className="rounded-inset border border-inner-border">
-                <DataTable maxHeight={480} scrollRegion headers={["Client IP", "Lapses", ""]}>
+                <DataTable
+                  maxHeight={480}
+                  scrollRegion
+                  headers={["Client IP", "Reason", "Applies to", "Lapses", ""]}
+                >
                   {bans.map((ban) => (
                     <tr key={ban.ip}>
                       <td className="font-mono tabular-nums text-badge text-text-primary whitespace-nowrap">
                         {ban.ip}
+                      </td>
+                      <td className="text-badge text-text-secondary">
+                        {ban.reason === "repeated_invalid_model_requests"
+                          ? "Repeated invalid-model requests"
+                          : ban.reason}
+                      </td>
+                      <td className="text-badge text-text-secondary whitespace-nowrap">
+                        All API keys from this IP
                       </td>
                       <td
                         className="text-badge text-text-secondary whitespace-nowrap"

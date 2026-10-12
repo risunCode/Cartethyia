@@ -2,7 +2,7 @@ import { returningRows, assertMutationApplied } from "./row-coercion";
 import type { ConsoleCredentialService } from "./credentials";
 import { readUsers } from "./user-store";
 // Console authentication, sessions, lockouts, first-boot setup, and audit.
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import {
   apiKeys,
@@ -13,7 +13,11 @@ import {
 import { firstBootSetupLock } from "../../persistence/dialect";
 import { hashSecret, encryptCredential } from "../../security/crypto";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
-import { DEFAULT_API_KEY_LABEL, DEFAULT_API_KEY_PREFIX } from "../api-keys/contracts";
+import {
+  DEFAULT_API_KEY_LABEL,
+  DEFAULT_API_KEY_PREFIX,
+  generateApiKeySecret,
+} from "../api-keys/contracts";
 import { resolveDefaultGatewayApiKey } from "../../config/runtime";
 import { TENANT_KEY_SCOPES } from "../../security/access-control";
 import { isRecord } from "../../protocol/codecs";
@@ -128,7 +132,7 @@ export class FirstBootSetupService {
       // encryption key, so an install that never touched the variable still
       // boots with a usable key instead of failing later with
       // "the default gateway API key is missing".
-      const secret = defaultApiKey ?? `${DEFAULT_API_KEY_PREFIX}${randomBytes(32).toString("base64url")}`;
+      const secret = defaultApiKey ?? generateApiKeySecret().secret;
       const keyHash = hashSecret(secret);
       const existingApiKey = await db
         .select({ id: apiKeys.id })
@@ -142,7 +146,7 @@ export class FirstBootSetupService {
           keyHash,
           label: DEFAULT_API_KEY_LABEL,
           scopes: TENANT_KEY_SCOPES,
-          keyPrefix: secret.slice(0, 3),
+          keyPrefix: defaultApiKey === undefined ? DEFAULT_API_KEY_PREFIX : secret.slice(0, 3),
           keyEncrypted: encryptCredential(secret),
           requestsPerMinute: 240,
           isDefault: true,
