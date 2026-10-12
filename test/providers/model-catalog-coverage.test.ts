@@ -55,12 +55,20 @@ describe("reseller-suffixed model ids", () => {
 });
 
 describe("mistral catalog", () => {
-  test("carries the current large/medium/small families", async () => {
-    const models = await catalogFor("mistral");
-    const ids = models.map((m) => m.modelId);
+  test("carries the current large and medium generalist aliases", async () => {
+    const ids = (await catalogFor("mistral")).map((m) => m.modelId);
     expect(ids).toContain("mistral-large-latest");
     expect(ids).toContain("mistral-medium-latest");
-    expect(ids).toContain("mistral-small-latest");
+  });
+
+  test("drops the retired Magistral tiers and the unrequested small row", async () => {
+    // Mistral's model overview deprecates Magistral Medium and Small in favour
+    // of Mistral Medium 3.5 and Mistral Small 4, so listing them advertises
+    // models the provider is actively retiring.
+    const ids = (await catalogFor("mistral")).map((m) => m.modelId);
+    expect(ids).not.toContain("magistral-medium-latest");
+    expect(ids).not.toContain("magistral-small");
+    expect(ids).not.toContain("mistral-small-latest");
   });
 
   test("every row resolves real limits and a price, not the defaults", async () => {
@@ -87,9 +95,9 @@ describe("mistral catalog", () => {
 });
 
 describe("deepseek catalog", () => {
-  test("carries only the live V4 families", async () => {
+  test("carries only the live V4 families plus the flash entry", async () => {
     const ids = (await catalogFor("deepseek")).map((m) => m.modelId);
-    expect(ids).toEqual(["deepseek-v4-pro", "deepseek-v4.1-flash"]);
+    expect(ids).toEqual(["deepseek-v4-pro", "deepseek-v4.1-flash", "deepseek-flash"]);
   });
 
   test("drops the retired and alias ids", async () => {
@@ -135,5 +143,12 @@ describe("deepseek catalog", () => {
     expect(flash?.outputLimit).toBe(384_000);
     expect(flash?.modalities.input).toContain("image");
     expect(flash?.toolCall).toBe(true);
+    // `deepseek-flash` has a provider-scoped row: 1M in, 384k out, and unlike
+    // `v4-pro` it accepts image parts.
+    const entry = byId.get("deepseek-flash");
+    expect(entry?.contextLimit).toBe(1_000_000);
+    expect(entry?.outputLimit).toBe(384_000);
+    expect(entry?.modalities.input).toContain("image");
+    expect(entry?.toolCall).toBe(true);
   });
 });

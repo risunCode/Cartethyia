@@ -654,6 +654,11 @@ const FREE_LIMITED_IDS = new Set([
   "grok",
   "opencodeft",
   "cline",
+  // Kilo Code resells the OpenRouter catalog — `/api/openrouter`, the same
+  // upstream Cline fronts — and serves a `kilo-auto/free` routing alias
+  // alongside its paid rows, so its free allowance is metered against that
+  // one reseller rather than a standing free tier.
+  "kilo",
 ]);
 /**
  * Providers reached with a signed-in session rather than an API key.

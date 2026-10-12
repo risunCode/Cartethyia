@@ -104,6 +104,23 @@ export const MODEL_GROUPS: ReadonlyArray<{
 ];
 
 /**
+ * Disabled rows, rendered last and apart from their origin group.
+ *
+ * `source` and `enabled` are different axes: a built-in row can be disabled and
+ * a fetched row can be too, so the two cannot be one partition. This is applied
+ * as a filter rather than a fifth source group, because a disabled row has not
+ * become a different kind of row — it is still catalog, free, manual, or
+ * fetched, and only its routing state changed. Parking those rows at the end
+ * keeps a group the operator has switched most of off from filling the top of
+ * the list with entries that cannot be routed.
+ */
+export const DISABLED_GROUP = {
+  key: "disabled",
+  label: "Disabled models",
+  hint: "Turned off — not routable until re-enabled",
+} as const;
+
+/**
  * The reasoning effort a probe asks for.
  *
  * `auto` (the default) sends no reasoning intent at all, so the probe reflects
@@ -671,10 +688,16 @@ export function ModelGrid({
   // deleted. Rendering them as one undifferentiated grid made a catalog entry
   // and an operator's own addition look alike, so the groups are labelled and
   // ordered — see `MODEL_GROUPS`.
+  // A disabled row leaves its origin group and lands in `DISABLED_GROUP` at the
+  // end, so each of the four source sections shows only what can actually be
+  // routed. `enabled` defaults to true for a row written before the column
+  // existed, matching the backend's own reading.
+  const isRoutable = (model: ModelCatalogEntry): boolean => model.enabled !== false;
   const groups = MODEL_GROUPS.map((group) => ({
     ...group,
-    rows: models.filter((model) => group.matches(model.source)),
-  }));
+    rows: models.filter((model) => isRoutable(model) && group.matches(model.source)),
+  })).filter((group) => group.rows.length > 0);
+  const disabledRows = models.filter((model) => !isRoutable(model));
   const renderCard = (model: ModelCatalogEntry) => (
     <MemoModelCard
       key={`${model.modelId}::${model.route}`}
@@ -690,31 +713,47 @@ export function ModelGrid({
   return (
     <>
       <Stack gap="16px">
-        {groups.map((group) =>
-          group.rows.length === 0 ? null : (
-            <section
-              key={group.key}
-              className="flex flex-col gap-4"
-            >
-              <div className="flex items-baseline gap-4 min-w-0">
-                <span className="text-caption font-bold text-text-secondary">
-                  {group.label}
-                </span>
-                <span className="mt-1 text-badge text-text-tertiary">
-                  {group.rows.length}
-                </span>
-                <span
-                  title={group.hint}
-                  className="text-micro text-text-tertiary overflow-hidden truncate"
-                >
-                  · {group.hint}
-                </span>
-              </div>
-              <div className="provider-grid grid gap-4 items-stretch">
-                {group.rows.map(renderCard)}
-              </div>
-            </section>
-          ),
+        {groups.map((group) => (
+          <section key={group.key} className="flex flex-col gap-4">
+            <div className="flex items-baseline gap-4 min-w-0">
+              <span className="text-caption font-bold text-text-secondary">
+                {group.label}
+              </span>
+              <span className="mt-1 text-badge text-text-tertiary">
+                {group.rows.length}
+              </span>
+              <span
+                title={group.hint}
+                className="text-micro text-text-tertiary overflow-hidden truncate"
+              >
+                · {group.hint}
+              </span>
+            </div>
+            <div className="provider-grid grid gap-4 items-stretch">
+              {group.rows.map(renderCard)}
+            </div>
+          </section>
+        ))}
+        {disabledRows.length === 0 ? null : (
+          <section className="flex flex-col gap-4">
+            <div className="flex items-baseline gap-4 min-w-0">
+              <span className="text-caption font-bold text-text-secondary">
+                {DISABLED_GROUP.label}
+              </span>
+              <span className="mt-1 text-badge text-text-tertiary">
+                {disabledRows.length}
+              </span>
+              <span
+                title={DISABLED_GROUP.hint}
+                className="text-micro text-text-tertiary overflow-hidden truncate"
+              >
+                · {DISABLED_GROUP.hint}
+              </span>
+            </div>
+            <div className="provider-grid grid gap-4 items-stretch">
+              {disabledRows.map(renderCard)}
+            </div>
+          </section>
         )}
       </Stack>
       <ConfirmDialog

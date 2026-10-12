@@ -424,8 +424,25 @@ export const PROVIDER_CAPABILITIES = {
   },
   openrouter: {
     loadAdapter: async () => createApiKeyAdapter((await import("./specs/openrouter")).OPENROUTER_SPEC),
-    loadModels: async () => (await import("./specs/openrouter")).OPENROUTER_MODELS,
-    loadModelDiscovery: async () => async ({ credential }) => (await import("./specs/openrouter")).discoverOpenrouterModels({ credential }),
+    // One dynamic import for both halves: this registry lazy-loads every
+    // provider module on first use, so importing the same spec twice would
+    // load it twice and hand back two module records for one file.
+    loadModels: async () => {
+      const spec = await import("./specs/openrouter");
+      return [...spec.OPENROUTER_MODELS, ...spec.OPENROUTER_FREE_MODELS];
+    },
+    loadModelDiscovery: async () => async (input) => {
+      const spec = await import("./specs/openrouter");
+      // The free tier and the billed catalog are separate registrations: the
+      // free fetch is what the model list groups as "Free models (auto)", and
+      // discovery merges it with the provider's ordinary listing.
+      const [billed, free] = await Promise.all([
+        spec.discoverOpenrouterModels(input),
+        spec.discoverOpenrouterFreeModels(input),
+      ]);
+      if (billed === null) return null;
+      return [...billed, ...(free ?? [])];
+    },
     // No `withRefresher`: the PKCE exchange returns a durable API key rather
     // than an access token, so there is no refresh grant to register. The key
     // is stored as an ordinary credential and forwarded as the bearer, which is

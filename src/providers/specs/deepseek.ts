@@ -49,4 +49,13 @@ export const DEEPSEEK_MODELS: readonly ModelDefinition[] = [
     reasoning: true,
     toolCall: true,
   }),
+  defineModel({
+    id: "deepseek-flash",
+    providerId: DEEPSEEK_PROVIDER_ID,
+    wireFamily: "messages",
+    endpoint: "/v1/messages",
+    vision: true,
+    reasoning: true,
+    toolCall: true,
+  }),
 ];

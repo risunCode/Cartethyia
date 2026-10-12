@@ -240,6 +240,33 @@ Released 2026-10-12.
   a wrong path reaches the operator as the wrong URL instead of being quietly
   corrected into a different address.
 
+
+**Providers**
+
+- `deepseek-flash` joins the DeepSeek catalog. Like the other V4 flash rows it
+  takes image parts, unlike `deepseek-v4-pro` which stays text-only; all three
+  resolve 1M context and 384k output from the base catalog.
+- OpenRouter ships its `:free` tier as a default catalog and fetches it live.
+  A committed list is only a snapshot — OpenRouter rotates the tier within days —
+  so discovery filters the provider's own listing down to the `:free` rows and
+  marks each one a free-tier row, the same shape the OpenCode Zen free fetch
+  uses. `apodex/apodex-1.1-mini:free` is the one live `:free` model left out of
+  the committed list, because the base catalog has no pricing row for it under
+  any provider and a guessed number would read as a measurement.
+- The Mistral catalog drops `mistral-small-latest` and both Magistral rows.
+  Mistral's own model overview deprecates Magistral Medium and Small in favour
+  of Mistral Medium 3.5 and Mistral Small 4, so listing them advertised models
+  the provider is actively retiring.
+- Antigravity serves `claude-opus-5-5` and `claude-sonnet-5-5` at 1M context
+  and 128k output, the same figures the Claude integration carries. The output
+  cap they actually enforce on Antigravity's own host is unverified: the 4.6
+  rows are pinned at 64000 because that host was observed rejecting anything
+  higher, and no 5.5 request has been captured, so a matching ceiling would
+  need its own wire-profile entry rather than a catalog row.
+- Kilo Code joins the console's "Free Limited Providers" section alongside Cline.
+  Both resell the OpenRouter catalog, so their free allowances are metered
+  against one upstream.
+
 **Web search**
 
 - The keyless Parallel route no longer depends on one response shape. The public
@@ -270,6 +297,11 @@ Released 2026-10-12.
   mount and is then overridden by the modal focus hook — the hook reads
   `[data-autofocus]`, and no caller had used it, so the dialog opened focused on
   the panel instead of the one field all three flows require.
+- Disabled models leave their origin group and collect under their own
+  "Disabled models" section at the end of the list. Source and enabled state are
+  separate axes — a built-in row can be disabled and a fetched one can be too —
+  so a group the operator has mostly switched off no longer fills the top of the
+  list with entries that cannot be routed.
 
 **Packaging**
 
