@@ -88,7 +88,7 @@ function breakdownWindow(breakdown: Record<string, unknown>, reset: string | nul
   const limit = number(breakdown["usageLimitWithPrecision"]) ?? number(breakdown["usageLimit"]);
   if (used === null || limit === null || limit <= 0) return null;
   const kind = text(breakdown["resourceType"])?.toLowerCase() ?? "unknown";
-  return percentWindow(kind, kind, (used / limit) * 100, reset, used, limit);
+  return percentWindow(kind, kind, (used / limit) * 100, reset, used, limit, "independent");
 }
 
 /** The free-trial entry beside a breakdown, when the account has one. */
@@ -106,6 +106,7 @@ function freeTrialWindow(breakdown: Record<string, unknown>, reset: string | nul
     isoDate(trial["freeTrialExpiry"]) ?? reset,
     used,
     limit,
+    "independent",
   );
 }
 

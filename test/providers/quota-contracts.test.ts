@@ -4,6 +4,7 @@ import { totalRemainingCredit, totalRemainingPercent, type ProviderQuotaWindow }
 const window = (value: Partial<ProviderQuotaWindow>): ProviderQuotaWindow => ({
   kind: "test",
   label: "Test",
+  accounting: "independent",
   usedPercent: null,
   remainingPercent: null,
   resetsAt: null,

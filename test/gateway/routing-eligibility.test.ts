@@ -115,12 +115,64 @@ describe("EligibilityEvaluator", () => {
     }))).toMatchObject({ eligible: false, reason: "quota_exhausted" });
   });
 
+  test("GitHub Chat and Premium Requests share one credit floor", () => {
+    const windows = [
+      {
+        kind: "chat",
+        label: "Chat Requests",
+        accounting: "pooled",
+        usedPercent: 87.5,
+        remainingPercent: 12.5,
+        resetsAt: null,
+        limit: 200,
+        used: 175,
+      },
+      {
+        kind: "premium_interactions",
+        label: "Premium Requests",
+        accounting: "pooled",
+        usedPercent: 93.3,
+        remainingPercent: 6.7,
+        resetsAt: null,
+        limit: 300,
+        used: 280,
+      },
+      {
+        kind: "completions",
+        label: "Completions",
+        accounting: "independent",
+        usedPercent: 99,
+        remainingPercent: 1,
+        resetsAt: null,
+        limit: 2_000,
+        used: 1_980,
+      },
+    ];
+
+    expect(evaluator.evaluate(candidate({
+      provider_id: "github",
+      usage_floor: 40,
+      usage_floor_unit: "credit",
+      quota_windows: windows,
+    }))).toMatchObject({ eligible: true, reason: "healthy" });
+
+    expect(evaluator.evaluate(candidate({
+      provider_id: "github",
+      usage_floor: 40,
+      usage_floor_unit: "credit",
+      quota_windows: windows.map((window) =>
+        window.kind === "premium_interactions" ? { ...window, used: 290 } : window,
+      ),
+    }))).toMatchObject({ eligible: false, reason: "quota_exhausted" });
+  });
+
   test("a zero-percent window still exhausts accounts with no absolute credit reading", () => {
     expect(
       evaluator.evaluate(candidate({
         quota_windows: [{
           kind: "quota:weekly",
           label: "Weekly",
+          accounting: "independent",
           usedPercent: 100,
           remainingPercent: 0,
           resetsAt: null,

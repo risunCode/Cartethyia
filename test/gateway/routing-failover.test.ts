@@ -169,13 +169,13 @@ describe("RoutingEngine.plan cooldown classes", () => {
       source: "test",
       plan: null,
       error: null,
-      windows: [{ kind: "credit", label: "credit", usedPercent: 100, remainingPercent: 0, resetsAt: null, limit: 100, remaining: 0 }],
+      windows: [{ kind: "credit", label: "credit", accounting: "pooled", usedPercent: 100, remainingPercent: 0, resetsAt: null, limit: 100, remaining: 0 }],
     }, undefined);
     await setCachedQuota("global", "funded", {
       source: "test",
       plan: null,
       error: null,
-      windows: [{ kind: "credit", label: "credit", usedPercent: 10, remainingPercent: 90, resetsAt: null, limit: 100, remaining: 90 }],
+      windows: [{ kind: "credit", label: "credit", accounting: "pooled", usedPercent: 10, remainingPercent: 90, resetsAt: null, limit: 100, remaining: 90 }],
     }, undefined);
     try {
       const plan = await engine.plan(qualified, snapshot([spent, funded]));
@@ -199,6 +199,7 @@ describe("RoutingEngine.plan cooldown classes", () => {
         {
           kind: "quota:monthly",
           label: "Monthly",
+          accounting: "pooled",
           usedPercent: 50,
           remainingPercent: 50,
           resetsAt: null,
@@ -208,6 +209,7 @@ describe("RoutingEngine.plan cooldown classes", () => {
         {
           kind: "bonus:1",
           label: "Bonus Pack 1",
+          accounting: "pooled",
           usedPercent: 100,
           remainingPercent: 0,
           resetsAt: null,

@@ -78,18 +78,6 @@ function belowUsageFloor(state: {
   return remaining !== null && remaining <= floor;
 }
 
-function normalizeCachedBuddyQuotaWindows(
-  providerId: string,
-  windows: readonly ProviderQuotaWindow[],
-): readonly ProviderQuotaWindow[] {
-  if (providerId !== "cb" && providerId !== "cbcn" && providerId !== "workbuddy" && providerId !== "workbuddycn") return windows;
-  return windows.map((window) => {
-    if (window.accounting !== undefined) return window;
-    if (!window.kind.startsWith("quota:") && !window.kind.startsWith("bonus:")) return window;
-    return { ...window, accounting: "pooled" };
-  });
-}
-
 /**
  * Normalizes a requested model name before alias lookup. Coding-agent CLIs
  * version their model ids with variant suffixes (`claude-opus-5[1m]`,
@@ -451,10 +439,7 @@ export class RoutingEngine {
           quotaLens(candidate.tenant_id ?? tenantId),
           accountId,
           this.redis,
-        ).then((cached) => normalizeCachedBuddyQuotaWindows(
-          candidate.provider_id,
-          cached?.quota.windows ?? [],
-        ));
+        ).then((cached) => cached?.quota.windows ?? []);
         readings.set(accountId, windows);
       }
       const quotaWindows = await windows;

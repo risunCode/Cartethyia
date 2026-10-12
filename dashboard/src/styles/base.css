@@ -507,6 +507,14 @@ html[data-blur-cards-on="false"] .composer-glass {
   transform: translateX(18px);
 }
 
+.usage-floor-switch .switch-track {
+  border-radius: var(--radius-tiny);
+}
+
+.usage-floor-switch .switch-thumb {
+  border-radius: var(--radius-tiny);
+}
+
 .switch-label {
   font-size: 13px;
   font-weight: 500;

@@ -61,9 +61,9 @@ export const GITHUB_LONG_CONTEXT_THRESHOLD = 500_000;
 /** Supported virtual Copilot Auto catalog ids and their router tiers. */
 export const GITHUB_AUTO_MODEL_TIERS: ReadonlyMap<string, "efficiency" | "balance" | "intelligence"> = new Map([
   ["auto", "balance"],
-  ["auto-balance", "balance"],
-  ["auto-efficiency", "efficiency"],
-  ["auto-intelligence", "intelligence"],
+  ["gpt-6-luna-low", "efficiency"],
+  ["gpt-6-luna-medium", "balance"],
+  ["gpt-6-luna-high", "intelligence"],
 ]);
 
 /** Copilot model ids excluded from both the fallback and discovered catalogs. */

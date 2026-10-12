@@ -74,6 +74,7 @@ function buildWindows(
           isoDate(rolling.resets_at ?? rolling.resetsAt),
           used,
           100,
+          "independent",
         ),
       );
     }
@@ -83,7 +84,7 @@ function buildWindows(
     const used = usedPercent(weekly);
     if (used !== null) {
       windows.push(
-        percentWindow("1w", "Weekly", used, isoDate(weekly.resets_at ?? weekly.resetsAt), used, 100),
+        percentWindow("1w", "Weekly", used, isoDate(weekly.resets_at ?? weekly.resetsAt), used, 100, "independent"),
       );
     }
   }

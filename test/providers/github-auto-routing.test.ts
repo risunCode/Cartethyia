@@ -18,7 +18,7 @@ const credential = JSON.stringify({
 });
 
 const request = {
-  model: "auto-intelligence",
+  model: "gpt-6-luna-high",
   messages: [{ role: "user", content: [{ kind: "text", text: "Find the bug." }] }],
   generation_controls: { temperature: 0.2 },
   source_surface: "chat",
@@ -27,7 +27,7 @@ const request = {
 
 const candidate: ProviderDispatchTarget = {
   provider_id: "github",
-  model_id: "auto-intelligence",
+  model_id: "gpt-6-luna-high",
   wire_family: "chat",
   endpoint_path: "/chat/completions",
   capabilities: {},
@@ -36,9 +36,10 @@ const candidate: ProviderDispatchTarget = {
 describe("GitHub Copilot Auto routing", () => {
   test("maps catalog variants to supported Auto tiers", () => {
     expect(GITHUB_AUTO_MODEL_TIERS.get("auto")).toBe("balance");
-    expect(GITHUB_AUTO_MODEL_TIERS.get("auto-efficiency")).toBe("efficiency");
-    expect(GITHUB_AUTO_MODEL_TIERS.get("auto-balance")).toBe("balance");
-    expect(GITHUB_AUTO_MODEL_TIERS.get("auto-intelligence")).toBe("intelligence");
+    expect(GITHUB_AUTO_MODEL_TIERS.get("gpt-6-luna-low")).toBe("efficiency");
+    expect(GITHUB_AUTO_MODEL_TIERS.get("gpt-6-luna-medium")).toBe("balance");
+    expect(GITHUB_AUTO_MODEL_TIERS.get("gpt-6-luna-high")).toBe("intelligence");
+    expect(GITHUB_AUTO_MODEL_TIERS.has("auto-intelligence")).toBe(false);
   });
 
   test("applies GitHub sampling quirks before wire serialization", () => {

@@ -100,6 +100,7 @@ describe("quota cache without Redis", () => {
       windows: [{
         kind: "monthly",
         label: "Monthly",
+        accounting: "independent",
         usedPercent: 55,
         remainingPercent: 45,
         resetsAt: null,
@@ -139,6 +140,7 @@ describe("quota cache without Redis", () => {
       windows: [{
         kind: "monthly",
         label: "Monthly",
+        accounting: "independent",
         usedPercent: 55,
         remainingPercent: 45,
         resetsAt: null,

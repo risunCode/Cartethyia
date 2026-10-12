@@ -87,7 +87,7 @@ export function parseLimitWindows(
       null;
     const label =
       shape.labelFor?.(kind, limit) ?? shape.fallbackLabel?.(kind) ?? humanize(kind);
-    windows.push(percentWindow(kind, label, percent, reset, usedValue, limitValue));
+    windows.push(percentWindow(kind, label, percent, reset, usedValue, limitValue, "independent"));
   }
   return windows;
 }

@@ -1,5 +1,6 @@
 import {
   Activity,
+  ChevronDown,
   Download,
   FlaskConical,
   Loader2,
@@ -10,7 +11,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { consoleRequest } from "../../../data/api";
 import { accountErrorLabel, authInvalidatedLabel } from "../../../lib/format/labels";
@@ -185,10 +186,8 @@ export function AccountStatusBadge({
  */
 function QuotaPill({
   windows,
-  providerId,
 }: {
   readonly windows: readonly QuotaWindow[] | undefined;
-  readonly providerId: string;
 }): ReactNode {
   if (windows === undefined || windows.length === 0) return null;
   let remaining = 0;
@@ -196,10 +195,7 @@ function QuotaPill({
   let hasCredits = false;
   let lowestPercent: number | null = null;
   for (const window of windows) {
-    const isPooled = window.accounting === "pooled" ||
-      (window.accounting === undefined &&
-        (providerId === "cb" || providerId === "cbcn" || providerId === "workbuddy" || providerId === "workbuddycn") &&
-        (window.kind?.startsWith("quota:") === true || window.kind?.startsWith("bonus:") === true));
+    const isPooled = window.accounting === "pooled";
     if (!isPooled) {
       if (typeof window.remainingPercent === "number" && Number.isFinite(window.remainingPercent)) {
         lowestPercent =
@@ -220,19 +216,20 @@ function QuotaPill({
       hasCredits = true;
     }
   }
-  const text = hasCredits
-    ? `${trimNumber(remaining)} of ${trimNumber(total)}`
-    : lowestPercent === null
-      ? null
-      : `${Math.round(lowestPercent)}% left`;
-  if (text === null) return null;
+  let displayText: string | null = null;
+  if (hasCredits) {
+    displayText = `${trimNumber(remaining)} of ${trimNumber(total)}`;
+  } else if (lowestPercent !== null) {
+    displayText = `${Math.round(lowestPercent)}% left`;
+  }
+  if (displayText === null) return null;
   const low = hasCredits
     ? remaining <= 0 || (lowestPercent ?? 100) <= 10
     : (lowestPercent ?? 100) <= 10;
   return (
     <span className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap" data-tone={low ? "warn" : undefined} title={hasCredits ? `${trimNumber(remaining)} credits available of ${trimNumber(total)}` : "Lowest remaining percent across this account's quota windows"}>
       <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Quota</span>
-      {text}
+      {displayText}
     </span>
   );
 }
@@ -416,7 +413,7 @@ function AccountRow({
               <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">All time</span>
               {account.usageAllTime.totalTokens.toLocaleString()} tok · {account.usageAllTime.requests.toLocaleString()} req
             </span>
-            <QuotaPill windows={quota} providerId={account.providerId} />
+            <QuotaPill windows={quota} />
             <span
               className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap"
               title="Concurrency comes from this provider’s Routing Strategy; accounts no longer carry manual ceilings."
@@ -582,6 +579,26 @@ export function AccountsList({
   const [sort, setSort] = useState<AccountSortValue>("added-asc");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  const bulkMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!bulkMenuOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (bulkMenuRef.current && !bulkMenuRef.current.contains(event.target as Node)) {
+        setBulkMenuOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setBulkMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [bulkMenuOpen]);
 
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = useMemo(() => {
@@ -606,10 +623,9 @@ export function AccountsList({
   );
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((account) => selected.has(account.id));
-  // The bar is always visible, and each action stays disabled until a row is
-  // picked. Enable and Disable only appear when the selection actually has an
-  // account in the other state. Recover stays visible either way: a cooldown
-  // can sit on a model while the account itself still reads as active.
+  // Enable and Disable only appear when the selection actually has an account
+  // in the other state. Recover stays available either way: a cooldown can sit
+  // on a model while the account itself still reads as active.
   const selectionHasDisabled = selectedAccounts.some((account) => account.status === "disabled");
   const selectionHasEnabled = selectedAccounts.some((account) => account.status !== "disabled");
   const nothingSelected = selectedAccounts.length === 0;
@@ -655,15 +671,15 @@ export function AccountsList({
     );
 
   /**
-   * Tests every selected account. Unlike the other bulk actions a failed test
-   * is a 200 with `ok: false`, not a rejected promise, so it counts `ok`
-   * itself instead of going through `runBulk`.
+   * Tests every account, independent of the current selection or filter.
+   * Unlike the other bulk actions a failed test is a 200 with `ok: false`,
+   * not a rejected promise, so it counts `ok` itself instead of `runBulk`.
    */
-  const bulkTest = async () => {
-    if (selectedAccounts.length === 0) return;
+  const testAllAccounts = async () => {
+    if (accounts.length === 0) return;
     setBulkBusy(true);
     const results = await Promise.allSettled(
-      selectedAccounts.map((account) =>
+      accounts.map((account) =>
         consoleRequest<AccountTestResult>(
           `/accounts/${encodeURIComponent(account.id)}/quota/refresh`,
           { method: "POST" },
@@ -745,12 +761,12 @@ export function AccountsList({
 
   return (
     <Stack gap="8px">
-      <div className="flex items-center flex-wrap gap-4 p-4 border border-inner-border rounded-control bg-surface-2">
-        <div className="relative flex-none basis-100 min-w-70">
+      <div className="flex min-w-0 items-center gap-2 overflow-x-auto p-3 border border-inner-border rounded-control bg-surface-2">
+          <label className="relative min-w-20 flex-[1_1_10rem]">
             <Search
               size={13}
               aria-hidden="true"
-              className="absolute left-5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary"
             />
             <Input
               id="accounts-search"
@@ -758,72 +774,159 @@ export function AccountsList({
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search accounts..."
               aria-label="Search accounts"
-              className="pl-15"
+              className="pl-9"
             />
-          </div>
-        <div className="flex items-center flex-wrap gap-3 min-w-0">
-          <Button size="sm" variant="secondary" icon={<FlaskConical size={12} />} disabled={bulkBusy || nothingSelected} onClick={bulkTest}>
-            Test
-          </Button>
-          <Button size="sm" variant="secondary" icon={<RotateCcw size={12} />} disabled={bulkBusy || nothingSelected} onClick={bulkRecover}>
-            Recover
-          </Button>
-          {nothingSelected || selectionHasDisabled ? (
-            <Button size="sm" variant="secondary" icon={<LockOpen size={12} />} disabled={bulkBusy || nothingSelected} onClick={() => bulkSetActive(true)}>
-              Enable
-            </Button>
-          ) : null}
-          {nothingSelected || selectionHasEnabled ? (
-            <Button size="sm" variant="secondary" icon={<PowerOff size={12} />} disabled={bulkBusy || nothingSelected} onClick={() => bulkSetActive(false)}>
-              Disable
-            </Button>
-          ) : null}
-          <Button size="sm" variant="secondary" icon={<Download size={12} />} disabled={bulkBusy || nothingSelected} onClick={bulkExport}>
-            Export JSON
-          </Button>
-          {nothingSelected ? null : (
-            <Button size="sm" variant="danger" icon={<Trash2 size={12} />} disabled={bulkBusy} onClick={() => setBulkDeleteOpen(true)}>
-              Delete
-            </Button>
-          )}
-          {nothingSelected ? null : (
-            <Button size="sm" variant="ghost" disabled={bulkBusy} onClick={() => setSelected(new Set())}>
-              Clear
-            </Button>
-          )}
-        </div>
-        <div className="flex items-center flex-wrap gap-4 ml-auto min-w-0">
-        <label className="inline-flex items-center gap-3 h-15 text-caption font-semibold text-text-secondary [&_.radix-select-trigger]:font-semibold [&_.radix-select-trigger]:bg-hover [&_.radix-select-trigger]:text-text-primary">
-          <Select
-            size="sm"
-            value={sort}
-            onValueChange={(value) => setSort(value as AccountSortValue)}
-            options={ACCOUNT_SORT_OPTIONS}
-            aria-label="Sort accounts by"
-          />
-        </label>
-        {showGrokProbe ? (
+          </label>
           <Button
             size="sm"
-            variant="secondary"
-            icon={<FlaskConical size={12} className={grokProbePending ? "animate-spin" : ""} />}
-            disabled={grokProbePending || accounts.length === 0}
-            onClick={onGrokProbe}
-            title="Probe every Grok account with the live 407 streaming request"
+            variant="primary"
+            icon={<FlaskConical size={12} />}
+            disabled={bulkBusy || accounts.length === 0}
+            onClick={testAllAccounts}
+            aria-label="Test all accounts"
+            title="Test every account, regardless of selection or filters"
           >
-            {grokProbePending ? "Testing…" : "Test 407"}
+            Test all
           </Button>
-        ) : null}
-        <label className="inline-flex items-center gap-3 h-15 text-caption font-semibold text-text-secondary">
-          <input
-            type="checkbox"
-            checked={allFilteredSelected}
-            onChange={toggleSelectAll}
-            aria-label="Select all accounts"
-          />
-          <span>Select all</span>
-        </label>
-        </div>
+          <div ref={bulkMenuRef} className="relative">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={bulkBusy || nothingSelected}
+                aria-expanded={bulkMenuOpen}
+                aria-haspopup="menu"
+                aria-label={nothingSelected ? "Select accounts to enable bulk actions" : `Bulk actions for ${selectedAccounts.length} selected accounts`}
+                onClick={() => setBulkMenuOpen((open) => !open)}
+              >
+                Actions{nothingSelected ? "" : ` (${selectedAccounts.length})`}
+                <ChevronDown size={12} aria-hidden="true" className={`transition-transform ${bulkMenuOpen ? "rotate-180" : ""}`} />
+              </Button>
+              {bulkMenuOpen && !nothingSelected ? (
+                <div
+                  role="menu"
+                  aria-label="Selected account actions"
+                  className="absolute left-0 top-full z-50 mt-1 flex w-64 max-w-[calc(100vw-2rem)] flex-col gap-1 rounded-control border border-inner-border bg-popover-bg p-2 shadow-popout sm:left-auto sm:right-0"
+                >
+                  <Button
+                    role="menuitem"
+                    size="sm"
+                    variant="ghost"
+                    className="w-full justify-start"
+                    icon={<RotateCcw size={12} />}
+                    disabled={bulkBusy}
+                    onClick={() => {
+                      setBulkMenuOpen(false);
+                      void bulkRecover();
+                    }}
+                  >
+                    Recover
+                  </Button>
+                  {selectionHasDisabled ? (
+                    <Button
+                      role="menuitem"
+                      size="sm"
+                      variant="ghost"
+                      className="w-full justify-start"
+                      icon={<LockOpen size={12} />}
+                      disabled={bulkBusy}
+                      onClick={() => {
+                        setBulkMenuOpen(false);
+                        void bulkSetActive(true);
+                      }}
+                    >
+                      Enable
+                    </Button>
+                  ) : null}
+                  {selectionHasEnabled ? (
+                    <Button
+                      role="menuitem"
+                      size="sm"
+                      variant="ghost"
+                      className="w-full justify-start"
+                      icon={<PowerOff size={12} />}
+                      disabled={bulkBusy}
+                      onClick={() => {
+                        setBulkMenuOpen(false);
+                        void bulkSetActive(false);
+                      }}
+                    >
+                      Disable
+                    </Button>
+                  ) : null}
+                  <Button
+                    role="menuitem"
+                    size="sm"
+                    variant="ghost"
+                    className="w-full justify-start"
+                    icon={<Download size={12} />}
+                    disabled={bulkBusy}
+                    onClick={() => {
+                      setBulkMenuOpen(false);
+                      void bulkExport();
+                    }}
+                  >
+                    Export JSON
+                  </Button>
+                  <Button
+                    role="menuitem"
+                    size="sm"
+                    variant="danger"
+                    className="w-full justify-start"
+                    icon={<Trash2 size={12} />}
+                    disabled={bulkBusy}
+                    onClick={() => {
+                      setBulkMenuOpen(false);
+                      setBulkDeleteOpen(true);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                  <Button
+                    role="menuitem"
+                    size="sm"
+                    variant="ghost"
+                    className="w-full justify-start"
+                    disabled={bulkBusy}
+                    onClick={() => {
+                      setSelected(new Set());
+                      setBulkMenuOpen(false);
+                    }}
+                  >
+                    Clear selection
+                  </Button>
+                </div>
+              ) : null}
+          </div>
+          <label className="inline-flex h-15 shrink-0 items-center gap-2 text-caption font-semibold text-text-secondary [&_.radix-select-trigger]:font-semibold [&_.radix-select-trigger]:bg-hover [&_.radix-select-trigger]:text-text-primary">
+            <Select
+              size="sm"
+              value={sort}
+              onValueChange={(value) => setSort(value as AccountSortValue)}
+              options={ACCOUNT_SORT_OPTIONS}
+              aria-label="Sort accounts by"
+            />
+          </label>
+          <label className="inline-flex h-15 shrink-0 items-center gap-2 text-caption font-semibold text-text-secondary">
+            <input
+              type="checkbox"
+              checked={allFilteredSelected}
+              onChange={toggleSelectAll}
+              aria-label="Select accounts"
+            />
+            <span>Select</span>
+          </label>
+          {showGrokProbe ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<FlaskConical size={12} className={grokProbePending ? "animate-spin" : ""} />}
+              disabled={grokProbePending || accounts.length === 0}
+              onClick={onGrokProbe}
+              title="Probe every Grok account with the live 407 streaming request"
+            >
+              {grokProbePending ? "Testing…" : "Test 407"}
+            </Button>
+          ) : null}
       </div>
 
       <div className="account-list flex flex-col gap-3 max-h-230 overflow-y-auto pr-1 [container-type:inline-size] [container-name:account-list]" role="list" aria-label="Provider accounts">

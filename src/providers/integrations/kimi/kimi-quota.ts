@@ -128,7 +128,7 @@ function rowWindow(
   if (usedPercent === null) return undefined;
   const id = aggregate ? "7d" : durationId(window);
   const label = aggregate ? "7 Day" : durationLabel(window, fallbackLabel);
-  return percentWindow(id, label, usedPercent, parseResetTime(row, window), used, limit);
+  return percentWindow(id, label, usedPercent, parseResetTime(row, window), used, limit, "independent");
 }
 
 function parseWindows(payload: KimiUsagePayload): readonly ProviderQuotaWindow[] {

@@ -393,7 +393,7 @@ async function fetchEnterpriseUsage(
     return {
       source: options.source,
       plan: "Enterprise",
-      windows: [percentWindow("quota:enterprise", "Enterprise", null, null, null, null)],
+      windows: [percentWindow("quota:enterprise", "Enterprise", null, null, null, null, "independent")],
       error: null,
     };
   }

@@ -58,7 +58,7 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="flex flex-col gap-5 px-6 py-5 border border-inner-border rounded-control bg-surface-2">
+      <section className="usage-floor-panel flex flex-col gap-4 px-5 py-4 border border-inner-border rounded-narrow bg-surface-2">
         <div>
           <div className="flex items-center gap-3 text-body font-semibold text-text-primary">
             <Gauge size={14} />
@@ -71,29 +71,46 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
             Per account. Skip an account once its remaining allowance reaches this, and send the request to the next one.
           </p>
         </div>
-        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-4">
           {allowance !== null && (
-            <div className="min-w-0">
+            <div className="flex min-h-24 min-w-0 flex-[1_1_20rem] flex-col justify-center gap-2 py-2">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-micro font-semibold tracking-label uppercase text-text-tertiary">
-                <span>Active accounts</span>
-                <strong className="text-status-success">{allowance.accounts}</strong>
-                <span className="ml-2">Total quota</span>
+                <span>Pooled credits</span>
+                <span className="text-text-primary">{allowance.accounts}</span>
+                <span>{allowance.accounts === 1 ? "active account" : "active accounts"}</span>
               </div>
               <div
-                className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-caption font-semibold tabular-nums text-text-primary"
+                className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-caption font-semibold tabular-nums text-text-primary"
                 title="Combined allowance across active accounts; the usage floor is evaluated per account"
               >
                 <strong className={`font-bold ${allowanceTone}`}>
-                  {formatCount(allowance.remaining)} credits available
+                  {formatCount(allowance.remaining)}
                 </strong>
+                <span className="font-medium text-text-secondary">credits available</span>
                 <span className="font-medium opacity-75">of {formatCount(allowance.total)}</span>
-                <span className={`font-bold ${allowanceTone}`}>({allowance.percent}%)</span>
+                <span className={`font-bold ${allowanceTone}`}>{allowance.percent}%</span>
               </div>
+              <p className="text-micro leading-normal text-text-tertiary">
+                {routing.usageFloor !== null
+                  ? `Floor ${formatCount(routing.usageFloor)} ${routing.usageFloorUnit === "credit" ? "credits" : "%"} per account`
+                  : "Floor off · exhausted quota windows are still skipped"}
+              </p>
             </div>
           )}
-          <div className="flex flex-col items-start gap-2 self-end md:ml-auto md:items-end">
-            <div className="flex items-center gap-4">
-              <label className="flex items-center h-16 border border-inner-border rounded-control bg-surface-1 overflow-hidden">
+          {allowance === null && (
+            <p className="flex min-h-24 min-w-0 flex-[1_1_20rem] flex-col justify-center gap-2 py-2 text-badge leading-normal text-text-tertiary">
+              <span>No combined credit balance is available. Separate quota windows are not added together, and exhausted windows are still skipped.</span>
+              <span className="text-micro">
+                {routing.usageFloor !== null
+                  ? `Floor ${formatCount(routing.usageFloor)} ${routing.usageFloorUnit === "credit" ? "credits" : "%"} per account`
+                  : "Floor off · exhausted quota windows are still skipped"}
+              </span>
+            </p>
+          )}
+          <div className="ml-auto flex max-w-full shrink-0 flex-col items-end justify-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+              <span className="text-micro font-semibold tracking-label uppercase text-text-tertiary">Floor threshold</span>
+              <label className="flex h-12 max-w-full items-center overflow-hidden rounded-tiny border border-inner-border bg-surface-1 focus-within:border-text-tertiary">
                 <input
                   type="number"
                   min={0}
@@ -102,7 +119,7 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
                   placeholder="40"
                   disabled={!enabled}
                   aria-label="Usage floor amount"
-                  className="w-32 h-full px-4 border-0 bg-transparent text-text-primary font-mono text-body tabular-nums text-right disabled:text-text-tertiary"
+                  className="h-full w-24 border-0 bg-transparent px-3 text-right font-mono text-body font-semibold tabular-nums text-text-primary disabled:text-text-tertiary"
                   onChange={(event) => setValue(event.target.value)}
                   onBlur={() => {
                     if (enabled) commit(parsed, unit);
@@ -112,7 +129,7 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
                   value={unit}
                   disabled={!enabled}
                   aria-label="Usage floor unit"
-                  className="h-full px-3 border-0 border-l border-inner-border bg-hover text-text-secondary text-badge font-semibold cursor-pointer disabled:cursor-default disabled:opacity-60"
+                  className="h-full border-0 border-l border-inner-border bg-hover px-3 text-body font-semibold text-text-secondary disabled:cursor-default disabled:opacity-60"
                   onChange={(event) => {
                     const next = event.target.value === "credit" ? "credit" : "percent";
                     setUnit(next);
@@ -125,17 +142,14 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
               </label>
               <Switch
                 checked={enabled}
+                label="Enabled"
                 aria-label="Usage floor"
+                className="usage-floor-switch"
                 onChange={(next) => commit(next ? (valid ? parsed : 40) : null, unit)}
               />
             </div>
-            <p className="text-micro leading-normal text-text-tertiary">
-              {routing.usageFloor !== null
-                ? `Floor ${formatCount(routing.usageFloor)} ${routing.usageFloorUnit === "credit" ? "credits" : "%"} per account`
-                : "Floor off · exhausted quota windows are still skipped"}
-            </p>
             {routing.saveFailed ? (
-              <p role="alert" className="text-micro leading-normal text-red">
+              <p role="alert" className="text-right text-micro leading-normal text-status-danger">
                 Usage floor save failed. The last saved setting has been restored.
               </p>
             ) : null}
@@ -171,7 +185,7 @@ function PrivacyModeControl({ providerId }: { readonly providerId: string }): Re
  * cannot serve requests and should not inflate the routable balance summary.
  */
 function combinedAllowance(
-  accounts: readonly { readonly provider: string; readonly active: boolean; readonly quota: { readonly windows: readonly { readonly accounting?: "pooled" | "independent"; readonly kind?: string; readonly limit?: number | null; readonly remaining?: number | null; readonly used?: number | null }[] } | null }[],
+  accounts: readonly { readonly provider: string; readonly active: boolean; readonly quota: { readonly windows: readonly { readonly accounting: "pooled" | "independent"; readonly kind?: string; readonly limit?: number | null; readonly remaining?: number | null; readonly used?: number | null }[] } | null }[],
   providerId: string,
 ): { readonly accounts: number; readonly remaining: number; readonly total: number; readonly percent: number } | null {
   let remaining = 0;
@@ -183,7 +197,7 @@ function combinedAllowance(
     activeAccounts += 1;
     if (account.quota === null) continue;
     for (const window of account.quota.windows) {
-      if (!isPooledWindow(account.provider, window)) continue;
+      if (window.accounting !== "pooled") continue;
       const limit = typeof window.limit === "number" && Number.isFinite(window.limit) ? window.limit : null;
       if (limit === null) continue;
       const left =
@@ -201,15 +215,6 @@ function combinedAllowance(
   return activeAccounts > 0 && hasQuota
     ? { accounts: activeAccounts, remaining, total, percent: total > 0 ? Math.round((remaining / total) * 100) : 0 }
     : null;
-}
-
-function isPooledWindow(
-  providerId: string,
-  window: { readonly accounting?: "pooled" | "independent"; readonly kind?: string },
-): boolean {
-  if (window.accounting !== undefined) return window.accounting === "pooled";
-  const isBuddyProvider = providerId === "cb" || providerId === "cbcn" || providerId === "workbuddy" || providerId === "workbuddycn";
-  return isBuddyProvider && (window.kind?.startsWith("quota:") === true || window.kind?.startsWith("bonus:") === true);
 }
 
 function formatCount(value: number): string {

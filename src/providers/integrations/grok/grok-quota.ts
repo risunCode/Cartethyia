@@ -66,17 +66,17 @@ function buildWeeklyWindows(payload: XaiBillingPayload): ProviderQuotaWindow[] {
     // Free-tier billing states the period but no usage percent: emit the
     // window with the reset date and null percents (the dashboard renders
     // the countdown without inventing a number) instead of empty windows.
-    return [percentWindow("1w", "SuperGrok Weekly Credits", null, current.end)];
+    return [percentWindow("1w", "SuperGrok Weekly Credits", null, current.end, null, null, "independent")];
   }
   const windows: ProviderQuotaWindow[] = [
-    percentWindow("1w", "SuperGrok Weekly Credits", creditPercent, current.end, creditPercent, 100),
+    percentWindow("1w", "SuperGrok Weekly Credits", creditPercent, current.end, creditPercent, 100, "independent"),
   ];
   if (Array.isArray(payload.productUsage)) {
     for (const entry of payload.productUsage) {
       const value = record(entry);
       const product = text(value?.product);
       const percent = billingNumber(value?.usagePercent);
-      windows.push(percentWindow(`product:${product}:1w`, `${product} (Weekly)`, percent, current.end, percent, 100));
+      windows.push(percentWindow(`product:${product}:1w`, `${product} (Weekly)`, percent, current.end, percent, 100, "independent"));
     }
   }
   return windows;
@@ -89,14 +89,14 @@ function buildMonthlyWindows(payload: XaiBillingPayload): ProviderQuotaWindow[] 
   const used = billingNumber(payload.used);
   if (!start || !end || limit === null || limit <= 0 || used === null || used < 0) return [];
   const usedPercent = Math.min(100, (used / limit) * 100);
-  return [percentWindow("1mo", "SuperGrok Monthly Included", usedPercent, end, used, limit)];
+  return [percentWindow("1mo", "SuperGrok Monthly Included", usedPercent, end, used, limit, "independent")];
 }
 
 function addOnDemandWindow(windows: ProviderQuotaWindow[], payload: XaiBillingPayload): void {
   const cap = billingNumber(payload.onDemandCap);
   const used = billingNumber(payload.onDemandUsed);
   if (cap === null || cap <= 0 || used === null || used < 0) return;
-  windows.push(percentWindow("on-demand", "On-demand", Math.min(100, (used / cap) * 100), null, used, cap));
+  windows.push(percentWindow("on-demand", "On-demand", Math.min(100, (used / cap) * 100), null, used, cap, "independent"));
 }
 
 async function fetchGrpcCredits(
@@ -157,7 +157,7 @@ export async function fetchGrokQuota(
     const grpc = await fetchGrpcCredits(accessToken, fetcher);
     if (grpc) {
       const idx = windows.findIndex((w) => w.label.includes("Weekly"));
-      const grpcWindow = percentWindow("1w", "SuperGrok Weekly Credits", grpc.percentUsed, grpc.resetAt, grpc.percentUsed, 100);
+      const grpcWindow = percentWindow("1w", "SuperGrok Weekly Credits", grpc.percentUsed, grpc.resetAt, grpc.percentUsed, 100, "independent");
       if (idx >= 0) windows[idx] = grpcWindow;
       else windows.unshift(grpcWindow);
     }

@@ -3,9 +3,11 @@ import { decodeJwtPayload } from "../authentication/oauth-flow-store";
 export interface ProviderQuotaWindow {
   readonly kind: string;
   readonly label: string;
-  /*  * Whether this window contributes to a shared credit pool. Unmarked windows
-  * are independent quotas and are checked on their own. */
-  readonly accounting?: "pooled" | "independent";
+  /**
+   * Whether this window contributes to shared credit or remains an
+   * independent quota. Every parsed window must state this explicitly.
+   */
+  readonly accounting: "pooled" | "independent";
   readonly usedPercent: number | null;
   readonly remainingPercent: number | null;
   readonly resetsAt: string | null;
@@ -157,15 +159,15 @@ export function percentWindow(
   label: string,
   used: number | null,
   resetsAt: string | null,
-  usedValue?: number | null,
-  limit?: number | null,
-  accounting?: "pooled" | "independent",
+  usedValue: number | null,
+  limit: number | null,
+  accounting: "pooled" | "independent",
 ): ProviderQuotaWindow {
   const usedPercent = used === null ? null : Math.min(100, Math.max(0, used));
   return {
     kind,
     label,
-    ...(accounting === undefined ? {} : { accounting }),
+    accounting,
     usedPercent,
     remainingPercent: usedPercent === null ? null : Math.max(0, 100 - usedPercent),
     resetsAt,

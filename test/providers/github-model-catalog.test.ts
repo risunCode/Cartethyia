@@ -32,10 +32,13 @@ describe("GitHub Copilot fallback model catalog", () => {
   test("publishes all Auto routing tiers in the fallback catalog", () => {
     const modelIds = new Set(GITHUB_MODELS.map((model) => model.modelId));
 
+    expect(modelIds.has("gpt-6-luna-low")).toBe(true);
+    expect(modelIds.has("gpt-6-luna-medium")).toBe(true);
+    expect(modelIds.has("gpt-6-luna-high")).toBe(true);
     expect(modelIds.has("auto")).toBe(true);
-    expect(modelIds.has("auto-efficiency")).toBe(true);
-    expect(modelIds.has("auto-balance")).toBe(true);
-    expect(modelIds.has("auto-intelligence")).toBe(true);
+    expect(modelIds.has("auto-efficiency")).toBe(false);
+    expect(modelIds.has("auto-balance")).toBe(false);
+    expect(modelIds.has("auto-intelligence")).toBe(false);
   });
 
   test("does not re-add excluded ids from the live account catalog", async () => {
@@ -59,7 +62,7 @@ describe("GitHub Copilot fallback model catalog", () => {
     const modelIds = new Set(models?.map((model) => model.modelId));
     expect(modelIds.has("gpt-4.1")).toBe(true);
     expect(modelIds.has("gpt-6-luna")).toBe(false);
-    expect(modelIds.has("auto")).toBe(true);
+    expect(modelIds.has("gpt-6-luna-low")).toBe(true);
     expect(githubModelRoute("gpt-6-luna", credential)).toEqual({
       wireFamily: "responses",
       endpointPath: "/responses",
@@ -112,7 +115,7 @@ describe("GitHub Copilot fallback model catalog", () => {
     });
 
     expect(models?.some((model) => model.modelId === "long-model")).toBe(true);
-    expect(models?.some((model) => model.modelId === "auto")).toBe(true);
+    expect(models?.some((model) => model.modelId === "gpt-6-luna-low")).toBe(true);
     expect(githubModelUsesLongContext("long-model", credential)).toBe(true);
   });
 });

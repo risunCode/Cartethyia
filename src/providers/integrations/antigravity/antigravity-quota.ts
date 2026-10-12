@@ -133,7 +133,7 @@ function fractionWindow(
   const fraction = Math.min(1, Math.max(0, remainingFraction));
   const used = QUOTA_TOTAL - Math.round(QUOTA_TOTAL * fraction);
   return {
-    ...percentWindow(kind, label, (1 - fraction) * 100, resetsAt, used, QUOTA_TOTAL),
+    ...percentWindow(kind, label, (1 - fraction) * 100, resetsAt, used, QUOTA_TOTAL, "independent"),
     recurring: true,
   };
 }

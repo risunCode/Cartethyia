@@ -53,6 +53,9 @@ export function parseMimoUsageWindows(
         "Weekly Quota",
         usedPercent === null ? null : Math.round(usedPercent * 10) / 10,
         resetIso,
+        null,
+        null,
+        "independent",
       ),
     );
   }

@@ -3,15 +3,16 @@
 // Entries are stored as a versioned envelope so cache retention, last attempt,
 // and last successful reading can be tracked independently.
 //
-// Reads both the pre-envelope bare result and v2 envelopes during upgrade;
-// writes use v3, which records attempt time and retained-refresh errors.
+// Reads the pre-envelope bare result and v2-v4 envelopes during upgrade;
+// writes use v5, which records attempt time, retained-refresh errors, and
+// forces a one-time refresh for required quota accounting metadata.
 import type { ProviderQuotaResult } from "../../providers/quota/quota-contracts";
 import type { RedisClient } from "../../persistence/redis";
 import { TtlCache } from "../../persistence/ttl-cache";
 import { log } from "../../observability/logger";
 import { metrics } from "../../observability/metrics";
 
-const QUOTA_KEY_PREFIX = "quota:";
+const QUOTA_KEY_PREFIX = "quota:v5:";
 const QUOTA_TTL_SECONDS = 900;
 const QUOTA_TTL_MS = QUOTA_TTL_SECONDS * 1000;
 const MAX_STALE_QUOTA_AGE_MS = 30 * 60_000;
@@ -25,7 +26,7 @@ const MAX_STALE_QUOTA_AGE_MS = 30 * 60_000;
 export const GLOBAL_QUOTA_LENS = "global";
 
 interface CachedQuotaEnvelope {
-  readonly v: 3;
+  readonly v: 5;
   readonly fetchedAt: string | null;
   readonly lastAttemptAt: string;
   readonly refreshError: string | null;
@@ -69,7 +70,10 @@ function parseCached(raw: string | null | undefined): CachedQuotaEntry | null {
   const record = parsed as Record<string, unknown>;
   const inner = record["quota"];
   if (
-    (record["v"] === 2 || record["v"] === 3) &&
+    (record["v"] === 2 ||
+      record["v"] === 3 ||
+      record["v"] === 4 ||
+      record["v"] === 5) &&
     typeof inner === "object" &&
     inner !== null &&
     !Array.isArray(inner)
@@ -83,7 +87,8 @@ function parseCached(raw: string | null | undefined): CachedQuotaEntry | null {
           ? record["lastAttemptAt"]
           : fetchedAt,
       refreshError:
-        record["v"] === 3 && typeof record["refreshError"] === "string"
+        (record["v"] === 3 || record["v"] === 4 || record["v"] === 5) &&
+        typeof record["refreshError"] === "string"
           ? record["refreshError"]
           : null,
     };
@@ -218,7 +223,7 @@ export async function setCachedQuota(
   if (redis === undefined) return;
   try {
     const envelope: CachedQuotaEnvelope = {
-      v: 3,
+      v: 5,
       fetchedAt: entry.fetchedAt,
       lastAttemptAt: attemptedAt,
       refreshError: entry.refreshError,

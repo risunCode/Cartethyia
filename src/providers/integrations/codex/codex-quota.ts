@@ -37,7 +37,7 @@ function parseCodexQuota(body: unknown, fetchedAt: string): ProviderQuotaResult 
             : "weekly";
       const label =
         duration !== null ? `${Math.max(1, Math.round(duration / 3600))} Hour` : fallback;
-      windows.push(percentWindow(kind, label, used, reset));
+      windows.push(percentWindow(kind, label, used, reset, null, null, "independent"));
     }
   };
   add(rate.primary_window, "Primary");

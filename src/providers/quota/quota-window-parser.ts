@@ -130,7 +130,7 @@ export function parseQuotaWindows(
     const reset = findReset(payload, mapping);
     if (percent === null && !(mapping.emitWithoutPercent === true && reset !== null)) continue;
 
-    windows.push(percentWindow(mapping.kind, mapping.label, percent, reset, used, limit));
+    windows.push(percentWindow(mapping.kind, mapping.label, percent, reset, used, limit, "independent"));
   }
 
   if (options.extraWindows) windows.push(...options.extraWindows(payload));

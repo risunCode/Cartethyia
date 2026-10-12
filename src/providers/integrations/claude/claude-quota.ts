@@ -69,6 +69,7 @@ function limitsWindows(payload: unknown): readonly ProviderQuotaWindow[] {
         null,
         spend,
         spendLimit,
+        "independent",
       ),
     );
   }
