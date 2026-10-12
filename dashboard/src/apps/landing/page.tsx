@@ -442,16 +442,16 @@ export function LandingPage(): ReactElement {
               <div className="absolute inset-0 z-0 scale-108 bg-cover bg-center opacity-25 mix-blend-screen blur-13.5 saturate-114" style={{ backgroundImage: `url(${entry.image})` }} aria-hidden={true} />
               <div className="relative z-1 mx-12 grid w-auto grid-cols-[0.8fr_1.2fr] items-center gap-x-[clamp(2rem,5vw,5rem)] gap-y-0 max-compact:mx-16 max-compact:flex max-compact:flex-col max-compact:items-stretch max-compact:gap-9">
                 <div className={`min-w-0 py-8 max-compact:py-0 ${idx % 2 === 0 ? "col-start-2 row-start-1" : "col-start-1 row-start-1"}`}>
-                  <p className={`mt-14.5 font-mono text-micro font-medium leading-none tracking-code text-story-white/55 ${revealClass(idx)}`}>{entry.location}</p>
-                  <h1 className={`mt-3 max-w-12ch font-head text-story-hero font-normal leading-[0.98] tracking-[-0.045em] text-balance max-compact:max-w-13ch max-compact:text-story-hero-compact ${revealClass(idx, "delay-100")}`} id={`chapter-title-${idx}`}>{entry.title}</h1>
-                  <p className={`mt-5 min-h-0 max-w-54ch text-body-lg leading-7 text-story-white/70 max-compact:max-w-full max-compact:text-body max-compact:leading-6 ${revealClass(idx, "delay-150")}`}>{entry.description}</p>
-                  <div className={`mt-8 grid max-w-325 grid-cols-3 gap-3 border-t border-story-white/20 pt-3 max-compact:mt-5 max-compact:max-w-145 max-compact:grid-cols-1 max-compact:gap-2 max-compact:pt-2 ${revealClass(idx, "delay-200")}`}>
+                  <p className={`mt-[23.2px] font-mono text-micro font-medium leading-none tracking-code text-story-white/55 ${revealClass(idx)}`}>{entry.location}</p>
+                  <h1 className={`mt-6 max-w-12ch font-head text-story-hero font-normal leading-[0.98] tracking-[-0.045em] text-balance max-compact:max-w-13ch max-compact:text-story-hero-compact ${revealClass(idx, "delay-100")}`} id={`chapter-title-${idx}`}>{entry.title}</h1>
+                  <p className={`mt-10 max-h-none max-w-[545px] text-lead leading-14 text-story-white/70 max-compact:max-w-full max-compact:text-body max-compact:leading-6 ${revealClass(idx, "delay-150")}`}>{entry.description}</p>
+                  <div className={`mt-16 grid max-w-325 grid-cols-3 gap-6 border-t border-story-white/20 pt-6 max-compact:mt-5 max-compact:max-w-145 max-compact:grid-cols-1 max-compact:gap-2 max-compact:pt-2 ${revealClass(idx, "delay-200")}`}>
                     {entry.signals.map((s) => (
                       <SignalRow key={`${entry.id}-${s.label}`} signal={s} />
                     ))}
                   </div>
                   <div className={`mt-7 flex flex-wrap gap-3.5 max-compact:mt-5 ${revealClass(idx, "delay-300")}`}>
-                    <button className="inline-flex h-11 items-center gap-2 rounded-control border border-story-white/25 bg-story-white/8 px-4.5 text-body font-bold text-story-white transition-transform active:scale-97 hover:bg-story-white/18 max-compact:h-21 max-compact:px-3.5 max-compact:text-badge" type="button" onClick={() => scrollToChapter(idx === CHAPTERS.length - 1 ? 0 : idx + 1)}>
+                    <button className="inline-flex h-22 items-center gap-2 rounded-control border border-story-white/25 bg-story-white/8 px-4.5 text-body font-bold text-story-white transition-transform active:scale-97 hover:bg-story-white/18 max-compact:h-21 max-compact:px-3.5 max-compact:text-badge" type="button" onClick={() => scrollToChapter(idx === CHAPTERS.length - 1 ? 0 : idx + 1)}>
                       {nextChapterLabel(idx)}
                       <ArrowRight size={15} aria-hidden={true} />
                     </button>
