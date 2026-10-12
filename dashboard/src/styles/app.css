@@ -467,6 +467,25 @@ main.route-enter .state-viewport-compact {
   box-shadow: var(--shadow-card);
 }
 
+.app-topbar-popover {
+  position: fixed;
+  top: 84px;
+  right: 24px;
+  width: min(340px, calc(100vw - 40px));
+  max-height: calc(100vh - 108px);
+  max-height: calc(100dvh - 108px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .app-topbar-popover {
+    right: 16px;
+    width: min(340px, calc(100vw - 32px));
+  }
+}
+
 .topbar-menu-btn {
   display: none;
   width: 38px;

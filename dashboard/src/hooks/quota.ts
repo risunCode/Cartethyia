@@ -15,6 +15,7 @@ export interface QuotaProviderSummary {
 export interface QuotaWindow {
   readonly kind?: string;
   readonly label: string;
+  readonly accounting?: "pooled" | "independent";
   readonly remainingPercent: number | null;
   readonly usedPercent?: number | null;
   readonly resetsAt: string | null;

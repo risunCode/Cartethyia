@@ -1,5 +1,5 @@
 import { Brain, Paperclip, Send, SlidersHorizontal, Square, X } from "lucide-react";
-import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { ModelPickerModal } from "../../components/ModelPicker";
 import { Button } from "../../components/ui/button";
 import { Select } from "../../components/ui/select";
@@ -76,6 +76,13 @@ export function Composer({
   const fileRef = useRef<HTMLInputElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
+  useLayoutEffect(() => {
+    const field = fieldRef.current;
+    if (field === null) return;
+    field.style.height = "0px";
+    field.style.height = `${Math.min(field.scrollHeight, 160)}px`;
+  }, [value]);
+
   const addFiles = async (list: FileList | null) => {
     if (list === null || list.length === 0) return;
     const room = MAX_IMAGES - images.length;
@@ -83,13 +90,6 @@ export function Composer({
     if (files.length === 0) return;
     const next = await Promise.all(files.map(readImage));
     onImages([...images, ...next]);
-  };
-
-  const grow = () => {
-    const field = fieldRef.current;
-    if (field === null) return;
-    field.style.height = "0px";
-    field.style.height = `${Math.min(field.scrollHeight, 160)}px`;
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -101,14 +101,14 @@ export function Composer({
 
   return (
     <form
-      className="composer-glass flex flex-col gap-4 px-7 pt-7 pb-5 border border-inner-border rounded-composer shadow-composer outline-none transition-none"
+      className="composer-glass flex flex-col gap-4 px-7 pt-7 pb-5 border border-inner-border rounded-composer shadow-composer outline-none transition-none max-small:gap-3 max-small:px-4 max-small:pt-4 max-small:pb-3"
       onSubmit={(event) => {
         event.preventDefault();
         if (canSend) onSend();
       }}
     >
       {images.length > 0 ? (
-        <div className="flex gap-4 px-2">
+        <div className="flex flex-wrap gap-4 px-2 max-small:gap-3">
           {images.map((image) => (
             <span key={image.dataUrl} className="relative">
               <img src={image.dataUrl} alt="" className="block w-36 h-36 object-cover rounded-control" />
@@ -126,14 +126,14 @@ export function Composer({
       ) : null}
       <textarea
         ref={fieldRef}
-        className="w-full min-h-14 max-h-80 resize-none border-0 outline-none bg-transparent text-text-primary font-sans text-lead leading-normal px-2 py-1 placeholder:text-text-tertiary"
+        className="scroll-region w-full min-h-14 max-h-80 resize-none overflow-x-hidden border-0 outline-none bg-transparent text-text-primary font-sans text-lead leading-normal px-2 py-1 placeholder:text-text-tertiary"
         rows={1}
+        wrap="soft"
         value={value}
         placeholder={model.length > 0 ? `Message ${model}...` : "Message..."}
         aria-label="Message"
         onChange={(event) => {
           onChange(event.target.value);
-          grow();
         }}
         onKeyDown={onKeyDown}
         onPaste={(event) => {
@@ -157,11 +157,11 @@ export function Composer({
           event.target.value = "";
         }}
       />
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center justify-between gap-4 max-small:grid max-small:grid-cols-1 max-small:gap-2">
+        <div className="flex items-center gap-3 min-w-0 max-small:flex-nowrap max-small:gap-2">
           <button
             type="button"
-            className="w-16 h-16 grid place-items-center border-0 rounded-pill bg-transparent text-text-secondary cursor-pointer hover:bg-hover hover:text-text-primary disabled:opacity-40"
+            className="w-16 h-16 grid place-items-center border-0 rounded-pill bg-transparent text-text-secondary cursor-pointer hover:bg-hover hover:text-text-primary disabled:opacity-40 max-small:shrink-0"
             aria-label="Attach an image"
             title="Attach an image"
             disabled={images.length >= MAX_IMAGES}
@@ -174,14 +174,14 @@ export function Composer({
             size="sm"
             type="button"
             title={model.length > 0 ? model : "Pick model"}
-            className="max-w-110 h-15 px-5 border border-inner-border rounded-control bg-hover text-caption font-semibold hover:border-border-strong hover:bg-active-pill font-mono tabular-nums [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
+            className="max-w-110 h-15 px-5 border border-inner-border rounded-control bg-hover text-caption font-semibold hover:border-border-strong hover:bg-active-pill font-mono tabular-nums [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap max-small:w-fit max-small:max-w-[calc(100vw-210px)] max-small:min-w-0 max-small:flex-none max-small:h-auto max-small:min-h-15 max-small:py-2 max-small:px-3 max-small:text-center max-small:leading-tight max-small:[&>span]:w-fit max-small:[&>span]:max-w-full max-small:[&>span]:whitespace-normal max-small:[&>span]:break-words max-small:[&>span]:text-center"
             onClick={() => setPickerOpen(true)}
           >
             {model.length > 0 ? modelName(model) : "Pick model"}
           </Button>
 
 
-          <span className="inline-flex items-center gap-2 h-15 pl-4 pr-1 border border-inner-border rounded-control bg-hover text-text-secondary">
+          <span className="inline-flex items-center gap-2 h-15 pl-4 pr-1 border border-inner-border rounded-control bg-hover text-text-secondary max-small:shrink-0">
             <Brain size={13} />
             <Select
               size="sm"
@@ -193,28 +193,28 @@ export function Composer({
             />
           </span>
         </div>
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 max-small:w-auto max-small:justify-end max-small:justify-self-end max-small:gap-2">
           <Button
             variant="secondary"
             size="sm"
             type="button"
             title={sessionTitle}
-            className="max-w-110 h-15 px-5 border border-inner-border rounded-control bg-hover text-caption font-semibold hover:border-border-strong hover:bg-active-pill [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap"
+            className="max-w-110 h-15 px-5 border border-inner-border rounded-control bg-hover text-caption font-semibold hover:border-border-strong hover:bg-active-pill [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap max-small:min-w-0 max-small:max-w-45 max-small:px-3"
             onClick={onOpenSessions}
           >
             {sessionTitle}
           </Button>
-          <button type="button" className="w-auto inline-flex items-center h-15 px-5 gap-3 border border-inner-border rounded-control bg-hover text-text-primary text-caption font-semibold hover:border-border-strong hover:bg-active-pill" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
+          <button type="button" className="hidden max-medium:inline-flex w-auto items-center h-15 px-5 gap-3 border border-inner-border rounded-control bg-hover text-text-primary text-caption font-semibold hover:border-border-strong hover:bg-active-pill max-small:px-3 max-small:gap-2" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
             <SlidersHorizontal size={15} />
             <span>Settings</span>
           </button>
           {sending ? (
-            <button type="button" className="w-auto min-w-36 h-15 inline-flex items-center justify-center gap-3 px-6 border-0 rounded-control bg-text-primary text-surface-1 text-caption font-semibold cursor-pointer disabled:opacity-35 disabled:cursor-default active:scale-95" aria-label="Stop" onClick={onStop}>
+            <button type="button" className="w-auto min-w-36 h-15 inline-flex items-center justify-center gap-3 px-6 border-0 rounded-control bg-text-primary text-surface-1 text-caption font-semibold cursor-pointer disabled:opacity-35 disabled:cursor-default active:scale-95 max-small:px-4 max-small:gap-2" aria-label="Stop" onClick={onStop}>
               <Square size={13} fill="currentColor" />
               <span>Stop</span>
             </button>
           ) : (
-            <button type="submit" className="w-auto min-w-36 h-15 inline-flex items-center justify-center gap-3 px-6 border-0 rounded-control bg-text-primary text-surface-1 text-caption font-semibold cursor-pointer disabled:opacity-35 disabled:cursor-default active:scale-95" aria-label="Send" disabled={!canSend}>
+            <button type="submit" className="w-auto min-w-36 h-15 inline-flex items-center justify-center gap-3 px-6 border-0 rounded-control bg-text-primary text-surface-1 text-caption font-semibold cursor-pointer disabled:opacity-35 disabled:cursor-default active:scale-95 max-small:px-4 max-small:gap-2" aria-label="Send" disabled={!canSend}>
               <Send size={15} />
               <span>Send</span>
             </button>
@@ -229,6 +229,7 @@ export function Composer({
         onSelectOne={onModel}
         multi={false}
         title="Select chat model"
+        size="md"
       />
     </form>
   );

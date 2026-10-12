@@ -1,11 +1,15 @@
 import {
   Activity,
   Bell,
+  Clock,
   Cpu,
   FlaskConical,
+  Globe,
   LayoutDashboard,
   LogOut,
+  MemoryStick,
   Menu,
+  Monitor,
   Moon,
   Network,
   Rocket,
@@ -15,6 +19,7 @@ import {
   ScrollText,
   Sun,
   Terminal,
+  Timer,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -33,7 +38,7 @@ import { useSystemHealth, useLatestRelease } from "../../hooks/system";
 import { useProviders } from "../../hooks/providers";
 import { DASHBOARD_RELEASE_LABEL, DASHBOARD_VERSION } from "../../lib/version";
 import { GITHUB_RELEASES_URL, GITHUB_REPO_URL } from "../../lib/links";
-import { isNewerRelease } from "../../data/contracts";
+import { isNewerRelease, type SystemHealthResponse } from "../../data/contracts";
 import type { SessionUser } from "../../data/contracts";
 
 interface NavItemDef {
@@ -110,11 +115,6 @@ const titlesMap: Record<string, { title: string; sub: string; icon: LucideIcon }
 
 const CONSOLE_FALLBACK = { title: "Console", sub: "Cartethyia AI Gateway Administration", icon: LayoutDashboard };
 
-/** Width cap for the floating panels that widen with the user's own pixel value
- *  and never exceed the viewport: a bare `width` utility would have to carry the
- *  `min()` through an arbitrary value. */
-const VIEWPORT_CAPPED_WIDTH = { width: "min(340px, calc(100vw - 32px))" } as const;
-
 /**
  * Resolves the topbar title/subtitle for a pathname.
  *
@@ -189,10 +189,82 @@ function ThemeToggle() {
   );
 }
 
-function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
+const LOCAL_CLOCK_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+const UTC_CLOCK_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+  timeZone: "UTC",
+});
+
+function formatUptime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "Unavailable";
+  const totalSeconds = Math.floor(seconds);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const totalHours = Math.floor(totalMinutes / 60);
+  const hours = totalHours % 24;
+  const days = Math.floor(totalHours / 24);
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (totalHours > 0) return `${totalHours}h ${minutes}m`;
+  return `${totalMinutes}m`;
+}
+
+function formatProcessRss(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "Unavailable";
+  const unit = bytes >= 1024 ** 3
+    ? { divisor: 1024 ** 3, label: "GiB" }
+    : { divisor: 1024 ** 2, label: "MiB" };
+  return `${(bytes / unit.divisor).toFixed(1)} ${unit.label}`;
+}
+
+function MetricTile({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  title,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  detail?: string;
+  title?: string;
+}) {
+  return (
+    <div className="min-w-0 rounded-control border border-inner-border bg-surface-2 p-3" title={title}>
+      <dt className="flex items-center gap-2 text-micro font-medium text-text-tertiary">
+        <Icon size={13} strokeWidth={1.8} className="shrink-0" aria-hidden="true" />
+        <span>{label}</span>
+      </dt>
+      <dd className="mt-1 truncate font-mono text-caption font-semibold tabular-nums text-text-primary">
+        {value}
+      </dd>
+      {detail ? <dd className="mt-1 text-micro text-text-secondary">{detail}</dd> : null}
+    </div>
+  );
+}
+
+function NotificationsPopover({ health }: { health?: SystemHealthResponse }) {
   const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => new Date());
   const triggerRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setNow(new Date());
+    const timer = window.setInterval(() => setNow(new Date()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -218,6 +290,34 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
     };
   }, [open]);
 
+  const healthTitle = !health
+    ? "System health unavailable"
+    : health.status === "healthy"
+      ? "All systems operational"
+      : health.status === "degraded"
+        ? "Gateway degraded"
+        : "Gateway unhealthy";
+  const healthDescription = !health
+    ? "Live gateway metrics are not available."
+    : health.status === "healthy"
+      ? "Postgres & Redis admission connected."
+      : health.status === "degraded"
+        ? "Check connection logs."
+        : "Gateway is reporting an unhealthy status.";
+  const memoryDetail = health
+    ? [
+        Number.isFinite(health.memory_percent)
+          ? `${health.memory_percent.toFixed(1)}% of system RAM`
+          : undefined,
+        health.database_in_process ? "In-process DB included" : undefined,
+      ].filter(Boolean).join(" · ") || undefined
+    : undefined;
+  const cpuDetail = health
+    ? Number.isFinite(health.cpu_cores) && health.cpu_cores > 0
+      ? `1-min load · ${health.cpu_cores} cores`
+      : "Normalized 1-min load"
+    : undefined;
+
   return (
     <div className="relative">
       <button
@@ -237,14 +337,13 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
               ref={contentRef}
               role="dialog"
               aria-label="Notifications"
-              className="popout-enter glass rounded-sidebar border border-inner-border bg-popover-bg p-8 shadow-popout fixed top-32 right-8 z-popover"
-              style={{ ...VIEWPORT_CAPPED_WIDTH }}
+              className="app-topbar-popover popout-enter glass rounded-sidebar border border-inner-border bg-popover-bg p-5 shadow-popout z-popover"
             >
               <div
-                className="flex items-center justify-between mb-6"
+                className="mb-3 flex shrink-0 items-center justify-between"
               >
                 <div
-                  className="flex items-center gap-4 font-bold text-body-lg"
+                  className="flex items-center gap-3 font-bold text-body-lg"
                 >
                   <span
                     className="w-13 h-13 rounded-pill bg-accent-soft text-accent grid place-items-center"
@@ -262,30 +361,57 @@ function NotificationsPopover({ isHealthy }: { isHealthy: boolean }) {
                   <X size={14} />
                 </button>
               </div>
-              <div className="flex flex-col gap-5">
-                <div
-                  className="flex items-start gap-5 rounded-card border border-inner-border bg-surface-2 p-6"
-                >
-                  <div>
-                    <p className="font-semibold text-caption">
-                      {isHealthy ? "All systems operational" : "Gateway degraded"}
-                    </p>
-                    <p className="text-badge text-text-secondary mt-1">
-                      {isHealthy ? "Postgres & Redis admission connected." : "Check connection logs."}
-                    </p>
+              <div className="scroll-region min-h-0 flex-1 flex flex-col gap-3">
+                <div className="flex items-start gap-3 rounded-card border border-inner-border bg-surface-2 p-4">
+                  <span className="mt-0.5 grid w-12 h-12 shrink-0 place-items-center rounded-control bg-surface-1 text-text-secondary">
+                    <Server size={16} aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-caption">{healthTitle}</p>
+                    <p className="text-badge text-text-secondary mt-1">{healthDescription}</p>
                   </div>
                 </div>
-                <div
-                  className="p-6 rounded-card border border-accent-soft bg-accent-soft flex items-start gap-5"
-                >
-                  <Rocket
-                    size={16}
-                    className="text-accent mt-1 shrink-0"
+                <dl aria-label="Runtime metrics" className="grid grid-cols-2 gap-2">
+                  <MetricTile icon={Clock} label="Local time" value={LOCAL_CLOCK_FORMATTER.format(now)} />
+                  <MetricTile icon={Globe} label="UTC" value={UTC_CLOCK_FORMATTER.format(now)} />
+                  <MetricTile
+                    icon={Timer}
+                    label="Uptime"
+                    value={health ? formatUptime(health.uptime_seconds) : "Unavailable"}
+                    detail={health && Number.isFinite(health.uptime_seconds) && health.uptime_seconds >= 0
+                      ? "Gateway process running"
+                      : undefined}
                   />
-                  <div>
-                    <p className="font-semibold text-caption text-accent">
-                      {DASHBOARD_RELEASE_LABEL}
-                    </p>
+                  <MetricTile
+                    icon={MemoryStick}
+                    label="Process RSS"
+                    value={health ? formatProcessRss(health.memory_bytes) : "Unavailable"}
+                    detail={memoryDetail}
+                    title="Process resident set size; percentage is share of system RAM."
+                  />
+                  <MetricTile
+                    icon={Cpu}
+                    label="CPU load"
+                    value={health && Number.isFinite(health.cpu_percent)
+                      ? `${health.cpu_percent.toFixed(1)}%`
+                      : "Unavailable"}
+                    detail={cpuDetail}
+                    title="One-minute load average normalized by the number of CPU cores."
+                  />
+                  <MetricTile
+                    icon={Monitor}
+                    label="Runtime"
+                    value={health?.platform?.trim() || "Unavailable"}
+                    detail={health?.platform?.trim() ? "Gateway host platform" : undefined}
+                    title={health?.platform?.trim() || "Runtime platform unavailable"}
+                  />
+                </dl>
+                <div className="flex items-start gap-3 rounded-card border border-inner-border bg-surface-2 p-4">
+                  <span className="mt-0.5 grid w-12 h-12 shrink-0 place-items-center rounded-control bg-surface-1 text-text-secondary">
+                    <Rocket size={16} aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-caption">{DASHBOARD_RELEASE_LABEL}</p>
                     <p className="text-badge text-text-secondary mt-1">
                       High-performance AI Gateway & Protocol Orchestrator.
                     </p>
@@ -405,7 +531,6 @@ export function DashboardShell({
   const updateAvailable = isNewerRelease(localVersion, latestTag);
   const providersQuery = useProviders();
 
-  const isHealthy = healthQuery.data?.status === "healthy";
   const prefetchIntent = (path: string): void => {
     void prefetchRouteIntent(queryClient, path);
   };
@@ -550,7 +675,7 @@ export function DashboardShell({
 
             <div className="topbar-actions">
               <ThemeToggle />
-              <NotificationsPopover isHealthy={Boolean(isHealthy)} />
+              <NotificationsPopover health={healthQuery.data} />
             </div>
           </header>
 

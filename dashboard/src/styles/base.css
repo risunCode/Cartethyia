@@ -227,7 +227,8 @@ html[data-glass-enabled="true"] .card-solid .nested-panel {
 
 
 .app-sidebar,
-.app-topbar {
+.app-topbar,
+.app-topbar-popover {
   background: color-mix(in srgb, var(--surface-1) calc(40% + var(--blur-chrome, 30) * 0.55%), transparent) !important;
   backdrop-filter: blur(calc((100 - var(--blur-chrome, 30)) * var(--blur-chrome-depth, 30) * 0.01px)) !important;
   -webkit-backdrop-filter: blur(calc((100 - var(--blur-chrome, 30)) * var(--blur-chrome-depth, 30) * 0.01px)) !important;
@@ -242,6 +243,7 @@ html[data-blur-cards-on="false"] .card-glass {
 
 html[data-blur-chrome-on="false"] .app-sidebar,
 html[data-blur-chrome-on="false"] .app-topbar,
+html[data-blur-chrome-on="false"] .app-topbar-popover,
 html[data-blur-cards-on="false"] .user-card-content,
 html[data-blur-cards-on="false"] .composer-glass {
 

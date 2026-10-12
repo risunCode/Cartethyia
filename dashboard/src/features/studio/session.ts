@@ -4,7 +4,7 @@
  * does not wipe the others.
  */
 
-import type { LabEffort, LabImage, LabMode, LabProtocol } from "./protocol";
+import type { LabEffort, LabImage, LabPersona, LabProtocol } from "./protocol";
 
 export interface LabUsage {
   readonly inputTokens?: number;
@@ -32,7 +32,7 @@ export interface LabMessage {
 export interface LabDraft {
   readonly model: string;
   readonly protocol: LabProtocol;
-  readonly mode: LabMode;
+  readonly persona: LabPersona;
   readonly systemPrompt: string;
   readonly temperature: string;
   readonly topP: string;
@@ -44,7 +44,7 @@ export interface LabDraft {
 export const EMPTY_DRAFT: LabDraft = {
   model: "",
   protocol: "chat",
-  mode: "agentic",
+  persona: "cartethyia",
   systemPrompt: "",
   temperature: "",
   topP: "",
@@ -123,8 +123,16 @@ export async function readLabSession(id: string): Promise<LabSession | null> {
   const row = await requestToPromise(db.transaction(STORE, "readonly").objectStore(STORE).get(id));
   db.close();
   if (row === undefined || row === null || typeof row !== "object") return null;
-  const record = row as LabSession;
-  return { ...EMPTY_DRAFT, ...record, effort: isEffort(record.effort) ? record.effort : "high", messages: readMessages(record.messages), title: (record.title || sessionName()).slice(0, 8) };
+  const record = row as LabSession & { readonly mode?: unknown };
+  const { mode: _legacyMode, ...session } = record;
+  return {
+    ...EMPTY_DRAFT,
+    ...session,
+    persona: isPersona(record.persona) ? record.persona : "cartethyia",
+    effort: isEffort(record.effort) ? record.effort : "high",
+    messages: readMessages(record.messages),
+    title: (record.title || sessionName()).slice(0, 8),
+  };
 }
 
 export async function writeLabSession(session: LabSession): Promise<void> {
@@ -158,8 +166,8 @@ function isProtocol(value: unknown): value is LabProtocol {
   return value === "chat" || value === "responses" || value === "messages";
 }
 
-function isMode(value: unknown): value is LabMode {
-  return value === "agentic" || value === "media";
+function isPersona(value: unknown): value is LabPersona {
+  return value === "cartethyia" || value === "unset";
 }
 
 function isEffort(value: unknown): value is LabEffort {
@@ -232,7 +240,7 @@ export function readLabDraft(storage: Storage | undefined): LabDraft {
     return {
       model: typeof record.model === "string" ? record.model : "",
       protocol: isProtocol(record.protocol) ? record.protocol : "chat",
-      mode: isMode(record.mode) ? record.mode : "agentic",
+      persona: isPersona(record.persona) ? record.persona : "cartethyia",
       systemPrompt: typeof record.systemPrompt === "string" ? record.systemPrompt : "",
       temperature: typeof record.temperature === "string" ? record.temperature : "",
       topP: typeof record.topP === "string" ? record.topP : "",

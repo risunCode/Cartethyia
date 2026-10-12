@@ -1,5 +1,5 @@
 import { AlertCircle, ArrowDown, ArrowUp, Bot, Brain, Check, ChevronDown, Copy, DatabaseZap, Gauge, Pencil, Sigma, Timer, Wrench } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { LabMessage } from "./session";
@@ -61,6 +61,8 @@ export function ChatBubble({
   const [draft, setDraft] = useState(message.text);
   const [copied, setCopied] = useState(false);
   const [thinkingOpen, setThinkingOpen] = useState(thinking.length > 0 && message.text.length === 0);
+  const thinkingRef = useRef<HTMLDivElement>(null);
+  const thinkingAtBottomRef = useRef(true);
   const name = modelName(message.model);
   const provider = providerName(message.model);
   const totalTokens = (message.usage?.inputTokens ?? 0) + (message.usage?.outputTokens ?? 0);
@@ -83,8 +85,14 @@ export function ChatBubble({
 
   useEffect(() => {
     if (thinking.length > 0 && message.text.length === 0) setThinkingOpen(true);
-    if (message.text.length > 0 && !live) setThinkingOpen(false);
-  }, [thinking.length, message.text.length, live]);
+    if (message.text.length > 0) setThinkingOpen(false);
+  }, [thinking.length, message.text.length]);
+
+  useEffect(() => {
+    const panel = thinkingRef.current;
+    if (!thinkingOpen || panel === null || !thinkingAtBottomRef.current) return;
+    panel.scrollTop = panel.scrollHeight;
+  }, [thinking, thinkingOpen]);
 
   const copy = async () => {
     await navigator.clipboard.writeText(message.text);
@@ -105,13 +113,25 @@ export function ChatBubble({
 
       {thinking.length > 0 ? (
         <div className="flex flex-col gap-3 w-full max-w-280 text-text-tertiary font-sans text-caption">
-          <button type="button" className="inline-flex items-center gap-2.5 w-fit h-12 px-4 border border-inner-border rounded-pill bg-surface-2 text-text-secondary font-sans text-badge font-semibold cursor-pointer hover:border-border-strong hover:bg-hover hover:text-text-primary [&_svg]:flex-none [&_svg[data-open=true]]:rotate-180" aria-expanded={thinkingOpen} onClick={() => setThinkingOpen((current) => !current)}>
+          <button type="button" className="inline-flex items-center gap-2.5 w-fit h-12 px-4 border border-inner-border rounded-pill bg-surface-2 text-text-secondary font-sans text-badge font-semibold cursor-pointer hover:border-border-strong hover:bg-hover hover:text-text-primary [&_svg]:flex-none [&_svg[data-open=true]]:rotate-180" aria-expanded={thinkingOpen} onClick={() => setThinkingOpen((current) => {
+            if (!current) thinkingAtBottomRef.current = true;
+            return !current;
+          })}>
             <Brain size={12} />
             <span>{live && message.text.length === 0 ? "Thinking" : "Thought"}</span>
             <ChevronDown size={12} data-open={thinkingOpen ? "true" : "false"} />
           </button>
           {thinkingOpen ? (
-            <div className="max-h-[calc(1.5em*5)] overflow-auto px-5 py-4 border border-inner-border rounded-control bg-surface-2 text-text-secondary italic leading-normal whitespace-pre-wrap select-text cursor-text">{thinking}</div>
+            <div
+              ref={thinkingRef}
+              onScroll={(event) => {
+                const panel = event.currentTarget;
+                thinkingAtBottomRef.current = panel.scrollHeight - panel.scrollTop - panel.clientHeight <= 24;
+              }}
+              className="scroll-region max-h-[calc(1.5em*5)] overflow-auto px-5 py-4 border border-inner-border rounded-control bg-surface-2 text-text-secondary italic leading-normal whitespace-pre-wrap select-text cursor-text"
+            >
+              {thinking}
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -125,10 +145,11 @@ export function ChatBubble({
         }
       >
         {waiting ? (
-          <span className="inline-flex items-center gap-2 h-11 px-2" aria-label="Model is writing">
+          <span className="inline-flex items-center gap-2 h-11 px-2 text-text-tertiary text-caption" aria-label="Model is thinking">
             <span className="w-3 h-3 rounded-full bg-text-tertiary animate-typing-bounce motion-reduce:animate-none" />
             <span className="w-3 h-3 rounded-full bg-text-tertiary animate-typing-bounce motion-reduce:animate-none [animation-delay:0.15s]" />
             <span className="w-3 h-3 rounded-full bg-text-tertiary animate-typing-bounce motion-reduce:animate-none [animation-delay:0.3s]" />
+            <span>Thinking…</span>
           </span>
         ) : editing ? (
           <form
@@ -170,6 +191,7 @@ export function ChatBubble({
               <div className="min-w-0 font-sans text-body-lg leading-normal [&_p]:m-0 [&_p]:mb-4 [&_ul]:m-0 [&_ul]:mb-4 [&_ol]:m-0 [&_ol]:mb-4 [&_pre]:m-0 [&_pre]:mb-4 [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0 [&_pre:last-child]:mb-0 [&_pre]:overflow-x-auto [&_pre]:px-6 [&_pre]:py-5 [&_pre]:rounded-control [&_pre]:bg-surface-muted [&_pre]:font-mono [&_pre]:text-caption [&_code]:font-mono [&_svg]:flex-none [&_svg]:mt-1.5">
                 {message.error === true ? <AlertCircle size={14} aria-hidden="true" /> : null}
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+                {live ? <span className="ml-1 text-accent animate-pulse motion-reduce:animate-none" aria-hidden="true">▋</span> : null}
               </div>
             ) : null}
           </>

@@ -5,8 +5,8 @@
  */
 
 export type LabProtocol = "chat" | "responses" | "messages";
-export type LabMode = "agentic" | "media";
 export type LabEffort = "auto" | "low" | "medium" | "high" | "max";
+export type LabPersona = "cartethyia" | "unset";
 
 export interface LabImage {
   readonly name: string;
@@ -21,7 +21,7 @@ export interface LabTurn {
 
 export interface LabRequestSettings {
   readonly protocol: LabProtocol;
-  readonly mode: LabMode;
+  readonly persona: LabPersona;
   readonly model: string;
   readonly systemPrompt: string;
   readonly temperature: string;
@@ -89,29 +89,31 @@ function spokenTurns(turns: readonly LabTurn[]): readonly LabTurn[] {
   return turns.filter((turn) => turn.text.trim().length > 0 || (turn.images?.length ?? 0) > 0);
 }
 
+function systemPrompt(settings: LabRequestSettings): string {
+  const custom = settings.systemPrompt.trim();
+  if (settings.persona === "unset") return custom;
 
+  const now = new Date();
+  const localDateTime = now.toLocaleString();
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const context = [
+    "You are Cartethyia, an AI assistant in Cartethyia Model Lab.",
+    "Use the conversation context and attachments explicitly provided by the user. Image understanding depends on whether the selected model supports it; if support is unclear, say so.",
+    "You do not have web search or other external tools, access to the local filesystem, or access to inspect the user's device or runtime. Do not imply otherwise; rely on this conversation and your existing knowledge.",
+    "Your knowledge may not be current. Be transparent about uncertainty and do not present external information as recently verified.",
+    "",
+    "Request context at send time:",
+    `Local date and time: ${localDateTime}`,
+    ...(timeZone.length > 0 ? [`Local IANA time zone: ${timeZone}`] : []),
+    `Selected model: ${settings.model}`,
+    `Selected protocol: ${settings.protocol}`,
+  ].join("\n");
 
-/**
- * The hosted search tool a Model Lab agentic turn declares.
- *
- * A provider proven to serve it natively keeps it. Every other chat route
- * runs the configured search fallback and answers from those results. No
- * function tools are declared: the gateway executes only hosted web search,
- * so any other declared tool ends the turn on `tool_calls` with nobody to
- * run it — which hides the model's answer.
- */
-function agentTools(protocol: LabProtocol): readonly Record<string, unknown>[] {
-  return [
-    protocol === "messages"
-      ? { type: "web_search_20250305", name: "web_search" }
-      : { type: "web_search" },
-  ];
+  return custom.length > 0
+    ? `## Cartethyia Model Lab persona\n${context}\n\n## User system prompt\n${custom}`
+    : `## Cartethyia Model Lab persona\n${context}`;
 }
 
-function withAgentTools(protocol: LabProtocol, mode: LabMode, body: Record<string, unknown>): Record<string, unknown> {
-  if (mode !== "agentic") return body;
-  return { ...body, tools: agentTools(protocol) };
-}
 
 /** One friendly starter prompt on the Model Lab welcome screen. */
 export interface LabPreset {
@@ -120,23 +122,22 @@ export interface LabPreset {
 }
 
 export const MODEL_LAB_PRESETS: readonly LabPreset[] = [
-  { label: "Search", prompt: "Cari di internet siapa itu risuncode, lalu tuliskan satu URL sumber." },
+  { label: "Explain", prompt: "Jelaskan cara kerja streaming token pada API chat secara bertahap." },
   { label: "Hello", prompt: "Halo! Perkenalkan dirimu singkat dalam Bahasa Indonesia." },
-  { label: "News", prompt: "Cari berita teknologi terbaru hari ini dan ringkas hasilnya." },
-  { label: "Translate", prompt: "Cari arti kata \"proxy\" di internet dan jelaskan ringkas dalam Bahasa Indonesia." },
-  { label: "Code", prompt: "Cari di internet cara membaca file dengan Bun di TypeScript, lalu berikan contoh singkat." },
+  { label: "Translate", prompt: "Terjemahkan \"A smooth stream makes every thought visible\" ke Bahasa Indonesia." },
+  { label: "Code", prompt: "Berikan contoh singkat membaca file JSON menggunakan Bun dan TypeScript." },
 ];
 /** The endpoint and JSON body for one send. Empty assistant turns are dropped. */
 export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestSettings): BuiltLabRequest {
   const spoken = spokenTurns(turns);
-  const system = settings.systemPrompt.trim();
+  const system = systemPrompt(settings);
   const sample = sampling(settings);
   const effort = reasoning(settings.protocol, settings.effort);
 
   if (settings.protocol === "messages") {
     return {
       path: PATH_BY_PROTOCOL.messages,
-      body: withAgentTools("messages", settings.mode, {
+      body: {
         model: settings.model,
         stream: true,
         max_tokens: 4096,
@@ -144,14 +145,14 @@ export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestS
         messages: spoken.map((turn) => ({ role: turn.role, content: userContent("messages", turn) })),
         ...sample,
         ...effort,
-      }),
+      },
     };
   }
 
   if (settings.protocol === "responses") {
     return {
       path: PATH_BY_PROTOCOL.responses,
-      body: withAgentTools("responses", settings.mode, {
+      body: {
         model: settings.model,
         stream: true,
         input: [
@@ -160,13 +161,13 @@ export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestS
         ],
         ...sample,
         ...effort,
-      }),
+      },
     };
   }
 
   return {
     path: PATH_BY_PROTOCOL.chat,
-    body: withAgentTools("chat", settings.mode, {
+    body: {
       model: settings.model,
       stream: true,
       messages: [
@@ -175,7 +176,7 @@ export function buildLabRequest(turns: readonly LabTurn[], settings: LabRequestS
       ],
       ...sample,
       ...effort,
-    }),
+    },
   };
 }
 
@@ -237,8 +238,6 @@ export function textDelta(protocol: LabProtocol, eventName: string, payload: unk
         const delta = (choice as Record<string, unknown>).delta;
         if (delta === null || typeof delta !== "object") return "";
         const deltaRecord = delta as Record<string, unknown>;
-        const reasoning = textOf(deltaRecord.reasoning_content ?? deltaRecord.reasoning);
-        if (reasoning.length > 0) return "";
         return textOf(deltaRecord.content);
       })
       .join("");

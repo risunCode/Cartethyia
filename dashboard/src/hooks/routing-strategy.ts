@@ -100,6 +100,9 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
           if (!query.data) return;
           setStrategyState(query.data.strategy);
           setRotateCountState(query.data.rotateCount);
+          setMaxInflightState(query.data.maxInflight);
+          setUsageFloorState(query.data.usageFloor);
+          setUsageFloorUnitState(query.data.usageFloorUnit);
           setSkipProxyState(query.data.skipProxy);
           setUserAgentState(query.data.userAgent);
         },

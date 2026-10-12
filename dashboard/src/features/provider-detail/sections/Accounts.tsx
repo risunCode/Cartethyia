@@ -179,17 +179,34 @@ export function AccountStatusBadge({
 
 
 /**
- * One chip for the account's allowance: summed remaining credits when the
- * provider reports them, otherwise the lowest remaining percent. Sits before
- * the inflight chip so the operator sees what is left before how busy it is.
+ * One chip for pooled credits when available, otherwise the lowest independent
+ * quota percent. Sits before the inflight chip so the operator sees allowance
+ * before concurrency.
  */
-function QuotaPill({ windows }: { readonly windows: readonly QuotaWindow[] | undefined }): ReactNode {
+function QuotaPill({
+  windows,
+  providerId,
+}: {
+  readonly windows: readonly QuotaWindow[] | undefined;
+  readonly providerId: string;
+}): ReactNode {
   if (windows === undefined || windows.length === 0) return null;
   let remaining = 0;
   let total = 0;
   let hasCredits = false;
   let lowestPercent: number | null = null;
   for (const window of windows) {
+    const isPooled = window.accounting === "pooled" ||
+      (window.accounting === undefined &&
+        (providerId === "cb" || providerId === "cbcn" || providerId === "workbuddy") &&
+        (window.kind?.startsWith("quota:") === true || window.kind?.startsWith("bonus:") === true));
+    if (!isPooled) {
+      if (typeof window.remainingPercent === "number" && Number.isFinite(window.remainingPercent)) {
+        lowestPercent =
+          lowestPercent === null ? window.remainingPercent : Math.min(lowestPercent, window.remainingPercent);
+      }
+      continue;
+    }
     const limit = typeof window.limit === "number" && Number.isFinite(window.limit) ? window.limit : null;
     const left =
       typeof window.remaining === "number" && Number.isFinite(window.remaining)
@@ -202,9 +219,6 @@ function QuotaPill({ windows }: { readonly windows: readonly QuotaWindow[] | und
       total += limit;
       hasCredits = true;
     }
-    if (typeof window.remainingPercent === "number" && Number.isFinite(window.remainingPercent)) {
-      lowestPercent = lowestPercent === null ? window.remainingPercent : Math.min(lowestPercent, window.remainingPercent);
-    }
   }
   const text = hasCredits
     ? `${trimNumber(remaining)} of ${trimNumber(total)}`
@@ -212,7 +226,9 @@ function QuotaPill({ windows }: { readonly windows: readonly QuotaWindow[] | und
       ? null
       : `${Math.round(lowestPercent)}% left`;
   if (text === null) return null;
-  const low = hasCredits ? remaining <= 0 : (lowestPercent ?? 100) <= 10;
+  const low = hasCredits
+    ? remaining <= 0 || (lowestPercent ?? 100) <= 10
+    : (lowestPercent ?? 100) <= 10;
   return (
     <span className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap" data-tone={low ? "warn" : undefined} title={hasCredits ? `${trimNumber(remaining)} credits available of ${trimNumber(total)}` : "Lowest remaining percent across this account's quota windows"}>
       <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Quota</span>
@@ -396,7 +412,7 @@ function AccountRow({
               <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">All time</span>
               {account.usageAllTime.totalTokens.toLocaleString()} tok · {account.usageAllTime.requests.toLocaleString()} req
             </span>
-            <QuotaPill windows={quota} />
+            <QuotaPill windows={quota} providerId={account.providerId} />
             <span
               className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap"
               title="Concurrency comes from this provider’s Routing Strategy; accounts no longer carry manual ceilings."

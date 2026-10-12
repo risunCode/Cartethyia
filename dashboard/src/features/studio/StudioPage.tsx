@@ -1,3 +1,4 @@
+import { Code2, Languages, Lightbulb, MessageCircle, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardBody } from "../../components/ui/card";
@@ -10,6 +11,13 @@ import { buildLabRequest, MODEL_LAB_PRESETS, type LabEffort, type LabImage } fro
 import { EMPTY_DRAFT, deleteLabSession, listLabSessions, newLabSession, nextMessageId, readActiveSessionId, readLabDraft, readLabSession, writeActiveSessionId, writeLabSession, type LabDraft, type LabMessage, type LabSession, type LabSessionSummary } from "./session";
 import { SettingsDrawer } from "./SettingsDrawer";
 import { readLabStream } from "./stream";
+
+const STARTER_ICONS: Readonly<Record<string, LucideIcon>> = {
+  Explain: Lightbulb,
+  Hello: MessageCircle,
+  Translate: Languages,
+  Code: Code2,
+};
 
 
 
@@ -149,6 +157,25 @@ export function StudioPage(): ReactNode {
         ...(next.tools !== undefined && next.tools.length > 0 ? { tools: next.tools } : {}),
       });
     };
+    let queuedPaint: Parameters<typeof paint>[0] | undefined;
+    let paintFrame: number | undefined;
+    const schedulePaint = (next: Parameters<typeof paint>[0]) => {
+      queuedPaint = next;
+      if (paintFrame !== undefined) return;
+      paintFrame = requestAnimationFrame(() => {
+        paintFrame = undefined;
+        const latest = queuedPaint;
+        queuedPaint = undefined;
+        if (latest !== undefined) paint(latest);
+      });
+    };
+    const flushPaint = () => {
+      if (paintFrame !== undefined) cancelAnimationFrame(paintFrame);
+      paintFrame = undefined;
+      const latest = queuedPaint;
+      queuedPaint = undefined;
+      if (latest !== undefined) paint(latest);
+    };
     try {
       const revealed = await reveal.mutateAsync({ keyId: defaultKey.id });
       const built = buildLabRequest(
@@ -159,6 +186,7 @@ export function StudioPage(): ReactNode {
         })),
         draft,
       );
+      const startedAt = performance.now();
       const response = await fetch(built.path, {
         method: "POST",
         credentials: "same-origin",
@@ -172,21 +200,24 @@ export function StudioPage(): ReactNode {
       });
       let accumulated = "";
       let reasoning = "";
-      const startedAt = performance.now();
       let firstTokenAt: number | undefined;
       let usage: LabMessage["usage"] = {};
       let status = "streaming";
+      const markFirstToken = () => {
+        if (firstTokenAt === undefined) firstTokenAt = performance.now();
+      };
       await readLabStream(
         response,
         draft.protocol,
         (delta) => {
-          if (firstTokenAt === undefined) firstTokenAt = performance.now();
+          markFirstToken();
           accumulated += delta;
-          paint({ text: accumulated, reasoning, status, pending: true, usage });
+          schedulePaint({ text: accumulated, reasoning, status, pending: true, usage });
         },
         (thought) => {
+          markFirstToken();
           reasoning += thought;
-          paint({ text: accumulated, reasoning, status, pending: true, usage });
+          schedulePaint({ text: accumulated, reasoning, status, pending: true, usage });
         },
         (next) => {
           usage = {
@@ -200,11 +231,12 @@ export function StudioPage(): ReactNode {
         },
         (tool) => {
           tools.add(tool);
-          paint({ text: accumulated, reasoning, status, pending: true, usage, tools: [...tools] });
+          schedulePaint({ text: accumulated, reasoning, status, pending: true, usage, tools: [...tools] });
         },
         controller.signal,
       );
       const finishedAt = performance.now();
+      flushPaint();
       paint({
         text: accumulated.length > 0 ? accumulated : "No text came back.",
         reasoning,
@@ -217,6 +249,7 @@ export function StudioPage(): ReactNode {
       });
     } catch (error) {
       const stopped = controller.signal.aborted;
+      flushPaint();
       paint({
         text: stopped ? "Stopped." : error instanceof Error ? error.message : "Request failed",
         reasoning: "",
@@ -229,14 +262,30 @@ export function StudioPage(): ReactNode {
     }
   };
 
-  const canSend = (input.trim().length > 0 || images.length > 0) && !sending && draft.model.length > 0 && (keys.data ?? []).some((key) => key.enabled && key.revokedAt === undefined && key.isDefault);
+  const hasDefaultKey = (keys.data ?? []).some((key) => key.enabled && key.revokedAt === undefined && key.isDefault);
+  const canSend = (input.trim().length > 0 || images.length > 0) && !sending && draft.model.length > 0 && hasDefaultKey;
+  const canSendStarter = !sending && draft.model.length > 0 && hasDefaultKey;
+  const sendStarter = (text: string) => {
+    if (!canSendStarter) return;
+    const user: LabMessage = {
+      id: nextMessageId(),
+      role: "user",
+      text,
+      model: draft.model,
+    };
+    setInput("");
+    setImages([]);
+    void send({ text, history: [...draft.messages, user], images: [] });
+  };
 
   return (
     <Card className="flex-auto min-h-0 h-route max-h-route flex flex-col overflow-hidden overscroll-none">
       <CardBody className="flex-auto min-h-0 p-0 gap-0">
-        <div
+        <div className="flex flex-auto min-h-0 min-w-0 flex-row max-medium:flex-col">
+        <div className="flex-auto min-w-0 min-h-0 flex flex-col">
+          <div
           ref={scrollerRef}
-          className="flex-auto min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain flex flex-col"
+          className="scroll-region flex-auto min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain flex flex-col"
           onScroll={(event) => {
             const node = event.currentTarget;
             stickRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
@@ -247,17 +296,21 @@ export function StudioPage(): ReactNode {
               <p className="text-text-primary text-title font-semibold">Model Lab</p>
               <p>Pick a model, then try a starter.</p>
               <div className="flex flex-wrap justify-center gap-4 mt-4">
-                {MODEL_LAB_PRESETS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    className="h-15 px-6 inline-flex items-center gap-3 border border-border-strong rounded-pill bg-surface-1 text-text-secondary text-caption cursor-pointer transition-[border-color,background-color,color] duration-150 ease-spring hover:border-accent hover:bg-active-pill hover:text-text-primary disabled:opacity-40 disabled:cursor-default"
-                    disabled={draft.model.length === 0 || sending}
-                    onClick={() => setInput(preset.prompt)}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+                {MODEL_LAB_PRESETS.map((preset) => {
+                  const Icon = STARTER_ICONS[preset.label] ?? MessageCircle;
+                  return (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      className="h-15 px-6 inline-flex items-center gap-3 border border-border-strong rounded-pill bg-surface-1 text-text-secondary text-caption cursor-pointer transition-[border-color,background-color,color] duration-150 ease-spring hover:border-accent hover:bg-active-pill hover:text-text-primary disabled:opacity-40 disabled:cursor-default"
+                      disabled={!canSendStarter}
+                      onClick={() => sendStarter(preset.prompt)}
+                    >
+                      <Icon size={16} aria-hidden="true" />
+                      {preset.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           ) : (
@@ -297,13 +350,15 @@ export function StudioPage(): ReactNode {
             onOpenSettings={() => setSettingsOpen(true)}
           />
         </div>
+        </div>
+        <SettingsDrawer
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          draft={draft}
+          onChange={patch}
+        />
+              </div>
       </CardBody>
-      <SettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        draft={draft}
-        onChange={patch}
-      />
       <Dialog open={sessionsOpen} onClose={() => setSessionsOpen(false)} title="Chat sessions">
         <div className="flex flex-col gap-3 max-h-180 overflow-auto">
           <Button
@@ -311,7 +366,7 @@ export function StudioPage(): ReactNode {
             size="sm"
             type="button"
             onClick={() => {
-              const created = newLabSession({ ...EMPTY_DRAFT, model: draft.model, protocol: draft.protocol, mode: draft.mode, effort: draft.effort });
+              const created = newLabSession({ ...EMPTY_DRAFT, model: draft.model, protocol: draft.protocol, effort: draft.effort });
               setSession(created);
               setInput("");
               setImages([]);

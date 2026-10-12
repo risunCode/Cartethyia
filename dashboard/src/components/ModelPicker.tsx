@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { Dialog } from "./ui/dialog";
+import { Dialog, type DialogSize } from "./ui/dialog";
 import { ProviderIcon } from "./ProviderIcon";
 import { consoleRequest } from "../data/api";
 import type { ApiErrorShape } from "../data/api";
@@ -75,6 +75,7 @@ export function ModelPickerModal({
   selected,
   onToggle,
   onSelectOne,
+  size = "lg",
   title = "Select model",
   multi = true,
   filter,
@@ -84,6 +85,7 @@ export function ModelPickerModal({
   selected: string[];
   onToggle: (value: string) => void;
   onSelectOne?: (value: string) => void;
+  size?: DialogSize;
   title?: string;
   multi?: boolean;
   /** Optional capability predicate (e.g. image-generation models only). */
@@ -143,7 +145,7 @@ export function ModelPickerModal({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} title={title} size="lg" footer={<Button variant="secondary" onClick={onClose}>Done</Button>}>
+    <Dialog open={open} onClose={onClose} title={title} size={size} footer={<Button variant="secondary" onClick={onClose}>Done</Button>}>
       <div className="flex max-w-full flex-col gap-6">
         <div className="relative">
           <Search
@@ -224,7 +226,7 @@ export function ModelPickerModal({
                 </div>
                 {/* Auto-fill so a group of two models does not stretch across the
                     whole panel; the 180px track is what a chip's model id needs. */}
-                <div className="chip-grid grid min-w-0 gap-4">
+                <div className="grid min-w-0 grid-cols-2 gap-4 max-small:gap-2">
                   {entries.map((e) => {
                     const sel = isSelected(e.qualified);
                     return (
@@ -232,7 +234,7 @@ export function ModelPickerModal({
                         key={e.qualified}
                         type="button"
                         onClick={() => handlePick(e.qualified)}
-                        className={`relative flex w-full min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-control px-6 py-5 text-left ${sel ? "border border-accent bg-accent-soft" : "border border-inner-border bg-surface-2"}`}
+                        className={`relative flex w-full min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-control px-6 py-5 text-left max-small:px-3 max-small:py-4 ${sel ? "border border-accent bg-accent-soft" : "border border-inner-border bg-surface-2"}`}
                       >
                         {sel && (
                           <Check
@@ -242,7 +244,7 @@ export function ModelPickerModal({
                         )}
                         <span
                           title={e.qualified}
-                          className={`font-mono tabular-nums w-full overflow-hidden text-ellipsis whitespace-nowrap text-badge font-semibold ${sel ? "pr-8 text-accent" : "text-text-primary"}`}
+                          className={`font-mono tabular-nums w-full whitespace-normal break-all text-badge font-semibold ${sel ? "pr-8 text-accent" : "text-text-primary"}`}
                         >
                           {e.modelId}
                           {/* A non-chat service (System One) is not served on
