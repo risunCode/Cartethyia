@@ -18,8 +18,8 @@ import {
   readEnvFile,
   ENV_PATH,
   PROJECT_ROOT,
-} from "../internal/env";
-import type { ProbeResult } from "../internal/env";
+} from "../shared/env";
+import type { ProbeResult } from "../shared/env";
 import { resolveDataDir, resolveDbMode } from "../../src/persistence/db-mode";
 
 async function ask(question: string, defaultValue = ""): Promise<string> {

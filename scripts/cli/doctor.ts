@@ -7,8 +7,8 @@ import {
   parseServiceUrl,
   probeTcpService,
   readEnvFile,
-} from "../internal/env";
-import type { ProbeResult } from "../internal/env";
+} from "../shared/env";
+import type { ProbeResult } from "../shared/env";
 import { resolveDataDir, resolveDbMode, type DbMode } from "../../src/persistence/db-mode";
 
 interface DoctorConfig {

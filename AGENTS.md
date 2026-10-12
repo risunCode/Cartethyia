@@ -157,10 +157,9 @@ clear removal condition.
 - Preserve intentional provider wire bytes, headers, and user-agent behavior.
 - Keep one source of truth for provider metadata, persisted contracts, environment names, routing policy, and dashboard mirrors.
 - Provider, health, and streaming claims in docs and skills must match the owning code. A dashboard section is a mirror, not a second inventory.
-- `scripts/` is grouped by purpose (`commands/`, `build/`, `dev/`, `generate/`,
-  `internal/`); `scripts/ci-run-tests.ts` and `scripts/install-lite.sh` sit at
-  its root. Avoid barrel files; use role names such as `contracts.ts`,
-  `routes.ts`, `store.ts`, `service.ts`, and `errors.ts`.
+- `scripts/` is grouped by purpose: `cli/`, `operations/`, `install/`, `build/`,
+  `generate/`, `dev/`, `test/`, and `shared/`. Avoid barrel files; use role names
+  such as `contracts.ts`, `routes.ts`, `store.ts`, `service.ts`, and `errors.ts`.
 - Do not hand-edit generated output. Change its source or generator.
 - Use strict TypeScript conventions already configured by the repository: no `any`,
   suppressions, needless assertions, or weakened compiler settings.
@@ -185,8 +184,8 @@ bun run test:backend             # or bun run test / dashboard:test / test:watch
 ```
 
 The repository carries an active test suite (`test/`, `dashboard/test/`, run via
-`scripts/ci-run-tests.ts` against the isolated `.env.test` database — never the
-dev database). Typecheck is not behavioral proof. Exercise the real boundary: a
+`scripts/test/run.ts` against the isolated `.env.test` database — never the dev
+database). Typecheck is not behavioral proof. Exercise the real boundary: a
 live gateway request, a real browser surface, database migration in an isolated
 environment, or a temporary script calling production code.
 

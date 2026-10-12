@@ -6,7 +6,7 @@ import { join } from "node:path";
 import SysTray from "systray2";
 import { isNewerRelease } from "../../src/console/updates/version-compare";
 import { PACKAGE_ROOT, resolvePackagePath, resolveUserConfigDir } from "../../src/config/package-paths";
-import { MINIMUM_BUN_VERSION, bunVersionAtLeast } from "../internal/env";
+import { MINIMUM_BUN_VERSION, bunVersionAtLeast } from "../shared/env";
 
 process.env.CARTETHYIA_CONFIG_DIR ??= resolveUserConfigDir();
 
@@ -35,7 +35,7 @@ async function loadUserConfig(): Promise<void> {
   const configDir = process.env.CARTETHYIA_CONFIG_DIR;
   if (!configDir) throw new Error("Cartethyia config directory could not be resolved");
   mkdirSync(configDir, { recursive: true });
-  const { ENV_PATH, readEnvFile } = await import("../internal/env");
+  const { ENV_PATH, readEnvFile } = await import("../shared/env");
   const values = await readEnvFile(ENV_PATH);
   for (const [key, value] of Object.entries(values)) {
     if (!process.env[key]) process.env[key] = value;
@@ -154,7 +154,7 @@ function launchUpdatedTray(signalPath: string): ChildProcess {
   const env = { ...process.env, CARTETHYIA_TRAY_STARTUP_SIGNAL: signalPath };
   const child = spawn(
     process.execPath,
-    ["run", resolvePackagePath("scripts", "commands", "cli.ts"), "tray"],
+    ["run", resolvePackagePath("scripts", "cli", "cli.ts"), "tray"],
     { cwd: tmpdir(), detached: true, stdio: "ignore", windowsHide: true, env },
   );
   child.unref();

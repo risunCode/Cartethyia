@@ -18,7 +18,7 @@ export type DbMode = "full" | "lite";
  * Failing closed is the honest fix: the two modes are different databases with
  * different migration sets (`migrations/lite-sqlite3/` vs
  * `migrations/full-postgres/`), so guessing one silently picks which migrations
- * an operator's data is read against. `bun setup`, `install-lite.sh`,
+ * an operator's data is read against. `bun setup`, `scripts/install/lite.sh`,
  * `.env.example`, `.env.test`, and `docker-compose.yml` all set it explicitly,
  * so requiring it costs an existing deployment nothing.
  */

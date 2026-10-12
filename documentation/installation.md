@@ -65,7 +65,7 @@ Skipping step 2 leaves the console unusable and the API key never inserted.
 
 ### Scripted one-shot Lite install
 
-See [`scripts/install-lite.sh`](#4-one-shot-install-script) — one command,
+See [`scripts/install/lite.sh`](#7-one-shot-install-script) — one command,
 `bun install` through a running service, no manual steps.
 
 ---
@@ -364,148 +364,33 @@ database.**
 
 ## 7. One-shot install script
 
-`scripts/install-lite.sh` — one command, Lite mode, no manual steps. Idempotent;
-safe to re-run.
+[`scripts/install/lite.sh`](https://github.com/risunCode/Cartethyia/blob/dev/scripts/install/lite.sh)
+— one command, Lite mode, no manual steps. Idempotent; safe to re-run.
 
 ```bash
-#!/usr/bin/env bash
-# Install Cartethyia (Lite) in one shot.
-# Usage: curl -fsSL <url> | bash   |   bash install-lite.sh
-set -euo pipefail
-
-ROOT=${CARTETHYIA_ROOT:-/opt/cartethyia}
-BRANCH=${CARTETHYIA_BRANCH:-dev}
-PORT=${CARTETHYIA_PORT:-8080}
-ORIGIN=${CARTETHYIA_PUBLIC_ORIGIN:-http://localhost:8080}
-REPO="$ROOT/repo"
-
-say() { printf '\033[1;36m==>\033[0m %s\n' "$1"; }
-die() { printf '\033[1;31merror:\033[0m %s\n' "$1" >&2; exit 1; }
-
-# --- 1. system deps -------------------------------------------------------
-if command -v apt-get >/dev/null 2>&1; then
-  say "installing system packages"
-  export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq && apt-get install -y -qq git curl unzip ca-certificates openssl \
-    || die "apt-get install failed"
-fi
-
-# --- 2. bun ---------------------------------------------------------------
-if ! command -v bun >/dev/null 2>&1; then
-  say "installing bun"
-  curl -fsSL https://bun.sh/install | bash || die "bun install failed"
-fi
-BUN=$(command -v bun || echo "$HOME/.bun/bin/bun")
-[ -x "$BUN" ] || die "bun not found after install"
-export PATH="$(dirname "$BUN"):$PATH"
-say "bun $($BUN --version)"
-
-# --- 3. source ------------------------------------------------------------
-mkdir -p "$ROOT/data"
-if [ ! -d "$REPO/.git" ]; then
-  say "cloning $BRANCH into $REPO"
-  git clone -b "$BRANCH" https://github.com/risunCode/Cartethyia.git "$REPO" \
-    || die "git clone failed"
-else
-  say "updating existing checkout"
-  git -C "$REPO" fetch --quiet origin "$BRANCH"
-  git -C "$REPO" reset --quiet --hard "origin/$BRANCH"
-fi
-
-# --- 4. .env --------------------------------------------------------------
-cd "$REPO"
-if [ ! -f .env ]; then
-  say "creating .env through bun setup"
-else
-  say ".env already exists; bun setup will keep it"
-fi
-# The wizard owns .env creation, the encryption key, and the Lite data dir.
-# These overrides are read by that run; they are not written by this guide.
-
-# --- 5. install + build ---------------------------------------------------
-say "bun install"
-bun install --frozen-lockfile || die "bun install failed"
-
-say "bun setup"
-CARTETHYIA_DB_MODE=lite \
-NODE_ENV=production \
-LOG_LEVEL=warn \
-PORT="$PORT" \
-DASHBOARD_DIST="$REPO/dist/dashboard" \
-CARTETHYIA_PUBLIC_ORIGIN="$ORIGIN" \
-CARTETHYIA_DATA_DIR="$ROOT/data" \
-CARTETHYIA_TELEMETRY_PAYLOAD_DIR="$ROOT/data/telemetry-payloads" \
-CARTETHYIA_INSTALL_ID_DIR="$ROOT/data/.cartethyia" \
-  bun run setup --non-interactive || die "bun setup failed"
-
-say "bun run build (this takes a few minutes on 1 vCPU)"
-bun run build || die "build failed"
-
-# --- 6. systemd -----------------------------------------------------------
-if command -v systemctl >/dev/null 2>&1 && [ -d /etc/systemd/system ]; then
-  say "installing systemd unit"
-  cat > /etc/systemd/system/cartethyia.service <<EOF
-[Unit]
-Description=Cartethyia AI Gateway
-After=network.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=$REPO
-EnvironmentFile=$REPO/.env
-Environment=PATH=$(dirname "$BUN"):/usr/local/bin:/usr/bin:/bin
-ExecStart=$BUN run $REPO/dist/main.js
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=cartethyia
-
-[Install]
-WantedBy=multi-user.target
-EOF
-  systemctl daemon-reload
-  systemctl enable cartethyia
-  systemctl restart cartethyia
-
-  ACTUAL_PORT=$(grep -E '^PORT=' .env | cut -d= -f2)
-  say "waiting for /health/ready on port $ACTUAL_PORT"
-  for i in $(seq 1 40); do
-    if curl -fsS "http://127.0.0.1:${ACTUAL_PORT}/health/ready" >/dev/null 2>&1; then
-      say "healthy"; break
-    fi
-    sleep 3
-  done
-  curl -fsS "http://127.0.0.1:${ACTUAL_PORT}/health/ready" >/dev/null 2>&1 \
-    || die "service did not become healthy; check: journalctl -u cartethyia -n 50"
-fi
-
-cat <<EOF
-
-  Cartethyia installed (Lite).
-
-    root     $ROOT
-    port     $(grep -E '^PORT=' .env | cut -d= -f2)
-    console  $ORIGIN/console
-    status   systemctl status cartethyia
-    logs     journalctl -u cartethyia -f
-
-  NEXT: the console setup wizard has not run yet. Either open the console and
-  complete first-boot setup, or seed it non-interactively:
-
-    curl -s http://127.0.0.1:$(grep -E '^PORT=' .env | cut -d= -f2)/console/api/auth/first-boot
-    curl -s -X POST http://127.0.0.1:$(grep -E '^PORT=' .env | cut -d= -f2)/console/api/auth/setup \\
-      -H 'content-type: application/json' \\
-      -d '{"password":"CHANGE-ME","username":"admin"}'
-
-  Set CARTETHYIA_API_KEY in .env BEFORE running setup if you want the default
-  gateway API key seeded — it is only read during first boot.
-EOF
+curl -fsSL https://raw.githubusercontent.com/risunCode/Cartethyia/dev/scripts/install/lite.sh | bash
+# or, from a checkout:
+bash scripts/install/lite.sh
 ```
+
+That script is the canonical one-shot installer; it installs system packages and
+Bun, clones the repository, then hands off to the same wizard and build every
+other path uses (`bun install` → `bun run setup --non-interactive` → `bun run
+build`) and finishes with a systemd unit. An existing `.env` is never
+overwritten.
 
 Environment overrides: `CARTETHYIA_ROOT`, `CARTETHYIA_BRANCH`,
 `CARTETHYIA_PORT`, `CARTETHYIA_PUBLIC_ORIGIN`.
+
+**NEXT after install:** the console first-boot wizard has not run yet. Open
+`$ORIGIN/console`, or seed it non-interactively:
+
+```bash
+curl -s http://127.0.0.1:$PORT/console/api/auth/first-boot
+curl -s -X POST http://127.0.0.1:$PORT/console/api/auth/setup \
+  -H 'content-type: application/json' \
+  -d '{"password":"CHANGE-ME","username":"admin"}'
+```
 
 ---
 

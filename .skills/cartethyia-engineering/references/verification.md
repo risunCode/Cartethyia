@@ -13,8 +13,8 @@ bun run test                     # or scoped: test:backend, dashboard:test, test
 ```
 
 The repository carries an active test suite (`test/`, `dashboard/test/`, run via
-`scripts/ci-run-tests.ts` against the isolated `.env.test` database — never the
-dev database).
+`scripts/test/run.ts` against the isolated `.env.test` database — never the dev
+database).
 
 Typecheck proves code shape, not behavior. Run the affected scope alongside the
 gates, and exercise the real boundary: a UI surface through the `agent-browser`

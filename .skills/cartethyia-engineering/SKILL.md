@@ -78,8 +78,8 @@ proof, not grep — see `references/verification.md`.
 
 The gate list is `references/verification.md`; that file is the single owner.
 Backend suites live in `test/`, dashboard suites in `dashboard/test/`, run via
-`scripts/ci-run-tests.ts` against the isolated `.env.test` database — never the
-dev database. Typecheck never proves a behavior change: exercise the affected
+`scripts/test/run.ts` against the isolated `.env.test` database — never the dev
+database. Typecheck never proves a behavior change: exercise the affected
 path at its real boundary and report what you observed. State the limitation
 plainly when a surface is unavailable.
 

@@ -16,9 +16,8 @@
 
 ## Naming and structure
 
-- Keep `scripts/` grouped by purpose (`commands/`, `build/`, `dev/`, `generate/`,
-  `internal/`). `scripts/install-lite.sh` and `scripts/ci-run-tests.ts` stay at
-  the root of `scripts/`.
+- Keep `scripts/` grouped by purpose: `cli/`, `operations/`, `install/`,
+  `build/`, `generate/`, `dev/`, `test/`, and `shared/`.
 - How a change should read — names, comments, types, errors — is `taste.md`.
   Do not restate it here.
 

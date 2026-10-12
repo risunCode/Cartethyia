@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install Cartethyia (Lite) in one shot.
 #
-#   bash install-lite.sh
+#   bash scripts/install/lite.sh
 #   curl -fsSL <raw-url> | bash
 #
 # Idempotent: safe to re-run. An existing .env is never overwritten.

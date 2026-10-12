@@ -8,7 +8,7 @@ const path = require("node:path");
 const { spawn } = require("node:child_process");
 
 const packageRoot = path.resolve(__dirname, "..", "..");
-const cliPath = path.join(packageRoot, "scripts", "commands", "cli.ts");
+const cliPath = path.join(packageRoot, "scripts", "cli", "cli.ts");
 const configDir = process.env.CARTETHYIA_CONFIG_DIR || (
   process.platform === "win32"
     ? path.join(process.env.APPDATA || os.homedir(), "Cartethyia")

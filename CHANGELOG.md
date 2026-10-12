@@ -9,9 +9,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## 2.2 Zhezhi
 
-Released 2026-10-11.
+Released 2026-10-12.
 
 ### Added
+
+**CLI and system tray**
+
+- The package installs globally as `cartethyia` and `carte`. `cartethyia setup`
+  still runs the configuration wizard; `carte` starts Cartethyia in the system
+  tray instead of a foreground terminal.
+- The tray menu carries the running version, a link to the repository, a version
+  tracker that reads the npm registry, and entries for the Console, a password
+  reset, and backup/restore — both of which open Console Settings, so neither
+  action duplicates a flow the Console already owns. Exit drains the gateway
+  through the authenticated `POST /admin/drain` route and waits for in-flight
+  requests instead of killing the process.
+- Choosing the update entry installs `cartethyia@latest` through npm and relaunches
+  the tray, confirming readiness over a one-shot signal file before the old
+  process exits. An install that fails restarts the current version instead of
+  leaving the operator with nothing running.
+- Tray launches detach and hide their window, so no console stays attached
+  behind the tray icon; the launching terminal prints `Loading Cartethyia…` and
+  the URL once `/health` reports ready.
 
 **Media generation**
 
@@ -70,6 +89,24 @@ Released 2026-10-11.
   database.
 
 ### Changed
+
+- `scripts/` is grouped by purpose rather than by mixed role: `cli/` (the global
+  commands, launchers, setup wizard, and doctor), `operations/` (start, restart,
+  health sweeps), `install/` (the host-level shell installer), `build/`, `generate/`,
+  `dev/`, `test/`, and `shared/`. `scripts/ci-run-tests.ts` is now
+  `scripts/test/run.ts`, `scripts/install-lite.sh` is `scripts/install/lite.sh`,
+  and `scripts/internal/env.ts` is `scripts/shared/env.ts`. No script changed
+  behavior; only its path did.
+- The release build sequence moved out of a chained `package.json` string into
+  `scripts/build/build.ts`, which names each step and stops at the first failure
+  instead of relying on `&&`.
+- The npm package description is now a full paragraph naming the proxy, both
+  protocols, and the delivery engine behind the endpoint, instead of a single
+  line.
+- Documentation no longer embeds a copy of the Lite installer.
+  `documentation/installation.md` links the canonical
+  `scripts/install/lite.sh` and describes what it does; the inlined copy had
+  already drifted from the script it claimed to reproduce.
 
 - A fresh profile's glass is retuned so cards read as glass over the page
   background while the chrome framing them stays lighter. Cards ship clarity 45 /
@@ -166,6 +203,12 @@ Released 2026-10-11.
 
 **Removed**
 
+- `scripts/commands/grok-health-sweep.ts`, an unreferenced operator tool that
+  probed Grok accounts one by one for the `407` exhaustion signal. Nothing ran it
+  and nothing imported it. The 407 probe itself is unchanged —
+  `src/providers/discovery/probe-phases.ts` and its coverage in
+  `test/providers/grok-feature-probe.test.ts` remain — so the gateway reads Grok
+  exhaustion exactly as before.
 - The Cursor and Devin providers, with their adapters, OAuth clients, quota
   collectors, discovery, catalog metadata, and dashboard icons. On the next boot
   each unowned `providers` row is retired and its builtin model rows cascade away;

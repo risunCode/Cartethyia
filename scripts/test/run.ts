@@ -33,7 +33,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const PROJECT_ROOT = join(import.meta.dir, "..");
+const PROJECT_ROOT = join(import.meta.dir, "..", "..");
 const DASHBOARD_ROOT = join(PROJECT_ROOT, "dashboard");
 const BACKEND_TESTS = join(PROJECT_ROOT, "test");
 const DASHBOARD_TESTS = join(DASHBOARD_ROOT, "test");

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 // Anchored to this file's location, not the process cwd: the runner
-// (`ci-run-tests.ts`) executes with `cwd = dashboard/`, so a repo-relative
+// (`scripts/test/run.ts`) executes with `cwd = dashboard/`, so a repo-relative
 // path fails to resolve. One level up from `test/` is the dashboard root.
 const pagePath = fileURLToPath(new URL("../src/features/providers/ProvidersPage.tsx", import.meta.url));
 
