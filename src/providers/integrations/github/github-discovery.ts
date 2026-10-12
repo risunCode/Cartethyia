@@ -24,7 +24,13 @@ import { isRecord } from "../../../protocol/codecs";
 import { boundedUpstreamArray, boundedUpstreamNumber, sanitizeUpstreamLabel } from "../../sanitize";
 import { modelsDevCatalog } from "../../discovery/models-dev-catalog";
 import type { DiscoveryInput } from "../../discovery/discovery-types";
-import { GITHUB_PROVIDER_ID, GITHUB_ENDPOINT_PATH, GITHUB_RESPONSES_ENDPOINT_PATH, recordGithubLongContextModels } from "./github";
+import {
+  GITHUB_EXCLUDED_MODEL_IDS,
+  GITHUB_PROVIDER_ID,
+  GITHUB_ENDPOINT_PATH,
+  GITHUB_RESPONSES_ENDPOINT_PATH,
+  recordGithubLongContextModels,
+} from "./github";
 import { GITHUB_REQUEST_HEADERS, parseGithubCredential } from "./github-oauth";
 
 /** A context window above this is unsatisfiable headroom, not a real limit. */
@@ -131,7 +137,9 @@ export async function discoverGithubModels(
     for (const entry of entries) {
       if (!isRecord(entry)) continue;
       const definition = toModelDefinition(entry);
-      if (definition !== undefined) byId.set(definition.modelId, definition);
+      if (definition !== undefined && !GITHUB_EXCLUDED_MODEL_IDS.has(definition.modelId)) {
+        byId.set(definition.modelId, definition);
+      }
     }
     if (byId.size === 0) return null;
     const models = [...byId.values()].sort((a, b) => a.modelId.localeCompare(b.modelId));

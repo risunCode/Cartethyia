@@ -50,6 +50,25 @@ export const GITHUB_CONTEXT_TIER = "long_context" as const;
 /** Context window at or above which the account is served from the long tier. */
 export const GITHUB_LONG_CONTEXT_THRESHOLD = 500_000;
 
+/** Copilot model ids excluded from both the fallback and discovered catalogs. */
+export const GITHUB_EXCLUDED_MODEL_IDS: ReadonlySet<string> = new Set([
+  "copilot-search-c",
+  "exec-agent-a",
+  "exec-agent-b",
+  "exec-agent-c",
+  "gpt-5.4-mini-free-auto",
+  "gpt-5.6-luna",
+  "gpt-5.6-luna-free-auto",
+  "gpt-6-luna",
+  "kimi-k3",
+  "kimi-k3-base",
+  "kimi-k3-copilot",
+  "mai-code-1-flash-4th",
+  "mai-code-1-flash-secondary",
+  "mai-code-1-flash-tertiary",
+  "mai-code-1.1-flash",
+]);
+
 /**
  * Model ids the account's catalog reported at or above the long-context
  * threshold.
@@ -110,14 +129,11 @@ function copilotModel(
  *
  * The authoritative list is the account's own `/models` response, which reports
  * exactly which SKUs the subscription may use — so this list is the offline
- * floor, not the truth. It holds only the ids verified reachable on the
- * `vscode-chat` integration and kept in the catalog: `gpt-4.1`, `gpt-4o`,
- * `gpt-4o-mini`, and `gpt-3.5-turbo-0613`. The other discovered ids (Claude,
- * Gemini, Grok, gpt-5.x, embeddings, the dated snapshots) answer
- * `model_not_supported` / `not available for integrator "vscode-chat"` for this
- * client identity, or are covered by the alias above them. Limits come from the
- * models.dev base catalog where it knows the id (the ids here are the upstream
- * vendors' own).
+ * floor, not the truth. It includes models verified reachable on the
+ * `vscode-chat` integration. Models that failed reachability checks or are
+ * still being tested are deliberately excluded. Limits come from the models.dev
+ * base catalog where it knows the id (the ids here are the upstream vendors'
+ * own).
  */
 export const GITHUB_MODELS: readonly ModelDefinition[] = [
   copilotModel("gpt-4.1", 128_000, 32_768, { vision: true }),
@@ -128,25 +144,6 @@ export const GITHUB_MODELS: readonly ModelDefinition[] = [
   // catalog includes `free`, so they are usable without a paid plan.
   copilotModel("copilot-search-a", 260_000, 16_000),
   copilotModel("copilot-search-b", 260_000, 16_000),
-  copilotModel("copilot-search-c", 260_000, 16_000),
-  copilotModel("exec-agent-a", 260_000, 16_000),
-  copilotModel("exec-agent-b", 260_000, 16_000),
-  copilotModel("exec-agent-c", 260_000, 16_000),
-  // Also `free`-allowed on the account's own catalog. Limits mirror the same
-  // ids in the other provider catalogs (openai/codex/tokenharbor/kimi) where
-  // the family is known; discovery overrides them with the account's own
-  // numbers when the account can actually reach the SKU.
-  copilotModel("gpt-5.6-luna", 1_050_000, 128_000, { vision: true, reasoning: true }),
-  copilotModel("gpt-5.6-luna-free-auto", 1_050_000, 128_000, { vision: true, reasoning: true }),
-  copilotModel("gpt-6-luna", 1_050_000, 128_000, { vision: true, reasoning: true }),
-  copilotModel("gpt-5.4-mini-free-auto", 1_050_000, 128_000, { vision: true, reasoning: true }),
-  copilotModel("kimi-k3", 1_048_576, 131_072, { vision: true, reasoning: true }),
-  copilotModel("kimi-k3-base", 1_048_576, 131_072, { reasoning: true }),
-  copilotModel("kimi-k3-copilot", 1_048_576, 131_072, { reasoning: true }),
-  copilotModel("mai-code-1.1-flash", 262_144, 64_000, { reasoning: true }),
-  copilotModel("mai-code-1-flash-4th", 262_144, 64_000),
-  copilotModel("mai-code-1-flash-secondary", 262_144, 64_000),
-  copilotModel("mai-code-1-flash-tertiary", 262_144, 64_000),
 ];
 
 /**

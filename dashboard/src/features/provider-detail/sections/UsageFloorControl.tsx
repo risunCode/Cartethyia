@@ -81,13 +81,8 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
               </div>
             </div>
           )}
-          <div className="flex flex-col items-start gap-2 md:items-end">
+          <div className="flex flex-col items-start gap-2 self-end md:ml-auto md:items-end">
             <div className="flex items-center gap-4">
-              <Switch
-                checked={enabled}
-                aria-label="Usage floor"
-                onChange={(next) => commit(next ? (valid ? parsed : 40) : null, unit)}
-              />
               <label className="flex items-center h-16 border border-inner-border rounded-control bg-surface-1 overflow-hidden">
                 <input
                   type="number"
@@ -118,6 +113,11 @@ export function UsageFloorControl({ providerId }: { readonly providerId: string 
                   <option value="credit">credits</option>
                 </select>
               </label>
+              <Switch
+                checked={enabled}
+                aria-label="Usage floor"
+                onChange={(next) => commit(next ? (valid ? parsed : 40) : null, unit)}
+              />
             </div>
             <p className="text-micro leading-normal text-text-tertiary">
               {routing.usageFloor !== null
