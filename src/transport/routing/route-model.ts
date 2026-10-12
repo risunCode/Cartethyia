@@ -134,9 +134,9 @@ export interface RoutePlan {
 }
 
 import type { ComboStrategy, PoolRoutingStrategy, ProviderRoutingStrategy } from "../../persistence/schema";
-import { DEFAULT_PROVIDER_USER_AGENT, providerRoutingStrategy } from "../../persistence/schema";
+import { providerRoutingStrategy } from "../../persistence/schema";
 
-export { DEFAULT_PROVIDER_USER_AGENT, type ProviderRoutingStrategy };
+export { type ProviderRoutingStrategy };
 
 /** Provider-routing strategies, derived from the persisted enum so the console
  * body schema and the routing engine validate against one list. */

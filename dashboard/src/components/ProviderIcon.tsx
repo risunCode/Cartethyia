@@ -21,7 +21,10 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   inferhub: { file: "inferhub", ext: "svg" },
   gemini: { file: "gemini", ext: "webp" },
   alibaba: { file: "alibaba", ext: "svg" },
-  alibabacp: { file: "alibaba-coding-plan", ext: "svg" },
+  alibabacp: { file: "alibaba", ext: "svg" },
+  // The mainland DashScope host is Alibaba Cloud's own console, so it reuses
+  // the Alibaba mark rather than introducing a second one for the same company.
+  dashscope: { file: "alibaba", ext: "svg" },
   fireworks: { file: "fireworks", ext: "webp" },
   exa: { file: "exa", ext: "svg" },
   perplexity: { file: "perplexity", ext: "webp" },

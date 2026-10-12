@@ -28,7 +28,7 @@ import { sendClaudeMessagesRequest } from "../../../protocol/upstream/send-claud
 import { applyParamQuirks } from "../../../transport/translation/quirks";
 import { decodeCloudflareAiGatewayCredential } from "../../../security/credential-codec";
 
-export const CLOUDFLARE_AI_GATEWAY_PROVIDER_ID = "cloudflare-ai-gateway" as const;
+export const CLOUDFLAREAI_PROVIDER_ID = "cloudflareai" as const;
 
 /**
  * Gateway origin, with the per-account path segments left to the credential.
@@ -37,7 +37,7 @@ export const CLOUDFLARE_AI_GATEWAY_PROVIDER_ID = "cloudflare-ai-gateway" as cons
  * `cloudflareBaseUrl` throws instead of returning this — it exists only as the
  * parse-failure message's subject and as the documented origin.
  */
-export const CLOUDFLARE_AI_GATEWAY_ORIGIN = "https://gateway.ai.cloudflare.com";
+export const CLOUDFLAREAI_ORIGIN = "https://gateway.ai.cloudflare.com";
 
 /**
  * Base URL for one account's gateway.
@@ -47,7 +47,7 @@ export const CLOUDFLARE_AI_GATEWAY_ORIGIN = "https://gateway.ai.cloudflare.com";
  * the operator did not name.
  */
 export function cloudflareBaseUrl(accountId: string, gatewayId: string): string {
-  return `${CLOUDFLARE_AI_GATEWAY_ORIGIN}/v1/${encodeURIComponent(accountId)}/${encodeURIComponent(gatewayId)}/anthropic`;
+  return `${CLOUDFLAREAI_ORIGIN}/v1/${encodeURIComponent(accountId)}/${encodeURIComponent(gatewayId)}/anthropic`;
 }
 
 /** Decoded envelope, failing closed when the stored secret is not one. */
@@ -57,7 +57,7 @@ function cloudflareEnvelope(context: ProviderDispatchContext): {
 } {
   const secret = context.credential.secret;
   if (secret === undefined || secret.length === 0) {
-    throw new GatewayError("invalid_request", 400, "cloudflare-ai-gateway: credential is missing a secret value");
+    throw new GatewayError("invalid_request", 400, "cloudflareai: credential is missing a secret value");
   }
   let envelope: ReturnType<typeof decodeCloudflareAiGatewayCredential>;
   try {
@@ -66,7 +66,7 @@ function cloudflareEnvelope(context: ProviderDispatchContext): {
     throw new GatewayError(
       "invalid_request",
       400,
-      `cloudflare-ai-gateway: ${error instanceof Error ? error.message : "stored credential is not a Cloudflare envelope"}`,
+      `cloudflareai: ${error instanceof Error ? error.message : "stored credential is not a Cloudflare envelope"}`,
     );
   }
   return { token: envelope.token, baseUrl: cloudflareBaseUrl(envelope.accountId, envelope.gatewayId) };
@@ -80,7 +80,7 @@ function cloudflareEnvelope(context: ProviderDispatchContext): {
  * onto it would be accepted and then mis-routed upstream.
  */
 class CloudflareAiGatewayAdapter implements ProviderAdapter {
-  readonly provider_id = CLOUDFLARE_AI_GATEWAY_PROVIDER_ID;
+  readonly provider_id = CLOUDFLAREAI_PROVIDER_ID;
   private readonly fetchFn: typeof fetch;
 
   constructor(fetchImpl?: typeof fetch) {
@@ -96,7 +96,7 @@ class CloudflareAiGatewayAdapter implements ProviderAdapter {
       throw new GatewayError(
         "capability_unsupported",
         400,
-        `cloudflare-ai-gateway supports messages only, got ${candidate.wire_family}`,
+        `cloudflareai supports messages only, got ${candidate.wire_family}`,
       );
     }
     const { token, baseUrl } = cloudflareEnvelope(context);
@@ -134,4 +134,4 @@ export function createCloudflareAiGatewayAdapter(fetchImpl?: typeof fetch): Prov
   return new CloudflareAiGatewayAdapter(fetchImpl);
 }
 
-export const cloudflareAiGatewayAdapter: ProviderAdapter = new CloudflareAiGatewayAdapter();
+export const cloudflareaiAdapter: ProviderAdapter = new CloudflareAiGatewayAdapter();

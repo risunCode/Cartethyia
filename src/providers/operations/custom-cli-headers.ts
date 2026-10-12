@@ -29,11 +29,30 @@ export function buildCustomCodexCliHeaders(): Record<string, string> {
   };
 }
 
+/**
+ * The Claude Code User-Agent, on the live CLI version.
+ *
+ * This is the route-level default for a provider whose operator set no client
+ * identity of their own: a bare API key identifies as the Claude Code CLI
+ * rather than as nothing. It used to be the Codex CLI identity
+ * (`codex_cli_rs/…`), which named a different vendor's client on requests that
+ * most often reached neither — an upstream that keys on the client string
+ * would act on it.
+ *
+ * The version comes from the live getter for the same reason
+ * {@link buildCustomClaudeCliHeaders} does: the pinned `claude-fingerprint`
+ * constants are evaluated once at module load and never move, so a default
+ * built from them would send a Claude CLI version the client stopped shipping
+ * and still answer to.
+ */
+export function buildClaudeCliUserAgent(): string {
+  return `claude-cli/${getClaudeCliVersion()} (external, cli)`;
+}
+
 /** Builds Claude Code CLI identity headers for Anthropic-compatible wire families. */
 export function buildCustomClaudeCliHeaders(): Record<string, string> {
-  const cliVersion = getClaudeCliVersion();
   return {
-    "User-Agent": `claude-cli/${cliVersion} (external, cli)`,
+    "User-Agent": buildClaudeCliUserAgent(),
     "x-app": "cli",
     "X-Stainless-Package-Version": getClaudeSdkVersion(),
     "X-Stainless-Runtime": "node",

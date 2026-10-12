@@ -134,7 +134,7 @@ function buildEnvelope(
 }
 
 /** Device-code OAuth client for the Factory Droid subscription gateway. */
-export class FactoryDroidOAuthClient extends OAuthDeviceFlow {
+export class FactoryOAuthClient extends OAuthDeviceFlow {
   override readonly supportsDeviceCode = true;
   override readonly supportsBrowserCode = false;
 
@@ -235,4 +235,4 @@ export class FactoryDroidOAuthClient extends OAuthDeviceFlow {
   }
 }
 
-export const factoryDroidOAuthClient = new FactoryDroidOAuthClient();
+export const factoryOAuthClient = new FactoryOAuthClient();

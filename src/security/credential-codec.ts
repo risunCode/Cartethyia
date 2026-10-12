@@ -149,7 +149,7 @@ export interface CloudflareAiGatewayEnvelope {
 }
 
 /**
- * Strict Cloudflare AI Gateway decoder. Only `cloudflare-ai-gateway-oauth.ts`
+ * Strict Cloudflare AI Gateway decoder. Only `cloudflareai-oauth.ts`
  * writes this secret, so a value that is not the envelope fails closed rather
  * than treating a bare token as a complete credential.
  */
@@ -192,7 +192,7 @@ export interface AlibabaCodingPlanEnvelope {
 }
 
 /**
- * Strict Alibaba Coding Plan decoder. Only `alibaba-coding-plan-oauth.ts` writes
+ * Strict Alibaba Coding Plan decoder. Only `alibabacp-oauth.ts` writes
  * this secret, so a non-envelope value fails closed rather than being read as a
  * token with an unknown region.
  */
@@ -229,7 +229,7 @@ export interface FactoryDroidEnvelope {
 }
 
 /**
- * Strict Factory Droid decoder. Only `factory-droid-oauth.ts` writes this
+ * Strict Factory Droid decoder. Only `factory-oauth.ts` writes this
  * secret, so a non-envelope value fails closed: Factory scopes every request to
  * an organization, and a bare bearer with no org claim is an identity the proxy
  * rejects.

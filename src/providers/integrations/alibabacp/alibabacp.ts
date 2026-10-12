@@ -20,9 +20,9 @@ import type { CanonicalEvent, CanonicalRequest } from "../../../protocol/canonic
 import { GatewayError } from "../../../protocol/gateway-error";
 import { decodeAlibabaCodingPlanCredential } from "../../../security/credential-codec";
 import type { AlibabaCodingPlanEnvelope } from "../../../security/credential-codec";
-import { alibabaCodingPlanBaseUrl } from "./alibaba-coding-plan-oauth";
+import { alibabacpBaseUrl } from "./alibabacp-oauth";
 
-export const ALIBABA_CODING_PLAN_PROVIDER_ID = "alibaba-coding-plan" as const;
+export const ALIBABACP_PROVIDER_ID = "alibabacp" as const;
 
 /**
  * Builds the per-dispatch spec from one decoded envelope.
@@ -32,18 +32,18 @@ export const ALIBABA_CODING_PLAN_PROVIDER_ID = "alibaba-coding-plan" as const;
  * `/v1`-prefixed path here would dispatch to `…/compatible-mode/v1/v1/…`.
  */
 function alibabaSpec(envelope: AlibabaCodingPlanEnvelope): ApiKeyProviderSpec {
-  const baseUrl = alibabaCodingPlanBaseUrl(envelope.region);
+  const baseUrl = alibabacpBaseUrl(envelope.region);
   if (baseUrl === undefined) {
     // Already checked by `alibabaEnvelope`; this narrows the type rather than
     // re-deciding the outcome.
     throw new GatewayError(
       "invalid_request",
       400,
-      `alibaba-coding-plan: stored region "${envelope.region}" is not a known plan; sign in again`,
+      `alibabacp: stored region "${envelope.region}" is not a known plan; sign in again`,
     );
   }
   return {
-    provider_id: ALIBABA_CODING_PLAN_PROVIDER_ID,
+    provider_id: ALIBABACP_PROVIDER_ID,
     endpoint_paths_by_wire_family: { chat: "/chat/completions", responses: "/responses" },
     resolveBaseUrl: () => baseUrl,
     // The factory forwards the stored secret verbatim as the bearer, and the
@@ -61,7 +61,7 @@ function alibabaSpec(envelope: AlibabaCodingPlanEnvelope): ApiKeyProviderSpec {
 function alibabaEnvelope(context: ProviderDispatchContext): AlibabaCodingPlanEnvelope {
   const secret = context.credential.secret;
   if (secret === undefined || secret.length === 0) {
-    throw new GatewayError("invalid_request", 400, "alibaba-coding-plan: credential is missing a secret value");
+    throw new GatewayError("invalid_request", 400, "alibabacp: credential is missing a secret value");
   }
   let envelope: AlibabaCodingPlanEnvelope;
   try {
@@ -70,7 +70,7 @@ function alibabaEnvelope(context: ProviderDispatchContext): AlibabaCodingPlanEnv
     throw new GatewayError(
       "invalid_request",
       400,
-      `alibaba-coding-plan: ${error instanceof Error ? error.message : "stored credential is not an Alibaba envelope"}`,
+      `alibabacp: ${error instanceof Error ? error.message : "stored credential is not an Alibaba envelope"}`,
     );
   }
   return envelope;
@@ -84,7 +84,7 @@ function alibabaEnvelope(context: ProviderDispatchContext): AlibabaCodingPlanEnv
  * whichever account loaded the module first.
  */
 class AlibabaCodingPlanAdapter implements ProviderAdapter {
-  readonly provider_id = ALIBABA_CODING_PLAN_PROVIDER_ID;
+  readonly provider_id = ALIBABACP_PROVIDER_ID;
   private readonly fetchFn: typeof fetch;
 
   constructor(fetchImpl?: typeof fetch) {
@@ -109,4 +109,4 @@ export function createAlibabaCodingPlanAdapter(fetchImpl?: typeof fetch): Provid
   return new AlibabaCodingPlanAdapter(fetchImpl);
 }
 
-export const alibabaCodingPlanAdapter: ProviderAdapter = new AlibabaCodingPlanAdapter();
+export const alibabacpAdapter: ProviderAdapter = new AlibabaCodingPlanAdapter();

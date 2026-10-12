@@ -71,7 +71,7 @@ async function validateToken(
 }
 
 /** Cloudflare AI Gateway login: a durable token plus its two path segments. */
-export class CloudflareAiGatewayOAuthClient implements OAuthLoginClient {
+export class CloudflareaiOAuthClient implements OAuthLoginClient {
   readonly supportsDeviceCode = false;
   readonly supportsBrowserCode = false;
   readonly importFields = CLOUDFLARE_AI_GATEWAY_IMPORT_FIELDS;
@@ -105,4 +105,4 @@ export class CloudflareAiGatewayOAuthClient implements OAuthLoginClient {
   }
 }
 
-export const cloudflareAiGatewayOAuthClient = new CloudflareAiGatewayOAuthClient();
+export const cloudflareaiOAuthClient = new CloudflareaiOAuthClient();

@@ -20,7 +20,6 @@ import "../../providers/integrations/claude/claude-oauth";
 import "../../providers/integrations/codex/codex-oauth";
 import { resolveTenantOverride } from "../../persistence/tenant-scope";
 import {
-  DEFAULT_PROVIDER_USER_AGENT,
   type RouteCandidate,
   type ComboDefinition,
   type PoolRoutingSetting,
@@ -29,6 +28,7 @@ import {
   type SnapshotBuilder,
 } from "./route-model";
 import { DEFAULT_PROXY_SKIP_PROVIDER_IDS } from "../../providers/metadata";
+import { buildClaudeCliUserAgent } from "../../providers/operations/custom-cli-headers";
 import { isBundledProviderId } from "../../providers/contracts";
 import type { ServiceKind, WireFamily } from "../../protocol/canonical-model";
 import { providerHasAdapterUserAgent, providerSupportsWebSearch, providerUsesBespokeWire } from "../../providers/metadata";
@@ -157,7 +157,15 @@ export function resolveRouteUserAgent(
   globalUserAgent: string | undefined,
 ): string | undefined {
   if (!isBundledProviderId(providerId) || providerHasAdapterUserAgent(providerId)) return undefined;
-  const selected = resolveTenantOverride(tenantUserAgent, globalUserAgent, DEFAULT_PROVIDER_USER_AGENT);
+  // A provider whose operator set no identity of their own gets the Claude Code
+  // CLI identity, resolved live so the stamped version tracks discovery. This
+  // used to be a frozen `codex_cli_rs` literal, which named a different vendor's
+  // client on requests that mostly reached neither.
+  const selected = resolveTenantOverride(
+    tenantUserAgent,
+    globalUserAgent,
+    buildClaudeCliUserAgent(),
+  );
   return selected.trim() === "" ? undefined : selected;
 }
 
@@ -421,8 +429,9 @@ class RouteCatalogRepository {
 
     /** Provider-wide concurrency ceiling shared by every account of the provider.
      * Tenant setting wins over global, mirroring skipProxy. A stored `null`
-     * is the explicit unlimited choice; a provider with no routing row at all
-     * falls back to `DEFAULT_PROVIDER_MAX_INFLIGHT` rather than unlimited. */
+     * is the explicit unlimited choice; so is the default — a provider with no
+     * routing row at all is unlimited too, because an operator who never
+     * configured a ceiling asked for none. */
     function resolveMaxInflight(
       providerId: string,
       rowTenantId: string | null,
@@ -433,7 +442,7 @@ class RouteCatalogRepository {
       const globalSetting = providerRouting.__global__?.[providerId]?.maxInflight;
       const resolved = tenantSetting ?? globalSetting;
       if (resolved === null) return undefined;
-      return resolved ?? DEFAULT_PROVIDER_MAX_INFLIGHT;
+      return resolved ?? DEFAULT_PROVIDER_MAX_INFLIGHT ?? undefined;
     }
 
     /** Every active pool the account's tenant owns — dispatch picks the

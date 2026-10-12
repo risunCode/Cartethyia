@@ -248,7 +248,7 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     // Factory Droid's LLM proxy. The base URL is the global residency host; an
     // EU account resolves to `api.eu.factory.ai` from the region recorded in
     // account state, because the two hosts serve different accounts.
-    id: "factory-droid",
+    id: "factory",
     displayName: "Factory Droid",
     baseUrl: "https://api.factory.ai",
     credentialUrl: "https://app.factory.ai",
@@ -257,16 +257,26 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     // A gateway rather than a model host: the account and gateway slugs are
     // path segments of the base URL and are stored with the token, so the
     // origin below is the root the per-account URL is built from.
-    id: "cloudflare-ai-gateway",
+    id: "cloudflareai",
     displayName: "Cloudflare AI Gateway",
     baseUrl: "https://gateway.ai.cloudflare.com",
     credentialUrl: "https://dash.cloudflare.com/ai-gateway",
   },
   {
+    // Alibaba DashScope, the mainland host. Distinct from `alibabacp` (the
+    // Token Plan, on `token-plan.*.maas.aliyuncs.com`); the international
+    // DashScope host is `coding-intl.dashscope.aliyuncs.com`. Both are
+    // `/v1`-rooted, so the chat path is declared below that root.
+    id: "dashscope",
+    displayName: "Alibaba DashScope",
+    baseUrl: "https://coding.dashscope.aliyuncs.com/v1",
+    credentialUrl: "https://bailian.console.aliyun.com/?apiKey=1",
+  },
+  {
     // Alibaba Token Plan. Two plans exist — international and mainland China —
     // on different hosts whose keys are not interchangeable. The region travels
     // with the token; the default below is the international host.
-    id: "alibaba-coding-plan",
+    id: "alibabacp",
     displayName: "Alibaba Coding Plan",
     baseUrl: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
     credentialUrl: "https://bailian.console.aliyun.com/",

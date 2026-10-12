@@ -41,7 +41,9 @@ import { createApiKeyAdapter } from "../shared/configured-provider";
 import type { ApiKeyProviderSpec } from "../shared/configured-provider";
 import { decodeFactoryDroidCredential } from "../../../security/credential-codec";
 
-export const FACTORY_DROID_PROVIDER_ID = "factory-droid" as const;
+import { FACTORY_MODELS, FACTORY_PROVIDER_ID } from "./factory-models";
+
+export { FACTORY_MODELS, FACTORY_PROVIDER_ID };
 
 /** Default host; an EU account resolves to {@link FACTORY_DROID_EU_BASE_URL} instead. */
 export const FACTORY_DROID_BASE_URL = "https://api.factory.ai";
@@ -66,7 +68,7 @@ const OPENAI_WIRE_BASE = "/api/llm/o/v1";
  */
 const FACTORY_DROID_CLIENT_VERSION = "1.0.0";
 
-function factoryDroidClientHeaders(orgId: string): Record<string, string> {
+function factoryClientHeaders(orgId: string): Record<string, string> {
   return {
     "X-Client-Version": FACTORY_DROID_CLIENT_VERSION,
     "X-Factory-Client": "cli",
@@ -82,7 +84,7 @@ function factoryDroidClientHeaders(orgId: string): Record<string, string> {
  * `/api/cli/whoami` reported. An account with no recorded residency is the
  * global host, which is Factory's default.
  */
-export function factoryDroidBaseUrl(context: ProviderDispatchContext): string {
+export function factoryBaseUrl(context: ProviderDispatchContext): string {
   const region = context.credential.auth_state?.["region"];
   return region === "eu" ? FACTORY_DROID_EU_BASE_URL : FACTORY_DROID_BASE_URL;
 }
@@ -95,10 +97,10 @@ export function factoryDroidBaseUrl(context: ProviderDispatchContext): string {
  * that does not decode is an error the operator has to fix by signing in again,
  * not a request worth attempting against the default host.
  */
-function factoryDroidEnvelope(context: ProviderDispatchContext): { token: string; orgId: string } {
+function factoryEnvelope(context: ProviderDispatchContext): { token: string; orgId: string } {
   const secret = context.credential.secret;
   if (secret === undefined || secret.length === 0) {
-    throw new GatewayError("invalid_request", 400, "factory-droid: credential is missing a secret value");
+    throw new GatewayError("invalid_request", 400, "factory: credential is missing a secret value");
   }
   try {
     const envelope = decodeFactoryDroidCredential(secret);
@@ -107,22 +109,22 @@ function factoryDroidEnvelope(context: ProviderDispatchContext): { token: string
     throw new GatewayError(
       "invalid_request",
       400,
-      `factory-droid: ${error instanceof Error ? error.message : "stored credential is not a Factory Droid envelope"}`,
+      `factory: ${error instanceof Error ? error.message : "stored credential is not a Factory Droid envelope"}`,
     );
   }
 }
 
 /** Shared spec for the two OpenAI-family legs, with the envelope applied. */
 function openAiWireSpec(context: ProviderDispatchContext): ApiKeyProviderSpec {
-  const { token, orgId } = factoryDroidEnvelope(context);
+  const { token, orgId } = factoryEnvelope(context);
   return {
-    provider_id: FACTORY_DROID_PROVIDER_ID,
+    provider_id: FACTORY_PROVIDER_ID,
     endpoint_paths_by_wire_family: {
       chat: `${OPENAI_WIRE_BASE}/chat/completions`,
       responses: `${OPENAI_WIRE_BASE}/responses`,
     },
-    resolveBaseUrl: () => factoryDroidBaseUrl(context),
-    extra_headers: { ...factoryDroidClientHeaders(orgId), authorization: `Bearer ${token}` },
+    resolveBaseUrl: () => factoryBaseUrl(context),
+    extra_headers: { ...factoryClientHeaders(orgId), authorization: `Bearer ${token}` },
   };
 }
 
@@ -136,7 +138,7 @@ function openAiWireSpec(context: ProviderDispatchContext): ApiKeyProviderSpec {
  * headers are assembled.
  */
 class FactoryDroidAdapter implements ProviderAdapter {
-  readonly provider_id = FACTORY_DROID_PROVIDER_ID;
+  readonly provider_id = FACTORY_PROVIDER_ID;
   private readonly fetchFn: typeof fetch;
 
   constructor(fetchImpl?: typeof fetch) {
@@ -148,8 +150,8 @@ class FactoryDroidAdapter implements ProviderAdapter {
     candidate: ProviderDispatchTarget,
     context: ProviderDispatchContext,
   ): AsyncIterable<CanonicalEvent> {
-    const { token, orgId } = factoryDroidEnvelope(context);
-    const baseUrl = factoryDroidBaseUrl(context);
+    const { token, orgId } = factoryEnvelope(context);
+    const baseUrl = factoryBaseUrl(context);
 
     if (candidate.wire_family === "messages") {
       const outbound = buildClaudeMessagesRequest({
@@ -158,7 +160,7 @@ class FactoryDroidAdapter implements ProviderAdapter {
         credential: {
           secret: token,
           customHeaders: {
-            ...factoryDroidClientHeaders(orgId),
+            ...factoryClientHeaders(orgId),
             ...filterClaudeCustomHeaders({ ...context.credential.custom_headers }),
           },
         },
@@ -191,4 +193,4 @@ export function createFactoryDroidAdapter(fetchImpl?: typeof fetch): ProviderAda
   return new FactoryDroidAdapter(fetchImpl);
 }
 
-export const factoryDroidAdapter: ProviderAdapter = new FactoryDroidAdapter();
+export const factoryAdapter: ProviderAdapter = new FactoryDroidAdapter();

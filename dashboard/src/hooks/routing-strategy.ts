@@ -55,7 +55,11 @@ export function useRoutingStrategy(providerId: string, allowUserAgent: boolean):
   const [usageFloor, setUsageFloorState] = useState<number | null>(null);
   const [usageFloorUnit, setUsageFloorUnitState] = useState<"credit" | "percent">("percent");
   const [skipProxy, setSkipProxyState] = useState(false);
-  const [userAgent, setUserAgentState] = useState("codex_cli_rs/0.156.1");
+  // Placeholder until the fetched row lands; the backend default is the Claude
+  // Code CLI identity (see `buildClaudeCliUserAgent`). Hard-coding it here
+  // would make the card show one identity and save another if the server ever
+  // answered with a different one.
+  const [userAgent, setUserAgentState] = useState("");
 
   useEffect(() => {
     if (!query.data) return;

@@ -23,7 +23,6 @@ export interface ProviderModule {
   readonly loadAuthentication?: () => Promise<ProviderAuthentication>;
   readonly loadQuotaCollector?: () => Promise<QuotaFetcher>;
   readonly loadModelDiscovery?: () => Promise<ProviderModelDiscovery>;
-  readonly modelDiscoveryRequiresCredential?: boolean;
   readonly loadAdapter: () => Promise<ProviderAdapter>;
   /** Lazy model-catalog loader kept separate from heavy adapter modules. */
   readonly loadModels?: () => Promise<readonly ModelDefinition[]>;
@@ -51,7 +50,6 @@ export interface ProviderRegistration {
   readonly loadAuthentication?: () => Promise<ProviderAuthentication>;
   readonly loadQuotaCollector?: () => Promise<QuotaFetcher>;
   readonly loadModelDiscovery?: () => Promise<ProviderModelDiscovery>;
-  readonly modelDiscoveryRequiresCredential?: boolean;
 }
 
 /** Authentication capabilities exposed by one provider integration. */
@@ -77,9 +75,6 @@ export function toRegistration(module: ProviderModule): ProviderRegistration {
     ...(module.loadAuthentication === undefined ? {} : { loadAuthentication: module.loadAuthentication }),
     ...(module.loadQuotaCollector === undefined ? {} : { loadQuotaCollector: module.loadQuotaCollector }),
     ...(module.loadModelDiscovery === undefined ? {} : { loadModelDiscovery: module.loadModelDiscovery }),
-    ...(module.modelDiscoveryRequiresCredential === undefined
-      ? {}
-      : { modelDiscoveryRequiresCredential: module.modelDiscoveryRequiresCredential }),
   };
 }
 
@@ -351,9 +346,4 @@ export class ProviderRegistry {
     return this.#registrations.get(normalized)?.upstream_host;
   }
 
-  /** Whether model discovery needs a stored account credential. */
-  modelDiscoveryRequiresCredential(providerId: string): boolean {
-    const normalized = parseProviderId(providerId);
-    return this.#registrations.get(normalized)?.modelDiscoveryRequiresCredential !== false;
-  }
 }

@@ -251,7 +251,6 @@ export const PROVIDER_CAPABILITIES = {
         ...(fetcher === undefined ? {} : { fetcher }),
         ...(authState === undefined ? {} : { authState }),
       }),
-    modelDiscoveryRequiresCredential: true,
   },
   kimi: {
     loadAdapter: async () => (await import("./integrations/kimi/kimi")).kimiCodeAdapter,
@@ -307,7 +306,6 @@ export const PROVIDER_CAPABILITIES = {
         ...(fetcher === undefined ? {} : { fetcher }),
       });
     },
-    modelDiscoveryRequiresCredential: false,
   },
   opencodezen: {
     endpointPathsByWireFamily: {
@@ -367,7 +365,6 @@ export const PROVIDER_CAPABILITIES = {
       const pass = credential.length > 0 && (await clineAccountHasPass(credential, transport));
       return fetchClineRecommendedModels(undefined, pass, transport);
     },
-    modelDiscoveryRequiresCredential: false,
   },
   cb: {
     loadAdapter: async () => (await import("./integrations/buddy/codebuddy")).createCodeBuddyAdapter(),
@@ -467,37 +464,52 @@ export const PROVIDER_CAPABILITIES = {
     // and Z.AI publishes no refresh grant for it (`refresh "none"` upstream).
     loadAuthentication: oauthCapability(() => import("./specs/zcode-oauth"), "zcodeOAuthClient"),
   },
-  "factory-droid": {
-    loadAdapter: async () => (await import("./integrations/factory-droid/factory-droid")).factoryDroidAdapter,
+  "factory": {
+    loadAdapter: async () => (await import("./integrations/factory/factory")).factoryAdapter,
+    // Factory publishes no model-listing endpoint — the roster is a client-side
+    // registry narrowed per account by feature flags and org policy — so the
+    // static catalog is the only list this provider has.
+    loadModels: async () => (await import("./integrations/factory/factory-models")).FACTORY_MODELS,
     // WorkOS re-authenticates against the same token endpoint the device flow
     // used, so a real refresh grant exists. Registering no refresher here would
     // make an expired access token a dead account instead of a recoverable one.
     loadAuthentication: oauthCapability(
-      () => import("./integrations/factory-droid/factory-droid-oauth"),
-      "factoryDroidOAuthClient",
+      () => import("./integrations/factory/factory-oauth"),
+      "factoryOAuthClient",
       { withRefresher: true },
     ),
   },
-  "cloudflare-ai-gateway": {
+  "cloudflareai": {
     loadAdapter: async () =>
-      (await import("./integrations/cloudflare-ai-gateway/cloudflare-ai-gateway")).cloudflareAiGatewayAdapter,
+      (await import("./integrations/cloudflareai/cloudflareai")).cloudflareaiAdapter,
     // No `withRefresher`: a gateway token is durable and Cloudflare publishes no
     // refresh grant for it. The client mirrors `access` into the `refresh` slot
     // because `refresh_ciphertext` is NOT NULL, and never presents it anywhere.
     loadAuthentication: oauthCapability(
-      () => import("./integrations/cloudflare-ai-gateway/cloudflare-ai-gateway-oauth"),
-      "cloudflareAiGatewayOAuthClient",
+      () => import("./integrations/cloudflareai/cloudflareai-oauth"),
+      "cloudflareaiOAuthClient",
     ),
+    // No discovery: the model list lives behind the per-account path segments
+    // the credential carries, so a resolver built from the registry base URL
+    // would ask the origin for a list no gateway serves. The static roster is
+    // the Anthropic route; see `cloudflareai-models.ts`.
+    loadModels: async () =>
+      (await import("./integrations/cloudflareai/cloudflareai-models")).CLOUDFLAREAI_MODELS,
   },
-  "alibaba-coding-plan": {
+  "alibabacp": {
     loadAdapter: async () =>
-      (await import("./integrations/alibaba-coding-plan/alibaba-coding-plan")).alibabaCodingPlanAdapter,
+      (await import("./integrations/alibabacp/alibabacp")).alibabacpAdapter,
     // No `withRefresher`, same reason as the gateway token: the plan key is
     // durable and there is no grant to present.
     loadAuthentication: oauthCapability(
-      () => import("./integrations/alibaba-coding-plan/alibaba-coding-plan-oauth"),
-      "alibabaCodingPlanOAuthClient",
+      () => import("./integrations/alibabacp/alibabacp-oauth"),
+      "alibabacpOAuthClient",
     ),
+    // Both plans publish the same model ids on their own hosts, so one static
+    // catalog serves either region; which host a key reaches is per-account
+    // state in the credential, resolved at dispatch.
+    loadModels: async () =>
+      (await import("./integrations/alibabacp/alibabacp-models")).ALIBABACP_MODELS,
   },
   perplexity: {
     loadAdapter: async () => (await import("./adapters/perplexity")).createPerplexityAdapter(),
@@ -614,6 +626,13 @@ export const PROVIDER_CAPABILITIES = {
     loadModelDiscovery: openAIModelDiscovery("qwen-portal", {
       headers: (credential) => ({ authorization: `Bearer ${credential}` }),
     }),
+  },
+  // Live discovery over a static floor: `/v1/models` answers on this host, so a
+  // synced account sees whatever the plan currently serves. The catalog keeps
+  // the provider usable before anyone syncs.
+  dashscope: {
+    ...discoveryBackedProvider("dashscope"),
+    loadModels: async () => (await import("./integrations/dashscope-models")).DASHSCOPE_MODELS,
   },
 
 // Anthropic-Messages providers reached with a plain key. The wire path is

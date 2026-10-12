@@ -191,6 +191,17 @@ const MODELS_DEV_PROVIDER_IDS: Readonly<Record<string, string>> = {
   novita: "novita-ai",
   together: "togetherai",
   wafer: "wafer.ai",
+  // The Token Plan and the mainland DashScope host. Each points at the key
+  // models.dev files the *same* service under, so without these every one of
+  // their rows missed the exact lookup and fell through to the bare one, which
+  // fails closed when providers disagree about an id that resellers share.
+  //
+  // `cloudflareai` is deliberately absent: the gateway files its rows as
+  // `anthropic/claude-opus-5` while the provider dispatches the bare
+  // `claude-opus-5`, so the exact lookup misses under either key. An entry here
+  // would only restate the miss.
+  alibabacp: "alibaba-token-plan",
+  dashscope: "alibaba-coding-plan-cn",
 };
 
 /**

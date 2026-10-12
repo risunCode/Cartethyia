@@ -23,13 +23,19 @@ Released 2026-10-12.
   `minimax`, `minimax-code`, `minimax-code-cn`, `firepass`. Each lists its
   models from the provider's own `/v1/models` rather than a restated catalog,
   with limits and pricing resolved from the bundled `base-models.json` rows.
-- **OAuth.** `factory-droid` signs in with the WorkOS device-code grant and
+- **OAuth.** `factory` signs in with the WorkOS device-code grant and
   keeps a real refresher — the access token expires with its JWT, and the
   organization claim that Factory requires on every call travels with it.
-  `cloudflare-ai-gateway` and `alibaba-coding-plan` take a pasted credential
+  `cloudflareai` and `alibabacp` take a pasted credential
   instead: the gateway needs the account and gateway slugs that form its base
   URL, and the Alibaba plan needs the region that selects which of two hosts
   serves it. Neither has a refresh grant, so neither registers a refresher.
+- Static model rosters for `factory` (59), `cloudflareai` (11), and `alibabacp`
+  (21). None of the three publishes a model-listing endpoint this gateway can
+  call — Factory's roster is client-side and narrowed per account, Cloudflare's
+  lives behind the account slugs in its URL, and the plan key lists nothing — so
+  the catalog is the list. Context and output come from the bundled
+  `base-models.json` rows; capability is declared per row, never inferred.
 - Provider-specific wire rules that are not a bare bearer: `coreweave` sends the
   `OpenAI-Project` header from account state, `qwen-portal` coalesces multiple
   system messages into one (the portal answers 500 otherwise), `minimax*` and
@@ -39,6 +45,26 @@ Released 2026-10-12.
   registers a discovery resolver, instead of only for custom ones. A bundled
   provider with no resolver still shows no button; nothing that worked before
   changes.
+- Three routing defaults change for every provider that has no routing row.
+  Max inflight is unlimited rather than 5, so a provider an operator never
+  configured is no longer capped — and the rejections that produced read as
+  `capacity_exhausted`, a capacity claim about a limit nobody set. A ceiling an
+  operator did set still holds. A bare API key with no client identity of its
+  own now identifies as the Claude Code CLI (`claude-cli/<version> (external,
+  cli)`, on the live version) instead of a frozen Codex literal, which named a
+  different vendor's client on requests that mostly reached neither upstream.
+  Cline continues to skip the proxy by default, unchanged.
+- Model sync no longer needs a stored account. A usable one is used when there
+  is one; the fetch is attempted either way, and a provider that does require
+  auth answers 401 itself. Previously the gate answered a local 409 — "Model sync
+  needs a usable account first" — which blocked most providers, since they
+  publish their model list without auth.
+- `gpt-6-luna` joins the CodeBuddy and WorkBuddy rosters at the shared 1,050,000
+  context window. Both read one shared list, so the row reaches each site at its
+  own endpoint path. CodeBuddy CN keeps its separate roster and is unchanged.
+- `dashscope` (Alibaba DashScope, mainland) on `coding.dashscope.aliyuncs.com`,
+  a bearer key distinct from the Token Plan. Eight models ship as a static
+  floor; `/v1/models` discovery adds whatever the plan currently serves.
 
 **CLI and system tray**
 
@@ -284,5 +310,10 @@ Released 2026-10-12.
 - `0010_account_identity_enrichment.sql` — adds the account identity a batch import
   now returns in one round-trip.
 - `0011_drop_studio_sessions.sql` — drops the retired Studio sessions table.
+- `0013_default_provider_user_agent.sql` — the route-identity column default
+  becomes the Claude Code CLI identity, and rows still holding the retired
+  frozen default are converted. A row with exactly that value cannot be
+  distinguished from an operator who deliberately picked Codex, so only that
+  one string is rewritten; any other stored identity is untouched.
 
 Each has a same-named SQLite twin under `migrations/lite-sqlite3/`.

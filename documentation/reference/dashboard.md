@@ -182,6 +182,22 @@ does not send one request per pixel.
 User-agent editing is gated by `allowUserAgent`. Providers that must keep a
 fixed agent do not show the field.
 
+Three defaults answer when no routing row exists, and all three are read from
+the backend rather than restated in the hook:
+
+- **Cline skips the proxy.** Its per-account health follows the egress address,
+  so a pool in front of it is the thing most likely to be wrong.
+- **`maxInflight` is unlimited** (`∞`). It was 5, which capped every provider
+  an operator had not configured and surfaced as `capacity_exhausted` — a
+  capacity claim about a limit nobody set. A ceiling the operator did set is
+  still enforced.
+- **Client identity is the Claude Code CLI.** A bare API key with no identity of
+  its own identifies as `claude-cli/<version> (external, cli)`, on the live
+  version. It was a frozen Codex literal. "None" still means no header at all,
+  which is why the hook initializes `userAgent` to `""` and lets the fetched
+  row fill it in: seeding it with any real identity would show the card one
+  thing and save another.
+
 ## Build and serve
 
 `bun run dashboard:build` writes the static bundle. The backend serves it. The

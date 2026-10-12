@@ -48,7 +48,7 @@ export const ALIBABA_CODING_PLAN_REGIONS = {
 export type AlibabaCodingPlanRegion = keyof typeof ALIBABA_CODING_PLAN_REGIONS;
 
 /** The base URL a stored region resolves to, or `undefined` when unknown. */
-export function alibabaCodingPlanBaseUrl(region: string): string | undefined {
+export function alibabacpBaseUrl(region: string): string | undefined {
   const entry =
     ALIBABA_CODING_PLAN_REGIONS[region as AlibabaCodingPlanRegion];
   return entry?.baseUrl;
@@ -71,7 +71,7 @@ async function validateToken(
   envelope: AlibabaCodingPlanEnvelope,
   fetchFn: FetchLike,
 ): Promise<void> {
-  const baseUrl = alibabaCodingPlanBaseUrl(envelope.region);
+  const baseUrl = alibabacpBaseUrl(envelope.region);
   if (baseUrl === undefined) {
     throw new Error(`Unknown Alibaba Token Plan region "${envelope.region}"`);
   }
@@ -91,7 +91,7 @@ async function validateToken(
 }
 
 /** Alibaba Coding Plan login: a durable plan key bound to one region. */
-export class AlibabaCodingPlanOAuthClient implements OAuthLoginClient {
+export class AlibabacpOAuthClient implements OAuthLoginClient {
   readonly supportsDeviceCode = false;
   readonly supportsBrowserCode = false;
   readonly importFields = ALIBABA_CODING_PLAN_IMPORT_FIELDS;
@@ -104,7 +104,7 @@ export class AlibabaCodingPlanOAuthClient implements OAuthLoginClient {
       region: (input.fields["region"] ?? "international").trim(),
     };
     if (!envelope.token) throw new Error("Paste an Alibaba Token Plan key");
-    if (alibabaCodingPlanBaseUrl(envelope.region) === undefined) {
+    if (alibabacpBaseUrl(envelope.region) === undefined) {
       throw new Error(`Unknown Alibaba Token Plan region "${envelope.region}"`);
     }
     await validateToken(envelope, this.fetchFn);
@@ -124,4 +124,4 @@ export class AlibabaCodingPlanOAuthClient implements OAuthLoginClient {
   }
 }
 
-export const alibabaCodingPlanOAuthClient = new AlibabaCodingPlanOAuthClient();
+export const alibabacpOAuthClient = new AlibabacpOAuthClient();

@@ -99,7 +99,7 @@ async function post(options: {
   return captured!;
 }
 
-describe("factory-droid credential envelope", () => {
+describe("factory credential envelope", () => {
   const chatCandidate = target("chat", "/api/llm/o/v1/chat/completions");
   const secret = encodeFactoryDroidCredential({
     accessToken: "workos-access-token",
@@ -107,25 +107,25 @@ describe("factory-droid credential envelope", () => {
   });
 
   test("sends the token as the bearer and the org claim as the upstream header", async () => {
-    const captured = await post({ providerId: "factory-droid", secret, candidate: chatCandidate });
+    const captured = await post({ providerId: "factory", secret, candidate: chatCandidate });
     expect(captured.headers["authorization"]).toBe("Bearer workos-access-token");
     expect(captured.headers["x-factory-org-id"]).toBe("org_123");
     expect(captured.headers["x-factory-client"]).toBe("cli");
   });
 
   test("never puts the envelope itself in the Authorization header", async () => {
-    const captured = await post({ providerId: "factory-droid", secret, candidate: chatCandidate });
+    const captured = await post({ providerId: "factory", secret, candidate: chatCandidate });
     expect(captured.headers["authorization"]).not.toContain("{");
   });
 
   test("posts chat traffic to the OpenAI wire prefix", async () => {
-    const captured = await post({ providerId: "factory-droid", secret, candidate: chatCandidate });
+    const captured = await post({ providerId: "factory", secret, candidate: chatCandidate });
     expect(captured.url).toBe("https://api.factory.ai/api/llm/o/v1/chat/completions");
   });
 
   test("posts messages traffic to the Anthropic wire prefix", async () => {
     const captured = await post({
-      providerId: "factory-droid",
+      providerId: "factory",
       secret,
       candidate: target("messages", "/api/llm/a/v1/messages"),
     });
@@ -135,7 +135,7 @@ describe("factory-droid credential envelope", () => {
 
   test("routes an EU account to the EU residency host", async () => {
     const captured = await post({
-      providerId: "factory-droid",
+      providerId: "factory",
       secret,
       candidate: chatCandidate,
       authState: { region: "eu" },
@@ -145,7 +145,7 @@ describe("factory-droid credential envelope", () => {
 
   test("keeps a non-EU account on the global host", async () => {
     const captured = await post({
-      providerId: "factory-droid",
+      providerId: "factory",
       secret,
       candidate: chatCandidate,
       authState: { region: "us" },
@@ -158,7 +158,7 @@ describe("factory-droid credential envelope", () => {
     // so the error has to name the credential, not the upstream.
     await expect(
       post({
-        providerId: "factory-droid",
+        providerId: "factory",
         secret: "workos-access-token",
         candidate: chatCandidate,
         expectRequest: false,
@@ -167,7 +167,7 @@ describe("factory-droid credential envelope", () => {
   });
 });
 
-describe("cloudflare-ai-gateway credential envelope", () => {
+describe("cloudflareai credential envelope", () => {
   const messagesCandidate = target("messages", "/v1/messages");
   const secret = encodeCloudflareAiGatewayCredential({
     token: "cf-gateway-token",
@@ -177,7 +177,7 @@ describe("cloudflare-ai-gateway credential envelope", () => {
 
   test("builds the base URL from the stored account and gateway slugs", async () => {
     const captured = await post({
-      providerId: "cloudflare-ai-gateway",
+      providerId: "cloudflareai",
       secret,
       candidate: messagesCandidate,
     });
@@ -188,7 +188,7 @@ describe("cloudflare-ai-gateway credential envelope", () => {
 
   test("authenticates with the gateway's own header, not Authorization", async () => {
     const captured = await post({
-      providerId: "cloudflare-ai-gateway",
+      providerId: "cloudflareai",
       secret,
       candidate: messagesCandidate,
     });
@@ -200,7 +200,7 @@ describe("cloudflare-ai-gateway credential envelope", () => {
 
   test("never puts the envelope itself in the auth header", async () => {
     const captured = await post({
-      providerId: "cloudflare-ai-gateway",
+      providerId: "cloudflareai",
       secret,
       candidate: messagesCandidate,
     });
@@ -212,7 +212,7 @@ describe("cloudflare-ai-gateway credential envelope", () => {
     // that resolves to some other account's gateway, or to none.
     await expect(
       post({
-        providerId: "cloudflare-ai-gateway",
+        providerId: "cloudflareai",
         secret: "cf-gateway-token",
         candidate: messagesCandidate,
         expectRequest: false,
@@ -221,12 +221,12 @@ describe("cloudflare-ai-gateway credential envelope", () => {
   });
 });
 
-describe("alibaba-coding-plan credential envelope", () => {
+describe("alibabacp credential envelope", () => {
   const chatCandidate = target("chat", "/chat/completions");
 
   test("sends an international key to the international host", async () => {
     const captured = await post({
-      providerId: "alibaba-coding-plan",
+      providerId: "alibabacp",
       secret: encodeAlibabaCodingPlanCredential({ token: "sk-sp-intl", region: "international" }),
       candidate: chatCandidate,
     });
@@ -237,7 +237,7 @@ describe("alibaba-coding-plan credential envelope", () => {
 
   test("sends a China key to the China host", async () => {
     const captured = await post({
-      providerId: "alibaba-coding-plan",
+      providerId: "alibabacp",
       secret: encodeAlibabaCodingPlanCredential({ token: "sk-sp-cn", region: "china" }),
       candidate: chatCandidate,
     });
@@ -248,7 +248,7 @@ describe("alibaba-coding-plan credential envelope", () => {
 
   test("does not double the version segment already in the base URL", async () => {
     const captured = await post({
-      providerId: "alibaba-coding-plan",
+      providerId: "alibabacp",
       secret: encodeAlibabaCodingPlanCredential({ token: "sk-sp-intl", region: "international" }),
       candidate: chatCandidate,
     });
@@ -257,7 +257,7 @@ describe("alibaba-coding-plan credential envelope", () => {
 
   test("sends the token inside the envelope as the bearer", async () => {
     const captured = await post({
-      providerId: "alibaba-coding-plan",
+      providerId: "alibabacp",
       secret: encodeAlibabaCodingPlanCredential({ token: "sk-sp-intl", region: "international" }),
       candidate: chatCandidate,
     });
@@ -269,7 +269,7 @@ describe("alibaba-coding-plan credential envelope", () => {
     // neither plan; the operator needs to see the stored region.
     await expect(
       post({
-        providerId: "alibaba-coding-plan",
+        providerId: "alibabacp",
         secret: encodeAlibabaCodingPlanCredential({ token: "sk-sp-x", region: "mars" }),
         candidate: chatCandidate,
         expectRequest: false,

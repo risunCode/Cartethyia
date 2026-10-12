@@ -593,18 +593,14 @@ export class ProviderProbingService {
       const discoveryFetch = asFetchLike(outbound.fetch);
       const resolver = await this.providerRegistry.resolveModelDiscovery(providerId);
       if (resolver) {
-        const requiresCredential = this.providerRegistry.modelDiscoveryRequiresCredential(providerId);
-        const account = requiresCredential
-          ? await this.usableAccount(tenantId, providerId)
-          : undefined;
+        // An account is used when one is usable, and the fetch is attempted
+        // either way. Gating on a credential only made the common case
+        // unreachable: most providers list their models without auth, and the
+        // ones that do not answer 401 themselves, which names the actual
+        // problem where a local 409 named a missing account the operator may
+        // not even need.
+        const account = await this.usableAccount(tenantId, providerId);
         const secret = account?.secret;
-        if (requiresCredential && secret === undefined) {
-          throw new GatewayError(
-            "invalid_request",
-            409,
-            `Model sync needs a usable (active, non-cooldown) ${providerId} account first`,
-          );
-        }
         const providerRow = await this.loadProviderWireRow(providerId);
         const effectiveBaseUrl = providerRow?.baseUrl ?? providerBaseUrl(providerId) ?? "";
         let discovered: readonly ModelDefinition[] | null;

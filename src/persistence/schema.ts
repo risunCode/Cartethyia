@@ -491,19 +491,14 @@ export const providerRoutingStrategy = pgEnum("provider_routing_strategy", [
 export type ProviderRoutingStrategy = (typeof providerRoutingStrategy.enumValues)[number];
 
 /**
- * Built-in API-key User-Agent applied when a provider has no routing row yet.
- * One literal: the console default and the route catalog's fallback both read
- * it, so a version bump cannot land in one and be missed by the other.
- */
-export const DEFAULT_PROVIDER_USER_AGENT = "codex_cli_rs/0.156.1" as const;
-
-/**
  * Per-account inflight ceiling applied when a provider has no routing row yet.
  * One literal: the console default and the route catalog's fallback both read
- * it. `null` stays the explicit "unlimited" choice; only the absence of a row
- * reads as this number.
+ * it. `null` is the "unlimited" choice, and it is also this default — an
+ * operator who has never opened the routing card asked for no ceiling, and
+ * inventing one silently capped their concurrency. A ceiling they *did* set is
+ * still honoured, so this only decides the untouched case.
  */
-export const DEFAULT_PROVIDER_MAX_INFLIGHT = 5 as const;
+export const DEFAULT_PROVIDER_MAX_INFLIGHT: null = null;
 
 export const providerRoutingSettings = pgTable(
   "provider_routing_settings",
@@ -532,7 +527,10 @@ export const providerRoutingSettings = pgTable(
     usageFloorUnit: text("usage_floor_unit").$type<"credit" | "percent">().notNull().default("percent"),
     enabled: boolean("enabled").notNull().default(false),
     // Route-selected User-Agent for built-in API-key providers; OAuth and BYOK identities stay native.
-    userAgent: text("user_agent").notNull().default("codex_cli_rs/0.156.1"),
+    // The column default is the Claude Code CLI identity; the live default for a
+    // row that never set one is `buildClaudeCliUserAgent()` in
+    // providers/operations/custom-cli-headers.ts, which this mirrors.
+    userAgent: text("user_agent").notNull().default("claude-cli/2.1.293 (external, cli)"),
     // When true, this provider's requests always dial direct. When false,
     // dispatch automatically selects among every active network pool the
     // tenant owns (least-loaded/non-cooldown) — never an admin-pinned pool.

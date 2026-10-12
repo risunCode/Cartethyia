@@ -124,14 +124,14 @@ Three auth client shapes exist:
 | Shape | Base class | Family examples |
 | --- | --- | --- |
 | Browser PKCE | `OAuthClient.buildAuthorizeUrl`/`exchangeCode` (`src/providers/authentication/oauth-client.ts:61,95`) | claude, antigravity, kiro, codex, mimodesktop, mimostudio, openrouter, zcode |
-| Device code (RFC 8628) | `OAuthDeviceFlow` (`src/providers/authentication/oauth-device-flow.ts:26`) | codex, github, cursor, grok, xai, kimi, cline, kiro, kilo, muse, qoder, factory-droid |
+| Device code (RFC 8628) | `OAuthDeviceFlow` (`src/providers/authentication/oauth-device-flow.ts:26`) | codex, github, cursor, grok, xai, kimi, cline, kiro, kilo, muse, qoder, factory |
 | No OAuth | plain key path; `probeApiKeyConnectivity` is the account test (`src/providers/quota/quota-support.ts:16`) | openai, anthropic, mistral, meta, most `specs/` providers |
 
 Whether a refresher is registered is per-family and deliberate. A family whose
 grant is absent or dead registers no refresher, because a refresh call that
 always throws turns a recoverable 401 into a permanent one — see the comments on
 `kilo` (`:351`), `qoder` (`:369`), `openrouter` (`:387`), `zcode` (`:421`),
-`cloudflare-ai-gateway`, and `alibaba-coding-plan` in `default-registry.ts`.
+`cloudflareai`, and `alibabacp` in `default-registry.ts`.
 GitHub is the opposite case: its Copilot token is
 short-lived and re-minted from the device-flow token, so it does register one
 (`:446`).
@@ -220,9 +220,11 @@ protocol instead of going through a canonical codec (`metadata.ts:316`).
 | opencodeft | `requires_account: false` and `ipScopedRateLimit: true` (`metadata.ts:124`): rate limits follow the egress address, so a 429 cools the pool, not the account. |
 | exa / parallel | `serviceKinds: ["websearch"]` only; served by `/v1/search`, never by the chat pipeline. Their route ids are `exa` and `parallel`. No account uses the public MCP; a stored API key uses the provider's higher-limit HTTP API. |
 | mistral, fireworks, nvidia, gmi, ollamacloud, deepseek | One shared spec, no module of their own: bearer + `/v1` paths (`specs/configured-openai-providers.ts:13`). |
-| factory-droid | WorkOS device code against a proxy that multiplexes four wires by model family, so `dispatch` branches on `wire_family` rather than declaring one path (`factory-droid.ts:1-30`). The credential is `{accessToken, orgId}` — the org id is the JWT's `external_org_id` claim and is sent as `X-Factory-Org-Id` — and the host comes from the account's residency region, not from metadata. A real refresh grant exists (`refresh` re-posts to the same WorkOS endpoint), and the token request is issued in the client rather than through `pollGenericDeviceAuth` because the shared helper drops `refresh_token` from the response. |
-| cloudflare-ai-gateway | A gateway, not a model host: the account and gateway slugs are path segments of the base URL (`https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`) and are stored with the token, so the base URL is built at dispatch time. Auth is `cf-aig-authorization`, not `Authorization` or `x-api-key` (`cloudflare-ai-gateway.ts:11-19`). Messages wire only. No refresh grant. |
-| alibaba-coding-plan | Two plans — international and mainland China — served by different hosts whose keys are not interchangeable, so the region is stored with the token and resolved to a base URL at dispatch time. The resolved host already ends in `/compatible-mode/v1`, so the endpoint paths are unprefixed (`alibaba-coding-plan.ts:27-33`). No refresh grant. |
+| factory | WorkOS device code against a proxy that multiplexes four wires by model family, so `dispatch` branches on `wire_family` rather than declaring one path (`factory.ts:1-30`). The credential is `{accessToken, orgId}` — the org id is the JWT's `external_org_id` claim and is sent as `X-Factory-Org-Id` — and the host comes from the account's residency region, not from metadata. A real refresh grant exists (`refresh` re-posts to the same WorkOS endpoint), and the token request is issued in the client rather than through `pollGenericDeviceAuth` because the shared helper drops `refresh_token` from the response. |
+| cloudflareai | A gateway, not a model host: the account and gateway slugs are path segments of the base URL (`https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`) and are stored with the token, so the base URL is built at dispatch time. Auth is `cf-aig-authorization`, not `Authorization` or `x-api-key` (`cloudflareai.ts:11-19`). Messages wire only. No refresh grant. |
+| alibabacp | Two plans — international and mainland China — served by different hosts whose keys are not interchangeable, so the region is stored with the token and resolved to a base URL at dispatch time. The resolved host already ends in `/compatible-mode/v1`, so the endpoint paths are unprefixed (`alibabacp.ts:27-33`). No refresh grant. |
+| dashscope | Alibaba's mainland DashScope coding host, a plain bearer on `https://coding.dashscope.aliyuncs.com/v1`. Distinct from `alibabacp`, which is the Token Plan on `token-plan.*.maas.aliyuncs.com`; the keys are not interchangeable. Live `/v1/models` discovery plus an 8-row static floor (`integrations/dashscope-models.ts`). |
+| factory / cloudflareai / alibabacp catalogs | Static rosters in `integrations/*/*-models.ts`. None of the three publishes a model-listing endpoint this gateway can call — Factory's roster is client-side and per-account, Cloudflare's lives behind the per-account path slugs, and the plan key lists nothing — so the catalog is the list. Limits come from the base catalog via the remaps in `models-dev-catalog.ts`; capability is declared per row because `defineModel` never reads it from the base catalog. |
 
 ## Where to change what
 

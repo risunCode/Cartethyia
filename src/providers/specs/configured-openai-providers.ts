@@ -35,6 +35,7 @@ export const GENERIC_API_KEY_PROVIDER_IDS = [
   "wafer",
   "coreweave",
   "qwen-portal",
+  "dashscope",
   // `deepseek` is intentionally absent: it dispatches on the Anthropic Messages
   // wire at its `/anthropic` root, not the OpenAI chat/responses wires, so it
   // carries a dedicated entry in `default-registry.ts` instead.
@@ -129,5 +130,6 @@ export const GENERIC_API_KEY_SPECS = {
   aiand: genericApiKeySpec("aiand"),
   wafer: genericApiKeySpec("wafer"),
   coreweave: genericApiKeySpec("coreweave"),
+  dashscope: genericApiKeySpec("dashscope"),
   "qwen-portal": genericApiKeySpec("qwen-portal"),
 } satisfies Readonly<Record<GenericApiKeyProviderId, ApiKeyProviderSpec>>;

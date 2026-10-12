@@ -4,17 +4,17 @@
  *
  * What these pin, per provider:
  *
- * - **factory-droid** — the device grant runs, and the token's JWT claims become
+ * - **factory** — the device grant runs, and the token's JWT claims become
  *   the stored envelope. The org claim is the case that matters: without it the
  *   dispatch path refuses the credential, so a login that persisted a bare
  *   bearer would produce an account that cannot make a request.
- * - **cloudflare-ai-gateway / alibaba-coding-plan** — the import flow validates
+ * - **cloudflareai / alibabacp** — the import flow validates
  *   against the *chosen* host, and neither registers a refresher, because neither
  *   upstream publishes a refresh grant.
  */
 import { describe, expect, test } from "bun:test";
 import { createDefaultProviderRegistry } from "../../src/providers/default-registry";
-import { FactoryDroidOAuthClient } from "../../src/providers/integrations/factory-droid/factory-droid-oauth";
+import { FactoryOAuthClient } from "../../src/providers/integrations/factory/factory-oauth";
 import { decodeFactoryDroidCredential } from "../../src/security/credential-codec";
 
 /** Builds an unsigned JWT whose payload is `claims`. Only the claims are read. */
@@ -48,12 +48,12 @@ const ACCESS = jwt({
   exp: 1_800_000_000,
 });
 
-describe("factory-droid device login", () => {
+describe("factory device login", () => {
   test("completes the grant and stores the token with its org claim", async () => {
     const { fetch: fetcher } = stubFetch(() =>
       Response.json({ access_token: ACCESS, refresh_token: "workos-refresh" }),
     );
-    const client = new FactoryDroidOAuthClient(fetcher);
+    const client = new FactoryOAuthClient(fetcher);
 
     const pending = await client.pollDeviceAuth("device-code-1");
     expect(pending.status).toBe("complete");
@@ -70,7 +70,7 @@ describe("factory-droid device login", () => {
     const { fetch: fetcher } = stubFetch(() =>
       Response.json({ access_token: ACCESS, refresh_token: "workos-refresh" }),
     );
-    const client = new FactoryDroidOAuthClient(fetcher);
+    const client = new FactoryOAuthClient(fetcher);
     const result = await client.pollDeviceAuth("device-code-1");
     if (result.status !== "complete") throw new Error("expected complete");
     expect(result.result.refresh).toBe("workos-refresh");
@@ -78,7 +78,7 @@ describe("factory-droid device login", () => {
 
   test("records the approving user so the console can label the account", async () => {
     const { fetch: fetcher } = stubFetch(() => Response.json({ access_token: ACCESS }));
-    const client = new FactoryDroidOAuthClient(fetcher);
+    const client = new FactoryOAuthClient(fetcher);
     const result = await client.pollDeviceAuth("device-code-1");
     if (result.status !== "complete") throw new Error("expected complete");
     expect(result.result.accountLabel).toBe("dev@example.com");
@@ -87,7 +87,7 @@ describe("factory-droid device login", () => {
 
   test("expires with the token rather than at a fixed far-future date", async () => {
     const { fetch: fetcher } = stubFetch(() => Response.json({ access_token: ACCESS }));
-    const client = new FactoryDroidOAuthClient(fetcher);
+    const client = new FactoryOAuthClient(fetcher);
     const result = await client.pollDeviceAuth("device-code-1");
     if (result.status !== "complete") throw new Error("expected complete");
     // A far-future expiry would make the freshness check treat a dead token as
@@ -99,7 +99,7 @@ describe("factory-droid device login", () => {
     const { fetch: fetcher } = stubFetch(() =>
       Response.json({ access_token: jwt({ sub: "user_01" }) }),
     );
-    const client = new FactoryDroidOAuthClient(fetcher);
+    const client = new FactoryOAuthClient(fetcher);
     const result = await client.pollDeviceAuth("device-code-1");
     if (result.status !== "failed") throw new Error("expected failure");
     expect(result.reason).toMatch(/organization claim/);
@@ -109,7 +109,7 @@ describe("factory-droid device login", () => {
     const { fetch: fetcher } = stubFetch(() =>
       Response.json({ error: "authorization_pending" }, { status: 400 }),
     );
-    const client = new FactoryDroidOAuthClient(fetcher);
+    const client = new FactoryOAuthClient(fetcher);
     const result = await client.pollDeviceAuth("device-code-1");
     expect(result.status).toBe("pending");
   });
@@ -118,7 +118,7 @@ describe("factory-droid device login", () => {
     const { fetch: fetcher, calls } = stubFetch(() =>
       Response.json({ access_token: ACCESS, refresh_token: "workos-refresh" }),
     );
-    const client = new FactoryDroidOAuthClient(fetcher);
+    const client = new FactoryOAuthClient(fetcher);
     const refreshed = await client.refresh("workos-refresh");
     expect(calls[0]?.url).toBe("https://api.workos.com/user_management/authenticate");
     expect(calls[0]?.body).toContain("refresh_token");
@@ -136,35 +136,35 @@ describe("registry refresher registration", () => {
     return refresher !== undefined;
   }
 
-  test("factory-droid registers a refresher", async () => {
+  test("factory registers a refresher", async () => {
     // WorkOS re-authenticates against the same endpoint, so the grant is real;
     // omitting it would make an expired access token a dead account.
-    expect((await hasRefresher("factory-droid"))).toBe(true);
+    expect((await hasRefresher("factory"))).toBe(true);
   });
 
-  test("cloudflare-ai-gateway registers no refresher", async () => {
+  test("cloudflareai registers no refresher", async () => {
     // A gateway token is durable. A refresher here would call a method that
     // always throws, turning a recoverable 401 into a permanent one.
-    expect((await hasRefresher("cloudflare-ai-gateway"))).toBe(false);
+    expect((await hasRefresher("cloudflareai"))).toBe(false);
   });
 
-  test("alibaba-coding-plan registers no refresher", async () => {
-    expect((await hasRefresher("alibaba-coding-plan"))).toBe(false);
+  test("alibabacp registers no refresher", async () => {
+    expect((await hasRefresher("alibabacp"))).toBe(false);
   });
 
   test("the console login fields carry what each import needs", async () => {
-    const { cloudflareAiGatewayOAuthClient } = await import(
-      "../../src/providers/integrations/cloudflare-ai-gateway/cloudflare-ai-gateway-oauth"
+    const { cloudflareaiOAuthClient } = await import(
+      "../../src/providers/integrations/cloudflareai/cloudflareai-oauth"
     );
-    const { alibabaCodingPlanOAuthClient } = await import(
-      "../../src/providers/integrations/alibaba-coding-plan/alibaba-coding-plan-oauth"
+    const { alibabacpOAuthClient } = await import(
+      "../../src/providers/integrations/alibabacp/alibabacp-oauth"
     );
     // Without these the console renders a bare key input and the stored
     // envelope would be missing a field the base URL is built from.
-    expect(cloudflareAiGatewayOAuthClient.importFields?.map((f) => f.key)).toEqual([
+    expect(cloudflareaiOAuthClient.importFields?.map((f) => f.key)).toEqual([
       "accountId",
       "gatewayId",
     ]);
-    expect(alibabaCodingPlanOAuthClient.importFields?.map((f) => f.key)).toEqual(["region"]);
+    expect(alibabacpOAuthClient.importFields?.map((f) => f.key)).toEqual(["region"]);
   });
 });

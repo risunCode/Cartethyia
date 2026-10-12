@@ -5,7 +5,8 @@ import { providerRoutingSettings } from "../../../persistence/schema";
 import { resolveTenantOverride } from "../../../persistence/tenant-scope";
 import { DEFAULT_PROXY_SKIP_PROVIDER_IDS } from "../../../providers/metadata";
 import type { ProviderRoutingResponse, UpdateProviderRoutingRequest } from "../catalog/contracts";
-import { DEFAULT_PROVIDER_MAX_INFLIGHT, DEFAULT_PROVIDER_USER_AGENT } from "../../../persistence/schema";
+import { DEFAULT_PROVIDER_MAX_INFLIGHT } from "../../../persistence/schema";
+import { buildClaudeCliUserAgent } from "../../../providers/operations/custom-cli-headers";
 import type { ProviderDetailStore } from "./contracts";
 function mapRow(row: typeof providerRoutingSettings.$inferSelect): ProviderRoutingResponse {
   return {
@@ -70,7 +71,7 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       usageFloorUnit: "percent",
       enabled: false,
       skipProxy: DEFAULT_PROXY_SKIP_PROVIDER_IDS.has(providerId),
-      userAgent: DEFAULT_PROVIDER_USER_AGENT,
+      userAgent: buildClaudeCliUserAgent(),
     };
   }
   async updateRouting(
@@ -91,7 +92,7 @@ export class DrizzleProviderDetailStore implements ProviderDetailStore {
       usageFloorUnit: patch.usageFloorUnit ?? "percent",
       enabled: patch.enabled ?? false,
       skipProxy: patch.skipProxy ?? DEFAULT_PROXY_SKIP_PROVIDER_IDS.has(providerId),
-      userAgent: patch.userAgent ?? DEFAULT_PROVIDER_USER_AGENT,
+      userAgent: patch.userAgent ?? buildClaudeCliUserAgent(),
     };
     const setClause: Record<string, unknown> = {};
     if (patch.strategy !== undefined) setClause.strategy = patch.strategy;
