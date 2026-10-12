@@ -33,6 +33,120 @@ For OAuth, verify the real browser callback, state single-use behavior,
 persistence, refresh registration, and one real request through the account when
 safe.
 
+## Fetch a Buddy model catalog
+
+CodeBuddy and WorkBuddy expose two different catalog surfaces. Do not confuse
+the desktop product-config snapshot with Cartethyia's runtime discovery:
+
+| Purpose | International endpoint | Response shape |
+|---|---|---|
+| Desktop picker snapshot / manual investigation | `GET https://www.codebuddy.ai/v3/config` or `GET https://www.workbuddy.ai/v3/config` | `data.agents[].models` is the picker roster; `data.models[]` has metadata |
+| Cartethyia account discovery | CodeBuddy: `/v2/enterprises/personal/models`; WorkBuddy: `/v2/enterprises/personal/models` | `data.models[]` plus `data.agents[]`; `disabled` and the `cli` agent roster constrain the result |
+
+The `/v3/config` result depends on the client identity in `User-Agent`. The
+observed identities in
+[`buddy-live-model-catalogs-2026-10-12.json`](../../data/provider-catalogs/buddy-live-model-catalogs-2026-10-12.json)
+are examples from that capture, not permanent version pins:
+
+| Product | Host | Observed `User-Agent` |
+|---|---|---|
+| CodeBuddy CLI | `www.codebuddy.ai` | `CLI/4.12.1.39217423 CodeBuddy/4.12.1.39217423` |
+| WorkBuddy desktop | `www.workbuddy.ai` | `WorkBuddy/5.5.2 WorkBuddy AI/5.5.2 CLI/5.5.2` |
+
+When refreshing the snapshot, use a currently authorized account and the
+matching current client identity. Send `Accept`, `User-Agent`, `Origin`,
+`Referer`, `Authorization: Bearer <access token>`, and `X-User-Id` (the account
+UID belonging to that token). The endpoint can return HTTP 200 with no usable
+models for an invalid or mismatched identity; HTTP success alone is not proof
+of a catalog. A generic or unrelated User-Agent may return a different shape,
+an empty list, or an error.
+
+For a one-off fetch from PowerShell, keep the access token in an environment
+variable rather than pasting it into the command or saving it in the snapshot.
+Set `BUDDY_ACCESS_TOKEN` and `BUDDY_USER_ID` in the current shell, then use the
+matching origin and User-Agent from the table:
+
+```powershell
+$token = $env:BUDDY_ACCESS_TOKEN
+$uid = $env:BUDDY_USER_ID
+if ([string]::IsNullOrWhiteSpace($token) -or [string]::IsNullOrWhiteSpace($uid)) {
+  throw "Set BUDDY_ACCESS_TOKEN and BUDDY_USER_ID for the authorized account."
+}
+
+$headers = @{
+  Accept = "application/json, text/plain, */*"
+  Authorization = "Bearer $token"
+  "X-User-Id" = $uid
+}
+$targets = @(
+  @{
+    providerId = "cb"
+    origin = "https://www.codebuddy.ai"
+    userAgent = "CLI/4.12.1.39217423 CodeBuddy/4.12.1.39217423"
+  },
+  @{
+    providerId = "workbuddy"
+    origin = "https://www.workbuddy.ai"
+    userAgent = "WorkBuddy/5.5.2 WorkBuddy AI/5.5.2 CLI/5.5.2"
+  }
+)
+$catalogs = foreach ($target in $targets) {
+  $headers["User-Agent"] = $target.userAgent
+  $headers.Origin = $target.origin
+  $headers.Referer = "$($target.origin)/"
+  $response = Invoke-RestMethod -Method Get -Uri "$($target.origin)/v3/config" -Headers $headers
+  if ($response.code -ne 0) {
+    throw "$($target.providerId) config returned envelope code $($response.code)."
+  }
+
+  $cliAgent = @($response.data.agents | Where-Object { $_.name -eq "cli" } | Select-Object -First 1)
+  $cliIds = @($cliAgent[0].models | Where-Object { $_ -is [string] })
+  if ($cliIds.Count -eq 0) {
+    throw "$($target.providerId) returned no CLI model roster; do not replace a snapshot."
+  }
+
+  [ordered]@{
+    providerId = $target.providerId
+    host = ([Uri]$target.origin).Host
+    endpoint = "GET /v3/config"
+    identityUserAgent = $target.userAgent
+    httpStatus = 200
+    envelopeCode = $response.code
+    cliModelIds = $cliIds
+    models = @($response.data.models | ForEach-Object {
+      [ordered]@{
+        id = $_.id
+        name = $_.name
+        maxInputTokens = $_.maxInputTokens
+        maxOutputTokens = $_.maxOutputTokens
+        supportsImages = $_.supportsImages
+        supportsToolCall = $_.supportsToolCall
+        supportsReasoning = $_.supportsReasoning
+        credits = $_.credits
+      }
+    })
+  }
+}
+
+$snapshot = [ordered]@{
+  capturedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+  source = "Live GET /v3/config; credentials and account identity are not included."
+  catalogs = @($catalogs)
+}
+$date = [DateTime]::UtcNow.ToString("yyyy-MM-dd")
+$outputPath = "data\provider-catalogs\buddy-live-model-catalogs-$date.json"
+$snapshot | ConvertTo-Json -Depth 12 |
+  Set-Content -Encoding utf8 $outputPath
+```
+
+The example's User-Agent versions are from the captured snapshot; update them
+to match the current client identity when refreshing. Check both responses have
+a non-empty `agents` entry named `cli` and that the IDs make sense before
+keeping the output. Keep only the CLI ID roster and relevant model metadata in
+a checked-in snapshot; never persist raw headers, bearer or refresh tokens,
+account UID, email, or an unreviewed full response. CN hosts and their client
+identities are a separate variant and are not represented by that snapshot.
+
 ## BYOK and custom providers
 
 Derive the wire contract from the compatibility profile. Validate base URL,
