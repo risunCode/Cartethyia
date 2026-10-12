@@ -6,6 +6,12 @@ import { Manifest } from "elysia";
 import { log } from "./observability/logger";
 
 const port = resolvePort();
+const entryMemory = process.memoryUsage();
+log.info(
+  `[startup] phase=entrypoint-ready elapsed_ms=${Math.round(process.uptime() * 1_000)} ` +
+    `rss_mb=${(entryMemory.rss / 1024 / 1024).toFixed(1)} ` +
+    `heap_used_mb=${(entryMemory.heapUsed / 1024 / 1024).toFixed(1)}`,
+);
 
 declare global {
   // eslint-disable-next-line no-var -- globalThis augmentation requires `var`
@@ -107,6 +113,11 @@ if (boot) {
     },
     () => {
       log.info(`Cartethyia listening on :${port} (Bun ${Bun.version})`);
+      const memory = process.memoryUsage();
+      log.info(
+        `[startup] phase=listener-ready rss_mb=${(memory.rss / 1024 / 1024).toFixed(1)} ` +
+          `heap_used_mb=${(memory.heapUsed / 1024 / 1024).toFixed(1)}`,
+      );
     },
   );
   // Started here rather than inside the dependency builder: the first tick of

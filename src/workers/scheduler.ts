@@ -8,6 +8,8 @@ import { log } from "../observability/logger";
 export interface ScheduledTask {
   readonly name: string;
   readonly intervalMs: number;
+  /** Delay before the first run after the registry starts. */
+  readonly initialDelayMs?: number;
   run(): Promise<unknown> | void;
 }
 
@@ -46,9 +48,8 @@ export const DEFAULT_INITIAL_BATCH_SIZE = 2;
 
 /**
  * Tasks may be registered at any time: before `start()`, they are scheduled
- * when `start()` runs; after `start()`, each `register()` immediately starts
- * the task's own interval timer. Registration order never decides whether a
- * task runs.
+ * when `start()` runs; after `start()`, each `register()` immediately schedules
+ * that task. Registration order never decides whether a task runs.
  */
 export class ScheduledTaskRegistry {
   private readonly tasks: ScheduledTask[] = [];
@@ -69,7 +70,7 @@ export class ScheduledTaskRegistry {
   }
 
   /**
-   * Starts every registered task on its own interval timer. Idempotent: a
+   * Schedules every registered task, respecting any initial delay. Idempotent: a
    * second call while started schedules nothing new, so `--hot` reloads cannot
    * stack duplicate sweeps — including for tasks registered after the first
    * `start()`, which already run on their own timers. `stop()` clears the
@@ -98,6 +99,20 @@ export class ScheduledTaskRegistry {
 
   /** Starts one task's interval timer: unref'd, so it never holds the process open. */
   private schedule(task: ScheduledTask): void {
+    if (task.initialDelayMs !== undefined) {
+      const timer = setTimeout(() => {
+        if (!this.started) return;
+        void this.runOnce(task);
+        this.scheduleInterval(task);
+      }, task.initialDelayMs);
+      if (typeof timer.unref === "function") timer.unref();
+      this.timers.push(timer);
+      return;
+    }
+    this.scheduleInterval(task);
+  }
+
+  private scheduleInterval(task: ScheduledTask): void {
     const timer = setInterval(() => void this.runOnce(task), task.intervalMs);
     if (typeof timer.unref === "function") timer.unref();
     this.timers.push(timer);

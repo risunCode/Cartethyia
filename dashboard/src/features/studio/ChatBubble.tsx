@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowDown, ArrowUp, Bot, Brain, Check, ChevronDown, Copy, DatabaseZap, Gauge, Pencil, Sigma, Timer, Wrench } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, Bot, Brain, Check, ChevronDown, Copy, DatabaseZap, Gauge, Pencil, RotateCcw, Sigma, Timer, Wrench } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -49,9 +49,13 @@ function thinkingText(text: string): string {
 export function ChatBubble({
   message,
   onEdit,
+  onRetry,
+  retryDisabled = false,
 }: {
   readonly message: LabMessage;
   readonly onEdit?: (text: string) => void;
+  readonly onRetry?: () => void;
+  readonly retryDisabled?: boolean;
 }): ReactNode {
   const mine = message.role === "user";
   const thinking = thinkingText(message.reasoning ?? "");
@@ -205,6 +209,11 @@ export function ChatBubble({
           {onEdit !== undefined ? (
             <button type="button" aria-label="Edit and resend" title="Edit and resend" onClick={() => { setDraft(message.text); setEditing(true); }} className="inline-flex items-center justify-center w-11 h-11 p-0 border-0 rounded-chip bg-transparent text-text-tertiary cursor-pointer hover:bg-hover hover:text-text-primary">
               <Pencil size={12} />
+            </button>
+          ) : null}
+          {onRetry !== undefined ? (
+            <button type="button" aria-label="Retry response" title="Retry response" disabled={retryDisabled} onClick={onRetry} className="inline-flex items-center justify-center w-11 h-11 p-0 border-0 rounded-chip bg-transparent text-text-tertiary cursor-pointer hover:bg-hover hover:text-text-primary disabled:opacity-40 disabled:cursor-default">
+              <RotateCcw size={12} />
             </button>
           ) : null}
         </div>

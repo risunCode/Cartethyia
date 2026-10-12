@@ -105,7 +105,7 @@ export function StudioPage(): ReactNode {
 
   const send = async (override?: { readonly text: string; readonly history: readonly LabMessage[]; readonly images?: readonly LabImage[] }) => {
     const text = (override?.text ?? input).trim();
-    const outgoingImages = override?.images ?? images;
+    const outgoingImages = override === undefined ? images : override.images ?? [];
     const defaultKey = (keys.data ?? []).find((key) => key.enabled && key.revokedAt === undefined && key.isDefault);
     if ((text.length === 0 && outgoingImages.length === 0) || sending || draft.model.length === 0 || defaultKey === undefined) return;
     const user: LabMessage = override === undefined
@@ -319,6 +319,21 @@ export function StudioPage(): ReactNode {
                 <ChatBubble
                   key={message.id}
                   message={message}
+                  onRetry={
+                    message.role === "user" &&
+                    draft.messages[index + 1]?.role === "assistant" &&
+                    draft.messages[index + 1]?.error === true
+                      ? () => {
+                          const history = draft.messages.slice(0, index + 1);
+                          void send({
+                            text: message.text,
+                            history,
+                            ...(message.images === undefined ? {} : { images: message.images }),
+                          });
+                        }
+                      : undefined
+                  }
+                  retryDisabled={sending || !hasDefaultKey || draft.model.length === 0}
                   onEdit={message.role === "user" ? (text) => {
                     const next = { ...message, text };
                     const history = [...draft.messages.slice(0, index), next];

@@ -120,30 +120,41 @@ const OAUTH_REFRESH_INTER_ITEM_DELAY_MS = 1_500;
  * on npm/provider version endpoints. Resolver TTLs deduplicate the sources.
  */
 const CLIENT_VERSION_MONITOR_INTERVAL_MS = 15 * 60_000;
+const CLIENT_VERSION_INITIAL_DELAY_MS = 10_000;
 
 export async function buildProductionDeps(): Promise<ProductionDeps> {
-  const handle = await bootDatabase();
+  const startupStartedAt = performance.now();
+  const startupMemoryBefore = process.memoryUsage();
+  const handle = await measureStartupPhase("database-connect", bootDatabase);
   const db = handle.db;
   // One rule, no mode flag: REDIS_URL set → shared client, unset → memory.
   const redis = resolveRedisClient();
   const ssrfPolicy = resolveSsrfPolicy();
-  await ensureMigrated();
-  // Pool sizing is an external-server concern; the embedded backend has no
-  // connection budget to fit into.
-  if (handle.kind === "pg") await assertPoolFitsServerCapacity(poolMaxFromEnv());
-  await seedBundledProviders(db);
+  await measureStartupPhase("database-migrations", async () => {
+    await ensureMigrated();
+    // Pool sizing is an external-server concern; the embedded backend has no
+    // connection budget to fit into.
+    if (handle.kind === "pg") await assertPoolFitsServerCapacity(poolMaxFromEnv());
+  });
+  await measureStartupPhase("provider-seed", () => seedBundledProviders(db));
   // Boot-only: retire global rows for providers the bundle has dropped, so a
   // retired provider cannot linger as a card the console can no longer delete.
   // Kept off the test harness path, which shares one database across suites and
   // installs its own global fixtures.
-  await retireUnbundledProviders(db);
+  await measureStartupPhase("retired-provider-cleanup", () => retireUnbundledProviders(db));
   const registry = createDefaultProviderRegistry();
   // Live view, not a snapshot: custom providers registered after boot (or
   // edited from the console) must resolve their SSRF binding immediately.
   const byokUpstreamHosts = liveProviderUpstreamHosts(registry);
-  await registerByokProviders(registry, db, ssrfPolicy);
-  const bundledCatalog = await bundledModelCatalog(registry);
-  await seedBundledModels(db, bundledCatalog.modelsByProvider);
+  await measureStartupPhase("byok-registration", () =>
+    registerByokProviders(registry, db, ssrfPolicy),
+  );
+  const bundledCatalog = await measureStartupPhase("bundled-model-catalog", () =>
+    bundledModelCatalog(registry),
+  );
+  await measureStartupPhase("bundled-model-seed", () =>
+    seedBundledModels(db, bundledCatalog.modelsByProvider),
+  );
   const snapshotService = new InMemoryRouteSnapshotService(
     createDatabaseSnapshotBuilder(db, () => refreshActiveProviderCatalogs(db, registry)),
   );
@@ -299,7 +310,9 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   // Converge accounts an earlier build parked on a dead refresh grant: an
   // account whose stored access token is still usable becomes a static token
   // (and returns to rotation) instead of staying disabled for re-auth.
-  await reconcileStaticTokenAccounts(db);
+  await measureStartupPhase("static-token-reconciliation", () =>
+    reconcileStaticTokenAccounts(db),
+  );
   // Fills in the identity a batch import deliberately skipped, so a paste of
   // many credentials is one instant write and the email/label arrive shortly
   // after rather than blocking the import. Purely CPU on an already-stored
@@ -338,14 +351,14 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
       }),
   });
 
-  // Client versions are monitor-only metadata. The first refresh is best-effort
-  // at startup; the scheduled task keeps the same resolver cache warm later.
+  // Client versions are monitor-only metadata; let the listener settle before
+  // starting their external fetches. The scheduled task keeps the cache warm.
   scheduledTasks.register({
     name: "client-version-monitor",
     intervalMs: CLIENT_VERSION_MONITOR_INTERVAL_MS,
+    initialDelayMs: CLIENT_VERSION_INITIAL_DELAY_MS,
     run: refreshProviderClientVersions,
   });
-  void refreshProviderClientVersions();
 
   const quotaResolveCredential = createAccountSecretResolver({
     db,
@@ -394,7 +407,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   // listener is actually serving (`main.ts`). Starting them inside this builder
   // would let the first tick — the lease sweep, the health sweep — run against
   // a process that has not begun accepting traffic yet.
-  return {
+  const deps: ProductionDeps = {
     db,
     redis,
     snapshotService,
@@ -423,4 +436,42 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
     oauthRefreshService,
     runtimeMetricsSampler,
   };
+  const startupMemoryAfter = process.memoryUsage();
+  log.info(
+    `[startup] phase=dependencies-ready elapsed_ms=${Math.round(performance.now() - startupStartedAt)} ` +
+      `rss_mb=${toMiB(startupMemoryAfter.rss)} ` +
+      `rss_delta_mb=${toMiB(startupMemoryAfter.rss - startupMemoryBefore.rss)} ` +
+      `heap_used_mb=${toMiB(startupMemoryAfter.heapUsed)} ` +
+      `heap_delta_mb=${toMiB(startupMemoryAfter.heapUsed - startupMemoryBefore.heapUsed)}`,
+  );
+  return deps;
+}
+
+async function measureStartupPhase<T>(name: string, operation: () => Promise<T>): Promise<T> {
+  const startedAt = performance.now();
+  const before = process.memoryUsage();
+  log.info(
+    `[startup] phase=${name} status=started rss_mb=${toMiB(before.rss)} heap_used_mb=${toMiB(before.heapUsed)}`,
+  );
+  try {
+    const result = await operation();
+    const after = process.memoryUsage();
+    log.info(
+      `[startup] phase=${name} status=completed elapsed_ms=${Math.round(performance.now() - startedAt)} ` +
+        `rss_mb=${toMiB(after.rss)} rss_delta_mb=${toMiB(after.rss - before.rss)} ` +
+        `heap_used_mb=${toMiB(after.heapUsed)} heap_delta_mb=${toMiB(after.heapUsed - before.heapUsed)} ` +
+        `external_mb=${toMiB(after.external)}`,
+    );
+    return result;
+  } catch (error) {
+    log.error(
+      `[startup] phase=${name} status=failed elapsed_ms=${Math.round(performance.now() - startedAt)}`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    throw error;
+  }
+}
+
+function toMiB(bytes: number): string {
+  return (bytes / 1024 / 1024).toFixed(1);
 }

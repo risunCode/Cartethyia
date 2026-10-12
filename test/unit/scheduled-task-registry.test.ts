@@ -57,6 +57,36 @@ describe("ScheduledTaskRegistry late registration", () => {
     expect(runs).toBeGreaterThan(0);
   });
 
+  test("an initial delay postpones the first run, then starts the interval", async () => {
+    const registry = makeRegistry();
+    let runs = 0;
+    registry.register({
+      name: "delayed",
+      intervalMs: 20,
+      initialDelayMs: 40,
+      run: () => { runs += 1; },
+    });
+    registry.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(runs).toBe(0);
+    await waitForRuns(() => runs, 2);
+  });
+
+  test("stop() cancels a task's pending initial delay", async () => {
+    const registry = makeRegistry();
+    let runs = 0;
+    registry.register({
+      name: "delayed",
+      intervalMs: 10,
+      initialDelayMs: 40,
+      run: () => { runs += 1; },
+    });
+    registry.start();
+    await registry.stop();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(runs).toBe(0);
+  });
+
   test("a second start() does not stack a second timer on a late task", async () => {
     const registry = makeRegistry();
     registry.start();
