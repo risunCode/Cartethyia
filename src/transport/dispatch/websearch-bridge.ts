@@ -1,13 +1,11 @@
 /**
  * The routed web-search fallback bridge.
  *
- * A chat client (Claude Code, Codex CLI, …) declares a hosted `web_search`
- * tool and expects the upstream to execute it. When the route the caller
- * selected cannot serve that tool natively, the search is executed here by one
- * of the operator-configured search providers (`/v1/search`'s own adapters),
- * and the normalized hits are injected into the conversation as a completed
- * web-search tool round — so the selected model still writes the answer, now
- * with real sources, and the client's own tool loop stays intact.
+ * A chat client (Claude Code, Codex CLI, …) may declare a hosted `web_search`
+ * tool without invoking it. The bridge runs only for an explicit invocation
+ * (or an operator-forced search); when the selected route cannot serve that
+ * request natively, the normalized hits are injected as a completed tool
+ * round so the selected model still writes the answer with real sources.
  *
  * This module never answers the client: it only produces the search results
  * and the canonical turns that carry them. Dispatch, encoding, accounting, and
@@ -18,6 +16,7 @@ import { log } from "../../observability/logger";
 import type { CanonicalEvent, CanonicalRequest, SourceSurface } from "../../protocol/canonical-model";
 import type { RouteCandidate } from "../routing/route-model";
 import { extractWebSearchInvocation, isWebSearchTool, isWebSearchToolName } from "../translation/search";
+import type { WebSearchInvocation } from "../translation/search";
 import type { ProviderAdapter, ProviderDispatchTarget, WebSearchOutcome } from "../../providers/contracts";
 import type { CartethyiaDatabase } from "../../persistence/db-handle";
 import type { ValidatedNetworkBindingFactory } from "../../network/pool/resolver";
@@ -51,8 +50,29 @@ export interface WebSearchBridgeInput {
   readonly state: ProxyRequestState;
   readonly deps: WebSearchBridgeDeps;
   readonly request: CanonicalRequest;
+  /** A tool invocation emitted by the selected model during this turn. */
+  readonly invocation?: WebSearchInvocation;
   /** Ordered configured search candidates; the first one that answers wins. */
   readonly candidates: readonly RouteCandidate[];
+}
+
+/** Keeps appended events strictly ordered after a synthetic search prelude. */
+export function appendEventsAfter(
+  prefix: readonly CanonicalEvent[],
+  following: readonly CanonicalEvent[],
+): CanonicalEvent[] {
+  const events = [...prefix];
+  let previousSequence = events.at(-1)?.sequence_number ?? Number.NEGATIVE_INFINITY;
+  for (const event of following) {
+    const sequenceNumber = Math.max(event.sequence_number, previousSequence + 1);
+    events.push(
+      sequenceNumber === event.sequence_number
+        ? event
+        : { ...event, sequence_number: sequenceNumber },
+    );
+    previousSequence = sequenceNumber;
+  }
+  return events;
 }
 
 /**
@@ -64,7 +84,7 @@ export interface WebSearchBridgeInput {
 export async function runWebSearchBridge(
   input: WebSearchBridgeInput,
 ): Promise<WebSearchBridgeResult | undefined> {
-  const invocation = extractWebSearchInvocation(input.request);
+  const invocation = input.invocation ?? extractWebSearchInvocation(input.request);
   if (invocation === undefined) return undefined;
   if (input.candidates.length === 0) return undefined;
   const { state } = input;
@@ -289,7 +309,12 @@ export function pendingWebSearchToolCall(events: readonly CanonicalEvent[]): Web
   let argumentsText = "";
   let sawEnd = false;
   for (const event of events) {
-    if (event.type === "tool_call_delta") {
+    if (event.type === "message_start" || event.type === "response_start") {
+      callId = undefined;
+      name = undefined;
+      argumentsText = "";
+      sawEnd = false;
+    } else if (event.type === "tool_call_delta") {
       if (event.name !== undefined) name = event.name;
       if (event.call_id !== undefined) callId = event.call_id;
       if (event.arguments_delta !== undefined) argumentsText += event.arguments_delta;
@@ -330,7 +355,9 @@ export function withAnsweredWebSearchToolCall(
   const remainingTools = declaredTools?.filter((tool) => !isWebSearchTool(tool));
   return {
     ...rest,
-    ...(remainingTools !== undefined && remainingTools.length > 0 ? { tools: remainingTools } : {}),
+    ...(remainingTools !== undefined && remainingTools.length > 0
+      ? { tools: remainingTools.filter((tool) => !isWebSearchToolName(tool.name)) }
+      : {}),
     messages: [
       ...request.messages,
       {
@@ -360,7 +387,9 @@ export function withServedWebSearch(
   // leaving it declared invites the model to call it a second time against a
   // route that cannot serve it.
   const { tools: declaredTools, ...rest } = request;
-  const remainingTools = declaredTools?.filter((tool) => !isWebSearchTool(tool));
+  const remainingTools = declaredTools?.filter(
+    (tool) => !isWebSearchTool(tool) && !isWebSearchToolName(tool.name),
+  );
   const toolChoice =
     request.tool_choice !== undefined &&
     typeof request.tool_choice === "object" &&
@@ -383,6 +412,14 @@ export function withServedWebSearch(
   // about the id is the loop.
   const callId = servedSearchWireId(result);
   const searchToolName = declaredTools?.find(isWebSearchTool)?.name ?? "web_search";
+  const hasPendingCall = request.messages.some((message) =>
+    message.content.some(
+      (part) =>
+        part.kind === "toolCall" &&
+        part.call_id === callId &&
+        isWebSearchToolName(part.name),
+    ),
+  );
   return {
     ...rest,
     ...(remainingTools !== undefined && remainingTools.length > 0
@@ -391,17 +428,21 @@ export function withServedWebSearch(
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     messages: [
       ...request.messages,
-      {
-        role: "assistant",
-        content: [
-          {
-            kind: "toolCall",
-            call_id: callId,
-            name: searchToolName,
-            arguments: { query: result.query },
-          },
-        ],
-      },
+      ...(hasPendingCall
+        ? []
+        : [
+            {
+              role: "assistant" as const,
+              content: [
+                {
+                  kind: "toolCall" as const,
+                  call_id: callId,
+                  name: searchToolName,
+                  arguments: { query: result.query },
+                },
+              ],
+            },
+          ]),
       {
         role: "user",
         content: [

@@ -207,6 +207,14 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
   let iterator = iterable[Symbol.asyncIterator]();
   state.upstreamDispatchStartedAtMs = Date.now();
   let first: IteratorResult<CanonicalEvent> = await nextWithAbort(iterator, state.abortController.signal);
+  let lastSequenceNumber = servedSearch?.at(-1)?.sequence_number ?? Number.NEGATIVE_INFINITY;
+  const sequenceAfterSearch = (event: CanonicalEvent): CanonicalEvent => {
+    const sequenceNumber = Math.max(event.sequence_number, lastSequenceNumber + 1);
+    lastSequenceNumber = sequenceNumber;
+    return sequenceNumber === event.sequence_number
+      ? event
+      : { ...event, sequence_number: sequenceNumber };
+  };
   // Function-tool search loop: collect the first attempt, and when it ends
   // in a `web_search` call, run the configured search and dispatch again.
   // This runs before any client byte is sent, so the stream still shows a
@@ -349,7 +357,7 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
         await finalizer.finalizeStream(controller);
         return;
       }
-      if (!first.done) pipeline.enqueueEvent(first.value, controller);
+      if (!first.done) pipeline.enqueueEvent(sequenceAfterSearch(first.value), controller);
     },
     async pull(controller) {
       finalizer.pullActive = true;
@@ -389,7 +397,7 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
               return;
             }
             sawUpstreamActivity = true;
-            if (pipeline.enqueueEvent(result.value, controller)) return;
+            if (pipeline.enqueueEvent(sequenceAfterSearch(result.value), controller)) return;
           }
         } catch (err) {
           finalizer.clearStallWatchdog();

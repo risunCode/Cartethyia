@@ -1,12 +1,10 @@
 /**
  * Routed web-search fallback for chat clients.
  *
- * A client that declares a hosted `web_search` tool expects the selected route
- * to execute it. When that route can, it must keep doing so — the fallback is
- * not a shortcut around a working native search. When it cannot, the search is
- * served by a configured search provider and injected into the conversation, so
- * the selected model still writes the answer instead of reporting that it
- * cannot browse.
+ * Declaring a hosted `web_search` tool makes search available; it does not
+ * invoke it. Explicit calls are served natively when possible or by a
+ * configured fallback provider, which injects results for the selected model
+ * to summarize.
  *
  * These are the three contracts that matter to a client and are each easy to
  * break in the wrong direction:
@@ -39,6 +37,54 @@ function messagesSearchRequest(model: string): Record<string, unknown> {
     stream: false,
     tools: [{ type: "web_search_20250305", name: "web_search" }],
     messages: [{ role: "user", content: "Coba cari siapa itu risuncode" }],
+  };
+}
+
+/** A Messages request declaring a gateway-executable search function. */
+function messagesFunctionSearchRequest(model: string, stream = false): Record<string, unknown> {
+  return {
+    model,
+    max_tokens: 1024,
+    stream,
+    tools: [{ name: "web_search", input_schema: { type: "object", properties: { query: { type: "string" } } } }],
+    messages: [{ role: "user", content: "Coba cari siapa itu risuncode" }],
+  };
+}
+
+function functionSearchEvents(request: CanonicalRequest, answer: string): readonly CanonicalEvent[] {
+  if (request.tools?.some((tool) => tool.name === "web_search")) {
+    return [
+      { type: "message_start", sequence_number: 0, model: request.model },
+      {
+        type: "tool_call_delta",
+        sequence_number: 1,
+        call_id: "model_search",
+        name: "web_search",
+        arguments_delta: JSON.stringify({ query: "siapa itu risuncode" }),
+      },
+      { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "tool_use" },
+    ];
+  }
+  return [
+    { type: "message_start", sequence_number: 0, model: request.model },
+    { type: "content_delta", sequence_number: 1, content: { kind: "text", text: answer } },
+    { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "stop" },
+  ];
+}
+
+/** A previous assistant tool call in history; it should not be re-executed. */
+function messagesSearchInvocationRequest(model: string): Record<string, unknown> {
+  return {
+    ...messagesSearchRequest(model),
+    messages: [
+      { role: "user", content: "Coba cari siapa itu risuncode" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "toolu_search", name: "web_search", input: { query: "siapa itu risuncode" } },
+        ],
+      },
+    ],
   };
 }
 
@@ -198,74 +244,32 @@ dbDescribe("web-search fallback dispatch", () => {
     expect(seen?.messages.length).toBe(1);
   });
 
-  test("an incapable route answers from the configured search provider's results", async () => {
+  test("a hosted tool declaration alone does not search", async () => {
     routesWithSearchProvider();
-    let seen: CanonicalRequest | undefined;
     gateway.adapter(world.providerId, {
-      onDispatch: (record) => {
-        seen = record.request;
-      },
       events: (request): readonly CanonicalEvent[] => [
         { type: "message_start", sequence_number: 0, model: request.model },
-        { type: "content_delta", sequence_number: 1, content: { kind: "text", text: "risuncode is a developer" } },
+        { type: "content_delta", sequence_number: 1, content: { kind: "text", text: "loveuuu!" } },
         { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "stop" },
       ],
     });
     const searchAdapter = gateway.adapter("exa", {
-      searchResults: [
-        { title: "risuncode", url: "https://example.com/risuncode", snippet: "Profile" },
-      ],
+      searchResults: [{ title: "unexpected", url: "https://example.com/unexpected", snippet: "Unexpected" }],
     });
+    const request = messagesSearchRequest(world.qualifiedModel);
+    request.messages = [{ role: "user", content: "loveuuu!" }];
     const response = await gateway.json(
       "/v1/messages",
-      messagesSearchRequest(world.qualifiedModel),
+      request,
       { token: world.token },
     );
     expect(response.status).toBe(200);
-    // The search ran on the configured provider, with the caller's query.
-    expect(searchAdapter.searches).toEqual(["Coba cari siapa itu risuncode"]);
-    // The selected route still answers, now with the results in context. They
-    // arrive as a completed tool-call + tool-result round: Claude Code counts
-    // a search by the `web_search_tool_result` block in the response, so
-    // plain user text reported "Did 0 searches" beside a correct answer.
-    expect(seen?.model).toBe(world.modelId);
-    expect(seen?.tools === undefined || seen.tools.length === 0).toBe(true);
-    // The round the client sees: an assistant search call answered by its result.
-    const callTurn = seen?.messages.at(-2);
-    const resultTurn = seen?.messages.at(-1);
-    expect(callTurn?.role).toBe("assistant");
-    const call = callTurn?.content.find((part) => part.kind === "toolCall");
-    expect(call !== undefined).toBe(true);
-    expect(resultTurn?.role).toBe("user");
-    const toolResult = resultTurn?.content.find((part) => part.kind === "toolResult");
-    expect(toolResult !== undefined).toBe(true);
-    if (toolResult?.kind === "toolResult") {
-      expect(JSON.stringify(toolResult.content)).toContain("https://example.com/risuncode");
-    }
-    // The round closes on itself: one call, one result, matching ids.
-    if (call?.kind === "toolCall" && toolResult?.kind === "toolResult") {
-      expect(toolResult.call_id).toBe(call.call_id);
-    }
-    const body = (await response.json()) as {
-      content: { type: string; text?: string; tool_use_id?: string }[];
-    };
-    expect(body.content.some((block) => block.text?.includes("risuncode is a developer"))).toBe(true);
-    // The client sees the search itself, not only the model's citation.
-    // Claude Code counts this block; a chat UI can render its titles and URLs.
-    expect(body.content.some((block) => block.type === "web_search_tool_result")).toBe(true);
-    expect(body.content.some((block) => block.type === "server_tool_use")).toBe(true);
-    expect(JSON.stringify(body.content)).toContain("https://example.com/risuncode");
-    expect(JSON.stringify(body.content)).toContain("risuncode — https://example.com/risuncode");
+    expect(searchAdapter.searches).toEqual([]);
+    const body = (await response.json()) as { content: { type: string; text?: string }[] };
+    expect(body.content.some((block) => block.text?.includes("loveuuu!"))).toBe(true);
   });
 
-  test("a search invocation in message content routes to the fallback too", async () => {
-    // A replayed assistant search round carries no hosted-tool declaration —
-    // the only signal is the `web_search` toolCall in message content. The
-    // preparer's private copy of `requestUsesWebSearch` matched that call via
-    // `isWebSearchTool({name})`, which reads `native_type`/`tool_type` fields a
-    // ContentPart never carries, so the check was always false and this path
-    // never reached the fallback. The shared predicate in capabilities.ts
-    // matches by name via `isWebSearchToolName`.
+  test("a prior search tool call in history is not executed again", async () => {
     routesWithSearchProvider();
     const searchAdapter = gateway.adapter("exa", {
       searchResults: [
@@ -274,43 +278,17 @@ dbDescribe("web-search fallback dispatch", () => {
     });
     const response = await gateway.json(
       "/v1/messages",
-      {
-        model: world.qualifiedModel,
-        max_tokens: 1024,
-        stream: false,
-        // No declared tools: the search intent lives only in the replayed
-        // assistant round (tool_use answered by a prior tool_result).
-        messages: [
-          { role: "user", content: "Coba cari siapa itu risuncode" },
-          {
-            role: "assistant",
-            content: [
-              { type: "tool_use", id: "toolu_1", name: "web_search", input: { query: "siapa risuncode" } },
-            ],
-          },
-          {
-            role: "user",
-            content: [
-              { type: "tool_result", tool_use_id: "toolu_1", content: "prior placeholder result" },
-            ],
-          },
-        ],
-      },
+      messagesSearchInvocationRequest(world.qualifiedModel),
       { token: world.token },
     );
     expect(response.status).toBe(200);
-    // The fallback ran on the model-authored query from the replayed call.
-    expect(searchAdapter.searches).toEqual(["siapa risuncode"]);
+    expect(searchAdapter.searches).toEqual([]);
   });
 
   test("a streamed fallback echoes the search hits before the model answer", async () => {
     routesWithSearchProvider();
     gateway.adapter(world.providerId, {
-      events: (request): readonly CanonicalEvent[] => [
-        { type: "message_start", sequence_number: 0, model: request.model },
-        { type: "content_delta", sequence_number: 1, content: { kind: "text", text: "answered from hits" } },
-        { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "stop" },
-      ],
+      events: (request): readonly CanonicalEvent[] => functionSearchEvents(request, "answered from hits"),
     });
     gateway.adapter("exa", {
       searchResults: [
@@ -319,7 +297,7 @@ dbDescribe("web-search fallback dispatch", () => {
     });
     const response = await gateway.json(
       "/v1/messages",
-      { ...messagesSearchRequest(world.qualifiedModel), stream: true },
+      messagesFunctionSearchRequest(world.qualifiedModel, true),
       { token: world.token },
     );
     expect(response.status).toBe(200);
@@ -327,6 +305,94 @@ dbDescribe("web-search fallback dispatch", () => {
     expect(text.indexOf("web_search_tool_result")).toBeGreaterThan(-1);
     expect(text.indexOf("https://example.com/risuncode")).toBeLessThan(text.indexOf("answered from hits"));
     expect(text).toContain("risuncode — https://example.com/risuncode");
+  });
+
+  test("a search function call emitted by the model uses its own query", async () => {
+    routesWithSearchProvider();
+    gateway.adapter(world.providerId, {
+      events: (request): readonly CanonicalEvent[] =>
+        request.tools?.some((tool) => tool.name === "web_search")
+          ? [
+              { type: "message_start", sequence_number: 0, model: request.model },
+              {
+                type: "tool_call_delta",
+                sequence_number: 1,
+                call_id: "model_search",
+                name: "web_search",
+                arguments_delta: JSON.stringify({ query: "RisuCode GitHub profile" }),
+              },
+              { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "tool_use" },
+            ]
+          : [
+              { type: "message_start", sequence_number: 0, model: request.model },
+              {
+                type: "content_delta",
+                sequence_number: 1,
+                content: { kind: "text", text: "answered from model-requested search" },
+              },
+              { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "stop" },
+            ],
+    });
+    const searchAdapter = gateway.adapter("exa", {
+      searchResults: [{ title: "RisuCode", url: "https://example.com/profile", snippet: "Profile" }],
+    });
+    const response = await gateway.json(
+      "/v1/messages",
+      { ...messagesSearchRequest(world.qualifiedModel), stream: true },
+      { token: world.token },
+    );
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(searchAdapter.searches).toEqual(["RisuCode GitHub profile"]);
+    expect(text.indexOf("https://example.com/profile")).toBeLessThan(
+      text.indexOf("answered from model-requested search"),
+    );
+  });
+
+  test("a streamed Responses fallback keeps event sequence numbers increasing", async () => {
+    routesWithSearchProvider();
+    gateway.adapter(world.providerId, {
+      events: (request): readonly CanonicalEvent[] =>
+        request.tools?.some((tool) => tool.name === "web_search")
+          ? [
+              { type: "response_start", sequence_number: 1, model: request.model },
+              {
+                type: "tool_call_delta",
+                sequence_number: 2,
+                call_id: "call_search",
+                name: "web_search",
+                arguments_delta: JSON.stringify({ query: "siapa itu risuncode" }),
+              },
+              { type: "terminal", sequence_number: 3, state: "complete", stop_reason: "tool_use" },
+            ]
+          : [
+              { type: "response_start", sequence_number: 1, model: request.model },
+              {
+                type: "content_delta",
+                sequence_number: 2,
+                content: { kind: "text", text: "answered from fallback hits" },
+              },
+              { type: "terminal", sequence_number: 3, state: "complete", stop_reason: "stop" },
+            ],
+    });
+    gateway.adapter("exa", {
+      searchResults: [{ title: "risuncode", url: "https://example.com/risuncode", snippet: "Profile" }],
+    });
+    const response = await gateway.json(
+      "/v1/responses",
+      {
+        model: world.qualifiedModel,
+        stream: true,
+        tools: [{ type: "function", name: "web_search", parameters: { type: "object", properties: { query: { type: "string" } } } }],
+        input: [{ role: "user", content: [{ type: "input_text", text: "Coba cari siapa itu risuncode" }] }],
+      },
+      { token: world.token },
+    );
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).toContain("event: response.completed");
+    expect(text).toContain("answered from fallback hits");
+    expect(text).toContain("https://example.com/risuncode");
   });
 
   test("a failing configured provider advances to the next configured one", async () => {
@@ -353,11 +419,7 @@ dbDescribe("web-search fallback dispatch", () => {
       },
     ]);
     gateway.adapter(world.providerId, {
-      events: (request): readonly CanonicalEvent[] => [
-        { type: "message_start", sequence_number: 0, model: request.model },
-        { type: "content_delta", sequence_number: 1, content: { kind: "text", text: "answered" } },
-        { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "stop" },
-      ],
+      events: (request): readonly CanonicalEvent[] => functionSearchEvents(request, "answered"),
     });
     gateway.adapter("codex", {
       failSearchWith: () =>
@@ -368,11 +430,11 @@ dbDescribe("web-search fallback dispatch", () => {
     });
     const response = await gateway.json(
       "/v1/messages",
-      messagesSearchRequest(world.qualifiedModel),
+      messagesFunctionSearchRequest(world.qualifiedModel),
       { token: world.token },
     );
     expect(response.status).toBe(200);
-    expect(exa.searches).toEqual(["Coba cari siapa itu risuncode"]);
+    expect(exa.searches).toEqual(["siapa itu risuncode"]);
   });
 
   test("an exhausted fallback still completes the chat turn", async () => {
@@ -392,26 +454,22 @@ dbDescribe("web-search fallback dispatch", () => {
       },
     ]);
     gateway.adapter(world.providerId, {
-      events: (request): readonly CanonicalEvent[] => [
-        { type: "message_start", sequence_number: 0, model: request.model },
-        { type: "content_delta", sequence_number: 1, content: { kind: "text", text: "no search needed" } },
-        { type: "terminal", sequence_number: 2, state: "complete", stop_reason: "stop" },
-      ],
+      events: (request): readonly CanonicalEvent[] => functionSearchEvents(request, "no search needed"),
     });
     gateway.adapter("exa", {
       failSearchWith: () => new GatewayError("platform_unavailable", 502, "exa unreachable"),
     });
     const response = await gateway.json(
       "/v1/messages",
-      messagesSearchRequest(world.qualifiedModel),
+      messagesFunctionSearchRequest(world.qualifiedModel),
       { token: world.token },
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as { content: { type: string; text?: string }[] };
-    expect(body.content.some((block) => block.text?.includes("no search needed"))).toBe(true);
+    expect(body.content.length).toBeGreaterThan(0);
   });
 
-  test("a native route that answers without searching is re-dispatched with the fallback results", async () => {
+  test("a native route that answers without searching is not searched on its behalf", async () => {
     gateway.setRoutes([
       {
         providerId: world.providerId,
@@ -427,15 +485,10 @@ dbDescribe("web-search fallback dispatch", () => {
         capabilities: { webSearch: true },
       },
     ]);
-    // The route is marked native, so it is trusted first — and answers from its
-    // own weights with no source at all. That is exactly what a client reports
-    // as "Did 0 searches".
+    // The route is marked native, so it is trusted first and may decide not to
+    // search. The gateway must not treat the tool declaration as a search call.
     let attempts = 0;
-    const seen: CanonicalRequest[] = [];
     gateway.adapter(world.providerId, {
-      onDispatch: (record) => {
-        seen.push(record.request);
-      },
       events: (request): readonly CanonicalEvent[] => {
         attempts += 1;
         return [
@@ -458,14 +511,10 @@ dbDescribe("web-search fallback dispatch", () => {
       { token: world.token },
     );
     expect(response.status).toBe(200);
-    // The fallback ran, and the route was dispatched again with the hits.
-    expect(searchAdapter.searches).toEqual(["Coba cari siapa itu risuncode"]);
-    expect(attempts).toBe(2);
-    // The second dispatch carries the results; the first did not.
-    expect(JSON.stringify(seen[0]?.messages ?? [])).not.toContain("github.com/risunCode");
-    expect(JSON.stringify(seen[1]?.messages ?? [])).toContain("github.com/risunCode");
+    expect(searchAdapter.searches).toEqual([]);
+    expect(attempts).toBe(1);
     const body = (await response.json()) as { content: { type: string; text?: string }[] };
-    expect(body.content.some((block) => block.text?.includes("risuncode is a developer"))).toBe(true);
+    expect(body.content.some((block) => block.text?.includes("I have no browsing ability"))).toBe(true);
   });
 
   test("a native route that really searched is not re-dispatched", async () => {
@@ -516,6 +565,38 @@ dbDescribe("web-search fallback dispatch", () => {
 });
 
 describe("search query extraction", () => {
+  test("does not treat a hosted tool declaration as a search invocation", () => {
+    const request = {
+      model: "m",
+      source_surface: "messages",
+      generation_controls: {},
+      tools: [{ name: "web_search", native_type: "web_search_20250305" }],
+      messages: [{ role: "user", content: [{ kind: "text", text: "loveuuu!" }] }],
+    } as unknown as CanonicalRequest;
+    expect(extractWebSearchInvocation(request)).toBeUndefined();
+  });
+
+  test("does not repeat a search call that already has a tool result", () => {
+    const request = {
+      model: "m",
+      source_surface: "messages",
+      generation_controls: {},
+      tools: [{ name: "web_search", native_type: "web_search_20250305" }],
+      messages: [
+        {
+          role: "assistant",
+          content: [{ kind: "toolCall", call_id: "c1", name: "web_search", arguments: { query: "old query" } }],
+        },
+        {
+          role: "user",
+          content: [{ kind: "toolResult", call_id: "c1", content: "old result" }],
+        },
+        { role: "user", content: [{ kind: "text", text: "loveuuu!" }] },
+      ],
+    } as unknown as CanonicalRequest;
+    expect(extractWebSearchInvocation(request)).toBeUndefined();
+  });
+
   test("strips injected system-reminder scaffolding from a derived query", () => {
     // Reproduces a production failure: Claude Code appended its CLAUDE.md
     // (about CodeGraph) to the operator's turn, the whole turn became the
@@ -525,6 +606,7 @@ describe("search query extraction", () => {
       model: "m",
       source_surface: "messages",
       generation_controls: {},
+      provider_options: { force_search_providers: true },
       tools: [{ name: "web_search", native_type: "web_search_20250305" }],
       messages: [
         {
@@ -559,6 +641,7 @@ describe("search query extraction", () => {
       model: "m",
       source_surface: "messages",
       generation_controls: {},
+      provider_options: { force_search_providers: true },
       tools: [{ name: "web_search", native_type: "web_search_20250305" }],
       messages: [
         {
@@ -577,6 +660,7 @@ describe("search query extraction", () => {
       model: "m",
       source_surface: "messages",
       generation_controls: {},
+      provider_options: { force_search_providers: true },
       tools: [{ name: "web_search", native_type: "web_search_20250305" }],
       messages: [
         {

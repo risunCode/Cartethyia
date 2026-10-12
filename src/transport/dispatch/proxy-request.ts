@@ -35,9 +35,15 @@ import { runAttemptLoop } from "./attempt-loop";
 import { responseShowsWebSearch } from "../translation/search";
 import { projectForRoute, routeCapabilitiesFor } from "../translation/capabilities";
 import { dispatchStreamingAttempt } from "./streaming/stream";
-import { runWebSearchBridge, servedSearchEvents, pendingWebSearchToolCall, withAnsweredWebSearchToolCall, withServedWebSearch } from "./websearch-bridge";
+import {
+  appendEventsAfter,
+  runWebSearchBridge,
+  servedSearchEvents,
+  pendingWebSearchToolCall,
+  withAnsweredWebSearchToolCall,
+  withServedWebSearch,
+} from "./websearch-bridge";
 import type { WebSearchBridgeResult } from "./websearch-bridge";
-import { BUDDY_PROVIDER_IDS } from "../../providers/metadata";
 
 export interface ProviderProxyHandlerDeps {
   readonly db: CartethyiaDatabase;
@@ -144,22 +150,20 @@ export async function handleProviderProxyRequest(
     });
     return served === undefined ? undefined : { request: withServedWebSearch(request, served), served };
   };
-  // A web-search request whose selected route cannot serve the tool natively
-  // runs the search on a configured search provider first, then continues on
-  // the selected route with the results in context. Without this the client
-  // receives "cannot browse" (or "Did 0 searches") even though the operator
-  // has a working search provider configured.
+  // A non-native route is pre-searched only for an explicit invocation or an
+  // operator-forced search. A hosted-tool declaration alone is availability,
+  // not a request to search.
   //
-  // A route marked `native` is dispatched as-is first: it may well serve the
-  // search itself. If its answer carries no search evidence, the attempt
-  // callback below bridges and re-dispatches once.
+  // A native route stays authoritative. The callback only bridges when the
+  // request explicitly forces fallback search; a missing citation is not an
+  // implicit request to search.
   const nativeSearch = prepared.candidate.search_route === "native" && canonicalRequest.provider_options?.force_search_providers !== true;
-  // Buddy-family routes (CodeBuddy/WorkBuddy) are non-native: only a function
-  // tool call from the model triggers the loop. Every other non-native route
-  // (e.g. a hosted web_search tool forwarded to an incapable provider) keeps
-  // the old contract: the gateway runs the caller's search first.
-  const fallbackIntent = !nativeSearch && prepared.webSearch === true && searchCandidates.length > 0 &&
-    !BUDDY_PROVIDER_IDS.has(prepared.candidate.provider_id);
+  const forceSearch = canonicalRequest.provider_options?.force_search_providers === true;
+  const fallbackIntent =
+    !nativeSearch &&
+    prepared.webSearch === true &&
+    searchCandidates.length > 0 &&
+    forceSearch;
   let dispatchRequest = canonicalRequest;
   let servedSearch: WebSearchBridgeResult | undefined;
   if (fallbackIntent) {
@@ -188,6 +192,11 @@ export async function handleProviderProxyRequest(
       state,
       deps: bridgeDeps,
       request,
+      invocation: {
+        query: searchCall.query,
+        callId: searchCall.callId,
+        maxResults: 10,
+      },
       candidates: searchCandidates,
     });
     if (served === undefined) return { events, served: false };
@@ -198,7 +207,7 @@ export async function handleProviderProxyRequest(
     );
     const next = await dispatch(continued);
     return {
-      events: [...servedSearchEvents(served, request.source_surface), ...next.events],
+      events: appendEventsAfter(servedSearchEvents(served, request.source_surface), next.events),
       served: true,
     };
   };
@@ -387,8 +396,8 @@ export async function handleProviderProxyRequest(
       // search itself, but the declaration is a capability claim, not a
       // guarantee. When its answer carries no search evidence at all, the
       // model answered from its own weights — which a client reports as
-      // "Did 0 searches". Run the configured fallback and dispatch once more
-      // with the hits in context, then use that answer instead.
+      // "Did 0 searches". Only an explicitly forced fallback reaches this
+      // branch; ordinary hosted-tool availability is not search intent.
       if (
         nativeSearch &&
         !retriedWithoutGrounding &&
@@ -413,7 +422,7 @@ export async function handleProviderProxyRequest(
         }
       }
       if (servedSearch !== undefined) {
-        events = [...servedSearchEvents(servedSearch, dispatchRequest.source_surface), ...events];
+        events = appendEventsAfter(servedSearchEvents(servedSearch, dispatchRequest.source_surface), events);
       }
       // Function-tool loop: a non-native route (e.g. Buddy family) calls the
       // `web_search` function the gateway declared for it. The gateway runs
@@ -429,6 +438,11 @@ export async function handleProviderProxyRequest(
             state,
             deps: bridgeDeps,
             request: dispatchRequest,
+            invocation: {
+              query: searchCall.query,
+              callId: searchCall.callId,
+              maxResults: 10,
+            },
             candidates: searchCandidates,
           });
           if (served === undefined) break;
@@ -439,7 +453,7 @@ export async function handleProviderProxyRequest(
           );
           ({ events, firstContentDeltaAtMs } = await dispatch(continued));
           if (servedSearch !== undefined) {
-            events = [...servedSearchEvents(servedSearch, dispatchRequest.source_surface), ...events];
+            events = appendEventsAfter(servedSearchEvents(servedSearch, dispatchRequest.source_surface), events);
           }
         }
       }

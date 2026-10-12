@@ -72,8 +72,7 @@ export interface WebSearchInvocation {
    * client cannot pair the result with anything it sent and re-issues the
    * search, which is the "search loops forever" report.
    *
-   * Absent for a prose query (nothing to pair with) and for the function-tool
-   * loop, which reads the id off the pending call itself.
+   * Absent for an operator-forced prose query, which has no pending tool call.
    */
   readonly callId?: string;
 }
@@ -92,23 +91,33 @@ export function requestUsesWebSearch(request: CanonicalRequest): boolean {
   );
 }
 
-/** Extracts a bounded search invocation from tool arguments or the latest user text. */
+/**
+ * Extracts a bounded search invocation from a tool call or an explicitly
+ * forced search request.
+ */
 export function extractWebSearchInvocation(
   request: CanonicalRequest,
 ): WebSearchInvocation | undefined {
   if (!requestUsesWebSearch(request)) return undefined;
+  searchCall:
   for (let messageIndex = request.messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
     const message = request.messages[messageIndex];
     if (message === undefined) continue;
     for (let partIndex = message.content.length - 1; partIndex >= 0; partIndex -= 1) {
       const part = message.content[partIndex];
       if (part?.kind !== "toolCall" || !isWebSearchToolName(part.name)) continue;
+      const alreadyAnswered = request.messages.slice(messageIndex + 1).some((laterMessage) =>
+        laterMessage.content.some(
+          (laterPart) => laterPart.kind === "toolResult" && laterPart.call_id === part.call_id,
+        ),
+      );
+      if (alreadyAnswered) break searchCall;
       const args = parseSearchArguments(part.arguments);
       const rawQuery = typeof args?.query === "string" ? args.query.trim() : "";
+      if (rawQuery.length === 0) break searchCall;
       // Model-authored: already the search intent itself, never scaffolding.
       // Pass it through untouched — editing it here can only lose intent.
       const query = rawQuery.length > MAX_SEARCH_QUERY_CHARS ? rawQuery.slice(0, MAX_SEARCH_QUERY_CHARS) : rawQuery;
-      if (query.length === 0) continue;
       const rawMax = args?.max_results;
       const maxResults =
         typeof rawMax === "number" && Number.isFinite(rawMax)
@@ -124,6 +133,7 @@ export function extractWebSearchInvocation(
       };
     }
   }
+  if (request.provider_options?.force_search_providers !== true) return undefined;
   for (let messageIndex = request.messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
     const message = request.messages[messageIndex];
     if (message?.role !== "user") continue;
