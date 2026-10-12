@@ -189,7 +189,7 @@ function buildBillingWindows(
     // Kind encodes recurring semantics + cadence for Contract consumers that
     // do not read the optional `recurring` field. Keep label human-readable.
     const kind = `quota:${base.toLowerCase()}${seenRefill[base] > 1 ? `_${seenRefill[base]}` : ""}`;
-    const w = percentWindow(kind, label, pct, resetAt, used, total);
+    const w = percentWindow(kind, label, pct, resetAt, used, total, "pooled");
     windows.push({ ...w, kind, label, recurring: true });
   }
 
@@ -200,7 +200,7 @@ function buildBillingWindows(
     const total = billingNum(acc.CapacitySizePrecise, acc.CapacitySize);
     const resetAt = parseBillingResetTime(acc.CycleEndTime);
     const pct = usedPercent(used, total);
-    const w = percentWindow(kind, label, pct, resetAt, used, total);
+    const w = percentWindow(kind, label, pct, resetAt, used, total, "pooled");
     windows.push({ ...w, kind, label, recurring: false });
   });
 
@@ -404,7 +404,7 @@ async function fetchEnterpriseUsage(
     source: options.source,
     plan: "Enterprise",
     windows: [{
-      ...percentWindow("quota:enterprise", "Enterprise", usedPercent, resetsAt, used, limit),
+    ...percentWindow("quota:enterprise", "Enterprise", usedPercent, resetsAt, used, limit, "pooled"),
       remaining,
     }],
     error: null,

@@ -2,7 +2,7 @@
 // OAuth accounts. Registered as a ScheduledTaskRegistry task so the registry
 // owns interval + re-entrancy; this function owns only the domain work.
 import type { OAuthRefreshService, OAuthTokenRefresher } from "../providers/authentication/oauth-refresh-service";
-import { runSweep } from "./sweep";
+import { runSweep } from "./sweep-runner";
 
 export interface DueOAuthAccount {
   readonly id: string;

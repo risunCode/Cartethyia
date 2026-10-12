@@ -3,6 +3,9 @@ import { decodeJwtPayload } from "../authentication/oauth-flow-store";
 export interface ProviderQuotaWindow {
   readonly kind: string;
   readonly label: string;
+  /*  * Whether this window contributes to a shared credit pool. Unmarked windows
+  * are independent quotas and are checked on their own. */
+  readonly accounting?: "pooled" | "independent";
   readonly usedPercent: number | null;
   readonly remainingPercent: number | null;
   readonly resetsAt: string | null;
@@ -26,64 +29,82 @@ export interface ProviderQuotaResult {
 export type FetchLike = typeof fetch;
 
 /**
- * The account's total remaining absolute credit across its credit windows, or
+ * The account's total remaining absolute credit across its pooled windows, or
  * `null` when the provider reports no credit (a rate-limit-only or
  * percentage-only surface).
  *
- * A "credit window" carries a positive absolute `limit` plus either an absolute
- * `remaining` or `used` value. Percentage-only windows are deliberately
- * ignored: 0–100 is utilization, not a credit balance, and treating it as an
- * absolute pool can park or display a provider that never reported credits.
- * The figures are summed because a provider's credit windows are one spendable
- * pool, not independent budgets.
+ * Only windows explicitly classified as pooled contribute. A 5-hour or weekly
+ * rate limit may also expose absolute usage and limits, but remains an
+ * independent budget and must not be added to credit packs.
  */
 export function totalRemainingCredit(
   windows: readonly ProviderQuotaWindow[],
 ): number | null {
   let total: number | null = null;
   for (const window of windows) {
-    const limit =
-      typeof window.limit === "number" && Number.isFinite(window.limit) && window.limit > 0
-        ? window.limit
-        : null;
-    if (limit === null) continue;
-    let remaining: number | null = null;
-    if (typeof window.remaining === "number" && Number.isFinite(window.remaining)) {
-      remaining = window.remaining;
-    } else if (typeof window.used === "number" && Number.isFinite(window.used)) {
-      remaining = limit - window.used;
-    }
-    if (remaining === null) continue;
-    const clamped = Math.min(limit, Math.max(0, remaining));
-    total = (total ?? 0) + clamped;
+    if (window.accounting !== "pooled") continue;
+    const balance = creditWindowBalance(window);
+    if (balance === null) continue;
+    total = (total ?? 0) + balance.remaining;
   }
   return total;
 }
 
 /**
- * The account's lowest remaining quota percent across its percent windows, or
- * `null` when the provider reports no percent window.
+ * The account's remaining percent across its pooled credit balance and
+ * independent quota windows, or `null` when neither is reported.
  *
- * The minimum is what matters for routing: an account with several windows
- * (Codex 5h + weekly, Muse rolling + weekly) is only as usable as its most
- * exhausted one. Absolute-credit windows are ignored here — they feed
- * `totalRemainingCredit` instead, and the floor compares in whichever unit
- * the account actually reported.
+ * Pooled credits are summed before converting to percent, so one exhausted
+ * bonus pack cannot hide balance in another. Independent windows keep their
+ * own remaining percent and the lowest one gates the account.
  */
 export function totalRemainingPercent(
   windows: readonly ProviderQuotaWindow[],
 ): number | null {
-  let remaining: number | null = null;
+  let creditLimit = 0;
+  let creditRemaining = 0;
+  let independentPercent: number | null = null;
   for (const window of windows) {
+    if (window.accounting === "pooled") {
+      const balance = creditWindowBalance(window);
+      if (balance !== null) {
+        creditLimit += balance.limit;
+        creditRemaining += balance.remaining;
+      }
+      continue;
+    }
     const value =
       typeof window.remainingPercent === "number" && Number.isFinite(window.remainingPercent)
         ? window.remainingPercent
         : null;
     if (value === null) continue;
     const clamped = Math.min(100, Math.max(0, value));
-    remaining = remaining === null ? clamped : Math.min(remaining, clamped);
+    independentPercent =
+      independentPercent === null ? clamped : Math.min(independentPercent, clamped);
   }
-  return remaining;
+  const creditPercent =
+    creditLimit > 0 ? Math.min(100, Math.max(0, (creditRemaining / creditLimit) * 100)) : null;
+  if (creditPercent === null) return independentPercent;
+  if (independentPercent === null) return creditPercent;
+  return Math.min(creditPercent, independentPercent);
+}
+
+function creditWindowBalance(
+  window: ProviderQuotaWindow,
+): { readonly limit: number; readonly remaining: number } | null {
+  const limit =
+    typeof window.limit === "number" && Number.isFinite(window.limit) && window.limit > 0
+      ? window.limit
+      : null;
+  if (limit === null) return null;
+  let remaining: number | null = null;
+  if (typeof window.remaining === "number" && Number.isFinite(window.remaining)) {
+    remaining = window.remaining;
+  } else if (typeof window.used === "number" && Number.isFinite(window.used)) {
+    remaining = limit - window.used;
+  }
+  if (remaining === null) return null;
+  return { limit, remaining: Math.min(limit, Math.max(0, remaining)) };
 }
 
 const TIMEOUT_MS = 15_000;
@@ -138,11 +159,13 @@ export function percentWindow(
   resetsAt: string | null,
   usedValue?: number | null,
   limit?: number | null,
+  accounting?: "pooled" | "independent",
 ): ProviderQuotaWindow {
   const usedPercent = used === null ? null : Math.min(100, Math.max(0, used));
   return {
     kind,
     label,
+    ...(accounting === undefined ? {} : { accounting }),
     usedPercent,
     remainingPercent: usedPercent === null ? null : Math.max(0, 100 - usedPercent),
     resetsAt,

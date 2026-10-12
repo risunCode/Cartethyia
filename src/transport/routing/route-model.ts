@@ -78,7 +78,8 @@ export interface ProviderRoutingSetting {
   readonly maxInflight: number | null;
   /** Minimum remaining allowance an account must hold to stay routable.
    * `null` means no floor. `credit` compares the summed remaining credit;
-   * `percent` compares the lowest remaining percent. */
+   * `percent` compares the aggregate credit percent and lowest independent
+   * percentage-only window. */
   readonly usageFloor: number | null;
   readonly usageFloorUnit: "credit" | "percent";
   readonly enabled: boolean;
@@ -178,8 +179,9 @@ export interface EligibilityDecision {
    * Epoch milliseconds at which this candidate's cooling window ends, when the
    * exclusion that produced this decision carries one. Absent for a healthy
    * candidate and for every reason with no deadline (`disabled`, `locked`,
-   * `quota_exhausted` from the usage floor). `plan()` takes the minimum across
-   * the cooling set to report the earliest reset a client could retry against.
+   * `quota_exhausted` from spent windows or the usage floor). `plan()` takes the
+   * minimum across the cooling set to report the earliest reset a client could
+   * retry against.
    */
   readonly cooldown_until?: number;
 }
@@ -229,7 +231,7 @@ const ELIGIBILITY_REASON_LABELS: Readonly<Record<string, string>> = {
   disabled: "all accounts are disabled",
   locked: "all accounts are locked by another request",
   credit_floor_reached: "credit or quota is exhausted",
-  quota_exhausted: "every account is at or below its usage floor",
+  quota_exhausted: "every account has an exhausted quota window or is below its configured usage floor",
 };
 
 function explainEligibilityReasons(reasons: readonly string[]): string {

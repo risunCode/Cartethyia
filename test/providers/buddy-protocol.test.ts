@@ -86,4 +86,42 @@ describe("Buddy upstream protocol alignment", () => {
     expect(result.windows[0]?.remaining).toBe(800);
     expect(result.windows[0]?.limit).toBe(1000);
   });
+
+  test("classifies refill and bonus packages into the same spendable credit pool", async () => {
+    const fetcher = (async () => new Response(JSON.stringify({
+      code: 0,
+      data: {
+        Response: {
+          Data: {
+            Accounts: [
+              {
+                PackageName: "Monthly",
+                CycleCapacityUsedPrecise: "0",
+                CycleCapacitySizePrecise: "100",
+                CycleEndTime: "2030-11-01 00:00:00",
+                DeductionEndTime: "2030-12-01 00:00:00",
+              },
+              {
+                PackageName: "Bonus",
+                CapacityUsedPrecise: "30",
+                CapacitySizePrecise: "30",
+                CycleEndTime: "2030-11-15 00:00:00",
+              },
+            ],
+          },
+        },
+      },
+    }), { status: 200 })) as unknown as typeof fetch;
+    const result = await fetchTencentBillingQuota({
+      source: "cb",
+      display: "CodeBuddy",
+      url: "https://www.codebuddy.ai/v2/billing/meter/get-user-resource",
+      headers: {},
+      credential: "token",
+      fetcher,
+      defaultPlan: "CodeBuddy",
+    });
+
+    expect(result.windows.map((entry) => entry.accounting)).toEqual(["pooled", "pooled"]);
+  });
 });

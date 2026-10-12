@@ -1,7 +1,7 @@
 import { Elysia } from "elysia";
 import { resolveDashboardDist, resolveElysiaPrecompile } from "../config/runtime";
 import { createConsoleRouter, type ConsoleApiCompositionDeps } from "../console/console-router";
-import type { ScheduledTaskRegistry } from "../workers/tasks";
+import type { ScheduledTaskRegistry } from "../workers/scheduler";
 import { createStaticHandler } from "../console/dashboard-assets";
 import { createShareRouter } from "../console/share/share-router";
 import { createShareStatsPort } from "../console/share/share-stats";
@@ -608,4 +608,3 @@ export function createGatewayShell(options: Omit<GatewayShellDeps, "mode"> = {})
  * inferred return type.
  */
 export type App = ReturnType<typeof createGatewayApp>;
-

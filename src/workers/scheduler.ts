@@ -1,5 +1,5 @@
 /**
- * Shared scheduler for bounded periodic maintenance tasks. Each task owns
+ * Scheduler for periodic maintenance tasks. Each task owns
  * only its domain work; this registry owns timer, re-entrancy, and logging
  * behavior.
  */

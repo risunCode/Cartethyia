@@ -184,6 +184,45 @@ describe("RoutingEngine.plan cooldown classes", () => {
       clearQuotaCacheForTests();
     }
   });
+
+  test("cached Buddy billing windows still aggregate refill and bonus balances", async () => {
+    const account = candidate({
+      provider_id: "cb",
+      model_id: "deepseek-v4.1-flash",
+      provider_account_id: "cached-buddy",
+    });
+    await setCachedQuota("global", "cached-buddy", {
+      source: "cb",
+      plan: "CodeBuddy",
+      error: null,
+      windows: [
+        {
+          kind: "quota:monthly",
+          label: "Monthly",
+          usedPercent: 50,
+          remainingPercent: 50,
+          resetsAt: null,
+          limit: 100,
+          used: 50,
+        },
+        {
+          kind: "bonus:1",
+          label: "Bonus Pack 1",
+          usedPercent: 100,
+          remainingPercent: 0,
+          resetsAt: null,
+          limit: 20,
+          used: 20,
+        },
+      ],
+    }, undefined);
+    try {
+      const plan = await engine.plan("cb/deepseek-v4.1-flash", snapshot([account]));
+      expect(plan.candidates.map((entry) => entry.provider_account_id)).toEqual(["cached-buddy"]);
+    } finally {
+      clearQuotaCacheForTests();
+    }
+  });
 });
 
 describe("combo member routing", () => {

@@ -5,7 +5,7 @@
 // operator can confirm each account got its daily login credit.
 //
 // It deliberately has no timer of its own: it rides along with the quota
-// refresh sweep (`quota-refresh-worker.ts`), which already resolves a fresh
+// refresh sweep (`quota-refresh-sweep.ts`), which already resolves a fresh
 // credential for each account every few minutes. Adding a second scheduled
 // task would just duplicate that credential work for a once-a-day action.
 //
@@ -16,9 +16,11 @@
 //
 
 import { and, eq } from "drizzle-orm";
+import type { ValidatedFetch } from "../network/outbound-fetch";
+import type { ValidatedNetworkBindingFactory } from "../network/pool/resolver";
 import type { RedisClient } from "../persistence/redis";
 import type { CartethyiaDatabase } from "../persistence/db-handle";
-import { dailyCheckinLedger } from "../persistence/schema";
+import { dailyCheckinLedger, networkPools } from "../persistence/schema";
 import type { ProviderId } from "../providers/contracts";
 import { log } from "../observability/logger";
 import { buddyAccountUid } from "../providers/integrations/buddy/buddy-oauth-shared";
@@ -76,11 +78,12 @@ async function reserveDaySlot(
     // claim tomorrow instead of forfeiting today's grant.
     if (typeof db.insert !== "function") return true;
     try {
-      await db
+      const inserted = await db
         .insert(dailyCheckinLedger)
         .values({ dayKey, accountId })
-        .onConflictDoNothing();
-      return true;
+        .onConflictDoNothing()
+        .returning({ accountId: dailyCheckinLedger.accountId });
+      return inserted.length > 0;
     } catch (error) {
       log.warn(`[daily-checkin] ledger reserve failed for account=${accountId}`, error as Error);
       return true;
@@ -263,3 +266,46 @@ export async function attemptDailyGrowthPass(args: {
   return { checkin, report };
 }
 
+/**
+ * Builds the per-account fetcher for one quota-sweep pass.
+ *
+ * Active pools are read once per pass, then rotated per tenant. A tenant can
+ * use its own pools and the global pools, but never another tenant's pools.
+ */
+export function dailyCheckinEgressForPass(args: {
+  readonly db: CartethyiaDatabase;
+  readonly networkBindingFactory: ValidatedNetworkBindingFactory;
+}): (accountId: string, tenantId?: string | null) => Promise<ValidatedFetch> {
+  const { db, networkBindingFactory } = args;
+  let poolsPromise: Promise<readonly { id: string; tenantId: string | null }[]> | undefined;
+  const cursors = new Map<string, number>();
+
+  return async (_accountId, tenantId) => {
+    poolsPromise ??= Promise.resolve()
+      .then(() =>
+        db
+          .select({ id: networkPools.id, tenantId: networkPools.tenantId })
+          .from(networkPools)
+          .where(eq(networkPools.status, "active")),
+      )
+      .catch(() => []);
+    const pools = await poolsPromise;
+    const global = pools.filter((pool) => pool.tenantId === null);
+    const owned =
+      tenantId === undefined || tenantId === null
+        ? []
+        : pools.filter((pool) => pool.tenantId === tenantId);
+    const candidates = [...owned, ...global];
+    if (candidates.length === 0) return globalThis.fetch;
+
+    const cursorKey = tenantId ?? "global";
+    const cursor = cursors.get(cursorKey) ?? 0;
+    const pool = candidates[cursor % candidates.length]!;
+    cursors.set(cursorKey, cursor + 1);
+    try {
+      return networkBindingFactory.fetch(pool.id, tenantId ?? undefined);
+    } catch {
+      return globalThis.fetch;
+    }
+  };
+}

@@ -49,6 +49,86 @@ describe("EligibilityEvaluator", () => {
     });
   });
 
+  test("a depleted bonus window does not block positive summed credits", () => {
+    const quotaWindows = [
+      {
+        kind: "quota:monthly",
+        label: "Monthly",
+        accounting: "pooled",
+        usedPercent: 88.6,
+        remainingPercent: 11.4,
+        resetsAt: null,
+        limit: 500,
+        used: 441.7,
+      },
+      {
+        kind: "bonus:1",
+        label: "Bonus Pack 1",
+        accounting: "pooled",
+        usedPercent: 100,
+        remainingPercent: 0,
+        resetsAt: null,
+        limit: 10,
+        used: 10,
+      },
+    ];
+
+    expect(evaluator.evaluate(candidate({
+      usage_floor: 40,
+      usage_floor_unit: "credit",
+      quota_windows: quotaWindows,
+    }))).toMatchObject({ eligible: true, reason: "healthy" });
+    expect(evaluator.evaluate(candidate({
+      usage_floor: 10,
+      usage_floor_unit: "percent",
+      quota_windows: quotaWindows,
+    }))).toMatchObject({ eligible: true, reason: "healthy" });
+    expect(evaluator.evaluate(candidate({
+      usage_floor: 40,
+      usage_floor_unit: "percent",
+      quota_windows: [
+        ...quotaWindows,
+        {
+          kind: "session",
+          label: "5 Hour",
+          accounting: "independent",
+          usedPercent: 100,
+          remainingPercent: 0,
+          resetsAt: null,
+        },
+      ],
+    }))).toMatchObject({ eligible: false, reason: "quota_exhausted" });
+    expect(evaluator.evaluate(candidate({
+      usage_floor: 40,
+      usage_floor_unit: "credit",
+      quota_windows: [
+        ...quotaWindows,
+        {
+          kind: "weekly",
+          label: "Weekly",
+          accounting: "independent",
+          usedPercent: 100,
+          remainingPercent: 0,
+          resetsAt: null,
+        },
+      ],
+    }))).toMatchObject({ eligible: false, reason: "quota_exhausted" });
+  });
+
+  test("a zero-percent window still exhausts accounts with no absolute credit reading", () => {
+    expect(
+      evaluator.evaluate(candidate({
+        quota_windows: [{
+          kind: "quota:weekly",
+          label: "Weekly",
+          usedPercent: 100,
+          remainingPercent: 0,
+          resetsAt: null,
+        }],
+      })),
+    ).toMatchObject({ eligible: false, reason: "quota_exhausted" });
+  });
+
   test("an absent health status is treated as healthy", () => {
     // Every pre-existing catalog row has no `health_status`; treating absence as
     // unhealthy would take the whole fleet out of service on deploy.

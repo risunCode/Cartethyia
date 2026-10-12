@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   quotaRefreshSweep,
   type QuotaRefreshSweepDeps,
-} from "../../src/workers/quota-refresh-worker";
+} from "../../src/workers/quota-refresh-sweep";
 import type { QuotaRefreshTarget } from "../../src/console/quota/refresh";
 import {
   attemptDailyGrowthPass,
@@ -10,6 +10,11 @@ import {
   checkinDayKey,
 } from "../../src/workers/daily-checkin";
 import type { RedisClient } from "../../src/persistence/redis";
+import {
+  applySqliteMigrations,
+  buildSqliteHandle,
+  createSqliteDatabase,
+} from "../../src/persistence/db-sqlite";
 
 /**
  * The two reasons a buddy account's daily attendance only landed when an
@@ -41,7 +46,9 @@ function sweepDeps(
     credentialKind: "oauth",
   }));
   const deps: QuotaRefreshSweepDeps = {
-    db: {} as QuotaRefreshSweepDeps["db"],
+    db: {
+      update: () => ({ set: () => ({ where: async () => [] }) }),
+    } as unknown as QuotaRefreshSweepDeps["db"],
     redis: undefined,
     providerRegistry: {
       resolveQuotaCollector: async () => async () => ({
@@ -126,6 +133,27 @@ describe("quota sweep — the check-in budget is spent on buddy accounts only", 
 
   test("every buddy variant is covered, not just one", async () => {
     expect(await runPass(["cb", "cbcn", "workbuddy"], CAP)).toBe(3);
+  });
+
+  test("resolves credentials again on the next sweep pass", async () => {
+    let resolutions = 0;
+    const accountId = "quota-credential-refresh-regression";
+    const deps = sweepDeps(["anthropic"], 0);
+    const passDeps: QuotaRefreshSweepDeps = {
+      ...deps,
+      listTargets: async () => [{
+        accountId,
+        providerId: "anthropic",
+        tenantId: null,
+        credentialKind: "oauth",
+      }],
+      resolveCredential: async () => `credential-${++resolutions}`,
+    };
+
+    await quotaRefreshSweep(passDeps);
+    await quotaRefreshSweep(passDeps);
+
+    expect(resolutions).toBe(2);
   });
 });
 
@@ -218,5 +246,33 @@ describe("attemptDailyGrowthPass — a non-terminal check-in releases the day sl
       now: () => NOW,
     });
     expect(again).toBeNull();
+  });
+
+  test("the SQLite ledger reserves a daily slot only once without Redis", async () => {
+    const sqlite = createSqliteDatabase(":memory:");
+    await applySqliteMigrations(sqlite);
+    const { db, close } = buildSqliteHandle(sqlite);
+    try {
+      const args = {
+        db,
+        redis: undefined,
+        providerId: "cbcn" as const,
+        accountId: "sqlite-ledger-account",
+        resolveCredential: async () => "credential",
+        fetcher: fetcherAnswering({
+          code: 0,
+          data: { today_checked_in: true, streak_days: 1 },
+        }),
+        now: () => NOW,
+      };
+
+      const first = await attemptDailyGrowthPass(args);
+      const second = await attemptDailyGrowthPass(args);
+
+      expect(first?.checkin.state).toBe("already_claimed");
+      expect(second).toBeNull();
+    } finally {
+      await close();
+    }
   });
 });

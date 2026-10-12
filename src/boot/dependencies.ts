@@ -16,8 +16,8 @@ import type { BundledProviderCatalog } from "../providers/operations/provider-ca
 import { createDefaultProviderRegistry } from "../providers/default-registry";
 import { OAuthRefreshService, loadDueOAuthAccounts, reconcileStaticTokenAccounts } from "../providers/authentication/oauth-refresh-service";
 import type { OAuthTokenRefresher } from "../providers/authentication/oauth-refresh-service";
-import { oauthRefreshSweep } from "../workers/oauth-refresh-worker";
-import { accountEnrichmentSweep } from "../workers/account-enrichment-worker";
+import { oauthRefreshSweep } from "../workers/oauth-refresh-sweep";
+import { accountIdentitySweep } from "../workers/account-identity-sweep";
 import { pushStructuredConsoleLog } from "../observability/log-ring";
 import { seedBundledModels } from "../providers/operations/provider-catalog-seeder";
 import { createDatabaseSnapshotBuilder } from "../transport/routing/route-catalog";
@@ -46,9 +46,9 @@ import {
   ValidatedNetworkBindingFactory,
 } from "../network/pool/resolver";
 import { NetworkPoolSelector } from "../network/pool/selector";
-import { ScheduledTaskRegistry } from "../workers/tasks";
-import { quotaRefreshSweep } from "../workers/quota-refresh-worker";
-import { checkinEgressForPass } from "../workers/checkin-egress";
+import { ScheduledTaskRegistry } from "../workers/scheduler";
+import { quotaRefreshSweep } from "../workers/quota-refresh-sweep";
+import { dailyCheckinEgressForPass } from "../workers/daily-checkin";
 import { createAccountSecretResolver } from "../providers/operations/provider-credential-service";
 import { quotaCacheSize } from "../console/quota/cache";
 import { preferencesReaderFor } from "../persistence/tenant-preferences";
@@ -307,7 +307,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
   scheduledTasks.register({
     name: "account-enrichment-sweep",
     intervalMs: 30_000,
-    run: () => accountEnrichmentSweep({ db }),
+    run: () => accountIdentitySweep({ db }),
   });
   scheduledTasks.register({
     name: "oauth-refresh-sweep",
@@ -384,7 +384,7 @@ export async function buildProductionDeps(): Promise<ProductionDeps> {
         // spread across IPs instead of sharing one direct egress. No pool
         // (or an unreadable pool table) falls back to direct egress, and a
         // tenant never borrows another tenant's pool.
-        checkinFetcherFor: checkinEgressForPass({ db, networkBindingFactory }),
+        checkinFetcherFor: dailyCheckinEgressForPass({ db, networkBindingFactory }),
         // Per-account lines and the pass summary are emitted by the sweep
         // itself at `info` level, so they survive the production LOG_LEVEL.
         // `onTick` is left for tests.

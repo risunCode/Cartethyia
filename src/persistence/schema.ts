@@ -518,12 +518,14 @@ export const providerRoutingSettings = pgTable(
      * Minimum remaining allowance an account must hold to stay routable, for
      * this provider. `null` means no floor. Compared against the account's own
      * unit: absolute remaining credit when the provider reports credits, the
-     * lowest remaining percent otherwise. An account below it is skipped and
-     * the request fails over to the next account instead of erroring.
+     * aggregate credit percentage and lowest independent percentage window
+     * otherwise. An account below it is skipped and the request fails over to
+     * the next account instead of erroring.
      */
     usageFloor: integer("usage_floor"),
     /** `credit` compares the summed remaining credit; `percent` compares the
-     * lowest remaining percent. Ignored while `usageFloor` is null. */
+     * aggregate credit percentage and lowest independent percentage-only
+     * window. Ignored while `usageFloor` is null. */
     usageFloorUnit: text("usage_floor_unit").$type<"credit" | "percent">().notNull().default("percent"),
     enabled: boolean("enabled").notNull().default(false),
     // Route-selected User-Agent for built-in API-key providers; OAuth and BYOK identities stay native.

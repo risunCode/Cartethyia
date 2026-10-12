@@ -733,7 +733,8 @@ export interface ProviderRoutingResponse {
   /** Minimum remaining allowance an account must hold to stay routable.
    * `null` means no floor. */
   readonly usageFloor: number | null;
-  /** `credit` sums remaining credit; `percent` takes the lowest remaining percent. */
+  /** `credit` sums remaining credit; `percent` uses aggregate credit percentage
+   * and the lowest independent percentage-only window. */
   readonly usageFloorUnit: "credit" | "percent";
   readonly enabled: boolean;
   /** When true, this provider's requests always dial direct. When false,

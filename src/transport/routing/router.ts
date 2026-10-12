@@ -50,10 +50,9 @@ function candidateMatches(candidate: RouteCandidate, model: string): boolean {
 
 /**
  * True when the account's remaining allowance is at or below its provider's
- * floor. Credit mode sums the absolute remaining credit; percent mode takes
- * the lowest remaining percent, because those windows are independent budgets
- * and the most exhausted one is the one the request will hit. No reading
- * means unknown, which is not below the floor.
+ * floor. Credit mode sums the absolute remaining credit; percent mode uses the
+ * aggregate credit percentage and the lowest independent percentage window.
+ * No reading means unknown, which is not below the floor.
  */
 function belowUsageFloor(state: {
   readonly usage_floor?: number;
@@ -64,14 +63,31 @@ function belowUsageFloor(state: {
   if (windows === undefined || windows.length === 0) return false;
   const credit = totalRemainingCredit(windows);
   const percent = totalRemainingPercent(windows);
-  // A fresh reading of zero is exhausted even when the operator set no floor.
-  // Leaving it eligible made admission keep selecting the same spent account
-  // until the request failed, despite a sibling that still had allowance.
-  if ((credit !== null && credit <= 0) || (percent !== null && percent <= 0)) return true;
+  const exhaustedIndependentWindow = windows.some(
+    (window) =>
+      window.accounting !== "pooled" &&
+      typeof window.remainingPercent === "number" &&
+      Number.isFinite(window.remainingPercent) &&
+      window.remainingPercent <= 0,
+  );
+  if ((credit !== null && credit <= 0) || exhaustedIndependentWindow) return true;
+  if (credit === null && percent !== null && percent <= 0) return true;
   const floor = state.usage_floor;
   if (floor === undefined) return false;
   const remaining = state.usage_floor_unit === "credit" ? credit : percent;
   return remaining !== null && remaining <= floor;
+}
+
+function normalizeCachedBuddyQuotaWindows(
+  providerId: string,
+  windows: readonly ProviderQuotaWindow[],
+): readonly ProviderQuotaWindow[] {
+  if (providerId !== "cb" && providerId !== "cbcn" && providerId !== "workbuddy") return windows;
+  return windows.map((window) => {
+    if (window.accounting !== undefined) return window;
+    if (!window.kind.startsWith("quota:") && !window.kind.startsWith("bonus:")) return window;
+    return { ...window, accounting: "pooled" };
+  });
 }
 
 /**
@@ -424,27 +440,30 @@ export class RoutingEngine {
     snapshot: RouteSnapshot,
     tenantId: string | null,
   ): Promise<readonly RouteCandidate[]> {
-    const readings = new Map<string, readonly ProviderQuotaWindow[]>();
+    const readings = new Map<string, Promise<readonly ProviderQuotaWindow[]>>();
     return Promise.all(candidates.map(async (candidate) => {
       const accountId = candidate.provider_account_id;
       if (accountId === undefined) return candidate;
       const setting = this.resolveProviderRouting(snapshot, candidate.provider_id, candidate.tenant_id ?? tenantId);
       let windows = readings.get(accountId);
       if (windows === undefined) {
-        const cached = await getCachedQuotaEntry(
+        windows = getCachedQuotaEntry(
           quotaLens(candidate.tenant_id ?? tenantId),
           accountId,
           this.redis,
-        );
-        windows = cached?.quota.windows ?? [];
+        ).then((cached) => normalizeCachedBuddyQuotaWindows(
+          candidate.provider_id,
+          cached?.quota.windows ?? [],
+        ));
         readings.set(accountId, windows);
       }
+      const quotaWindows = await windows;
       return {
         ...candidate,
         ...(setting?.usageFloor == null
           ? {}
           : { usage_floor: setting.usageFloor, usage_floor_unit: setting.usageFloorUnit }),
-        quota_windows: windows,
+        quota_windows: quotaWindows,
       };
     }));
   }

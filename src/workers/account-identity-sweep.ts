@@ -14,7 +14,7 @@ import type { CartethyiaDatabase } from "../persistence/db-handle";
 import { providerAccounts } from "../persistence/schema";
 import { decryptCredentialToString } from "../security/crypto";
 import { decodeJwtPayload } from "../providers/authentication/oauth-flow-store";
-import { runSweep } from "./sweep";
+import { runSweep } from "./sweep-runner";
 
 /** One account whose stored credential has never had its identity read. */
 export interface UnenrichedAccount {
@@ -23,7 +23,7 @@ export interface UnenrichedAccount {
   readonly label: string;
 }
 
-export interface AccountEnrichmentSweepDeps {
+export interface AccountIdentityEnrichmentSweepDeps {
   readonly db: CartethyiaDatabase;
   /**
    * How many accounts to enrich in one pass. Identity parsing is pure CPU on
@@ -68,7 +68,9 @@ function readIdentity(secret: string): { email?: string; label?: string } {
  * column stays null until a sweep reads it, so an import never blocks on this
  * and a restart does not redo work that already succeeded.
  */
-export async function accountEnrichmentSweep(deps: AccountEnrichmentSweepDeps): Promise<void> {
+export async function accountIdentitySweep(
+  deps: AccountIdentityEnrichmentSweepDeps,
+): Promise<void> {
   const limit = deps.maxPerPass ?? 25;
 
   await runSweep<UnenrichedAccount>({

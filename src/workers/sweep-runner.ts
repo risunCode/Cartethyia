@@ -13,11 +13,11 @@
  * - **The budget is consulted between waves, never mid-wave.** A deadline that
  *   could cut a wave in half would leave work half-done with no record.
  *
- * The scheduler itself (`tasks.ts`) owns timers, re-entrancy, and the run
+ * The scheduler itself (`scheduler.ts`) owns timers, re-entrancy, and the run
  * wrapper; this module owns only the domain lifecycle above.
  */
 import { log } from "../observability/logger";
-import { runGrowingWaves } from "./tasks";
+import { runGrowingWaves } from "./scheduler";
 
 export const DEFAULT_SWEEP_CONCURRENCY = 5;
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { ScheduledTaskRegistry } from "../../src/workers/tasks";
+import { ScheduledTaskRegistry } from "../../src/workers/scheduler";
 
 /**
  * Late-registration and lifecycle rules of `ScheduledTaskRegistry`, as units.
