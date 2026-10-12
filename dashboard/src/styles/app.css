@@ -1343,6 +1343,12 @@ html[data-app="landing"] .landing-story-visual {
   -webkit-backdrop-filter: blur(calc((100 - var(--blur-cards, 30)) * var(--blur-cards-depth, 30) * 0.01px));
 }
 
+@media (max-width: 640px) {
+  .studio-model-picker {
+    max-width: calc(100vw - 210px);
+  }
+}
+
 /* Browser-native range thumbs and a track painted from the runtime fill. */
 .blur-slider {
   appearance: none;

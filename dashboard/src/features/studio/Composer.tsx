@@ -174,7 +174,7 @@ export function Composer({
             size="sm"
             type="button"
             title={model.length > 0 ? model : "Pick model"}
-            className="max-w-110 h-15 px-5 border border-inner-border rounded-control bg-hover text-caption font-semibold hover:border-border-strong hover:bg-active-pill font-mono tabular-nums [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap max-small:w-fit max-small:max-w-[calc(100vw-210px)] max-small:min-w-0 max-small:flex-none max-small:h-auto max-small:min-h-15 max-small:py-2 max-small:px-3 max-small:text-center max-small:leading-tight max-small:[&>span]:w-fit max-small:[&>span]:max-w-full max-small:[&>span]:whitespace-normal max-small:[&>span]:break-words max-small:[&>span]:text-center"
+            className="studio-model-picker max-w-110 h-15 px-5 border border-inner-border rounded-control bg-hover text-caption font-semibold hover:border-border-strong hover:bg-active-pill font-mono tabular-nums [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap max-small:w-fit max-small:min-w-0 max-small:flex-none max-small:h-auto max-small:min-h-15 max-small:py-2 max-small:px-3 max-small:text-center max-small:leading-tight max-small:[&>span]:w-fit max-small:[&>span]:max-w-full max-small:[&>span]:whitespace-normal max-small:[&>span]:break-words max-small:[&>span]:text-center"
             onClick={() => setPickerOpen(true)}
           >
             {model.length > 0 ? modelName(model) : "Pick model"}
