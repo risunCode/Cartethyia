@@ -4,6 +4,19 @@ import { resolveAllAddresses } from "../../src/network/ssrf";
 import { GatewayError } from "../../src/protocol/gateway-error";
 
 describe("direct DNS behind a broken c-ares resolver", () => {
+  test("an aborted lookup rejects promptly and preserves a typed deadline", async () => {
+    const controller = new AbortController();
+    const deadline = new GatewayError("deadline_exceeded", 504, "request deadline exceeded");
+    const pendingLookup = resolveAllAddresses(
+      `pending-${Date.now()}.example`,
+      controller.signal,
+      () => new Promise<readonly { address: string; family: number }[]>(() => undefined),
+    );
+
+    controller.abort(deadline);
+    await expect(pendingLookup).rejects.toBe(deadline);
+  });
+
   test("uses the OS resolver when the configured c-ares server refuses queries", async () => {
     const original = dns.getServers();
     dns.setServers(["127.0.0.1:9"]);
@@ -20,7 +33,13 @@ describe("direct DNS behind a broken c-ares resolver", () => {
 
   test("keeps the resolver failure diagnosable", async () => {
     try {
-      await resolveAllAddresses(`missing-${Date.now()}.invalid`, new AbortController().signal);
+      await resolveAllAddresses(
+        "missing.invalid",
+        new AbortController().signal,
+        async () => {
+          throw new Error("DNS lookup failed: getaddrinfo ENOTFOUND missing.invalid");
+        },
+      );
     } catch (error) {
       expect(error).toBeInstanceOf(GatewayError);
       expect((error as GatewayError).code).toBe("transport_unavailable");

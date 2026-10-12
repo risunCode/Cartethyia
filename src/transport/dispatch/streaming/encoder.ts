@@ -21,17 +21,32 @@ export type StreamTerminalEvent = Extract<CanonicalEvent, { type: "terminal" }>;
  */
 export const KEEPALIVE_COMMENT_BYTES = new TextEncoder().encode(": keepalive\n\n");
 
-/** Client transcript cap: the decoded copy exists for diagnosis, not replay. */
+/** Diagnostic transcript budget. Client-facing frames remain uncapped here. */
 const CLIENT_RESPONSE_CAP = 512 * 1024;
+const EVENT_TRANSCRIPT_CAP = 512 * 1024;
+const EVENT_TRANSCRIPT_HEAD_CAP = EVENT_TRANSCRIPT_CAP / 2;
+const EVENT_TRANSCRIPT_TAIL_CAP = EVENT_TRANSCRIPT_CAP - EVENT_TRANSCRIPT_HEAD_CAP;
+
+interface TruncatedEventTranscript {
+  readonly _truncated: true;
+  readonly _omitted_events: number;
+  readonly events: readonly (CanonicalEvent & { timestamp: number })[];
+  readonly usage?: UsageRecord;
+  readonly terminal?: {
+    readonly type: "terminal";
+    readonly sequence_number: number;
+    readonly state: StreamTerminalEvent["state"];
+    readonly stop_reason?: StreamTerminalEvent["stop_reason"];
+    readonly usage?: UsageRecord;
+  };
+}
 
 /** Error-frame input in the shape the dispatch stream encoder accepts. */
 export type StreamErrorFrameInput = Parameters<DispatchStreamEncoder["encodeError"]>[0];
 
 /**
- * Per-event state and framing for one stream. The mutated fields
- * (`terminal`, `usage`, `firstByteAt`, `firstContentDeltaAtMs`,
- * `lastEventAtMs`) are read by stream finalization; `streamedEvents` and the
- * client transcript become the telemetry response body.
+ * Per-event state and framing for one stream. Client framing and protocol
+ * bookkeeping process every event; only the telemetry transcript is bounded.
  */
 export class StreamEventPipeline {
   /** Terminal event once the upstream produced one (or a synthetic truncation terminal was emitted). */
@@ -41,8 +56,11 @@ export class StreamEventPipeline {
   firstByteAt: number | undefined;
   firstContentDeltaAtMs: number | undefined;
   lastEventAtMs: number | undefined;
-  /** Canonical events streamed to the client; captured as the response body for telemetry so streaming tool calls/text are traceable. */
-  readonly streamedEvents: CanonicalEvent[] = [];
+  private readonly eventTranscriptHead: Array<CanonicalEvent & { timestamp: number }> = [];
+  private readonly eventTranscriptTail: Array<CanonicalEvent & { timestamp: number }> = [];
+  private eventTranscriptHeadBytes = 0;
+  private eventTranscriptTailBytes = 0;
+  private totalEventCount = 0;
 
   private readonly recoverableResponsesPrelude: boolean;
   private clientVisibleEvent = false;
@@ -61,6 +79,11 @@ export class StreamEventPipeline {
     this.recoverableResponsesPrelude = recoverableResponsesPrelude;
   }
 
+  /** Number of canonical events processed, including those omitted from diagnostics. */
+  get eventCount(): number {
+    return this.totalEventCount;
+  }
+
   /** Whether any client-renderable event has been emitted (gates the Responses prelude retry). */
   get hasClientVisibleEvent(): boolean {
     return this.clientVisibleEvent;
@@ -69,6 +92,51 @@ export class StreamEventPipeline {
   /** The client-facing response transcript (decoded SSE/JSON) — distinct from the provider-side canonical events. */
   get clientResponseText(): string {
     return this.clientResponseTextValue;
+  }
+
+  /** Bounded canonical-event transcript for telemetry; the wire stream is unaffected. */
+  get telemetryEventTranscript():
+    | readonly (CanonicalEvent & { timestamp: number })[]
+    | TruncatedEventTranscript {
+    const events = [...this.eventTranscriptHead, ...this.eventTranscriptTail];
+    const omittedEvents = this.totalEventCount - events.length;
+    if (omittedEvents === 0) return events;
+    const terminal = this.terminal;
+    return {
+      _truncated: true,
+      _omitted_events: omittedEvents,
+      events,
+      ...(this.usage === undefined ? {} : { usage: this.usage }),
+      ...(terminal === undefined
+        ? {}
+        : {
+            terminal: {
+              type: "terminal" as const,
+              sequence_number: terminal.sequence_number,
+              state: terminal.state,
+              ...(terminal.stop_reason === undefined ? {} : { stop_reason: terminal.stop_reason }),
+              ...(terminal.usage === undefined ? {} : { usage: terminal.usage }),
+            },
+          }),
+    };
+  }
+
+  private recordTelemetryEvent(event: CanonicalEvent & { timestamp: number }): void {
+    this.totalEventCount += 1;
+    const eventBytes = Buffer.byteLength(JSON.stringify(event), "utf8");
+    if (this.eventTranscriptHeadBytes + eventBytes <= EVENT_TRANSCRIPT_HEAD_CAP) {
+      this.eventTranscriptHead.push(event);
+      this.eventTranscriptHeadBytes += eventBytes;
+      return;
+    }
+    if (eventBytes > EVENT_TRANSCRIPT_TAIL_CAP) return;
+    while (this.eventTranscriptTailBytes + eventBytes > EVENT_TRANSCRIPT_TAIL_CAP) {
+      const removed = this.eventTranscriptTail.shift();
+      if (removed === undefined) break;
+      this.eventTranscriptTailBytes -= Buffer.byteLength(JSON.stringify(removed), "utf8");
+    }
+    this.eventTranscriptTail.push(event);
+    this.eventTranscriptTailBytes += eventBytes;
   }
 
   private isClientVisibleEvent(event: CanonicalEvent): boolean {
@@ -114,7 +182,7 @@ export class StreamEventPipeline {
     controller: ReadableStreamDefaultController<Uint8Array>,
   ): boolean {
     const timestampedEvent = { ...event, timestamp: Date.now() };
-    this.streamedEvents.push(timestampedEvent);
+    this.recordTelemetryEvent(timestampedEvent);
     this.lastEventAtMs = timestampedEvent.timestamp;
 
     if (event.type === "content_delta" && this.firstContentDeltaAtMs === undefined) {
@@ -165,7 +233,11 @@ export class StreamEventPipeline {
    * client-renderable was emitted the retry guard must stay closed.
    */
   resetUncommittedPrelude(): void {
-    this.streamedEvents.length = 0;
+    this.eventTranscriptHead.length = 0;
+    this.eventTranscriptTail.length = 0;
+    this.eventTranscriptHeadBytes = 0;
+    this.eventTranscriptTailBytes = 0;
+    this.totalEventCount = 0;
     this.terminal = undefined;
     this.usage = undefined;
     this.lastEventAtMs = undefined;

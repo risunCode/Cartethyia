@@ -37,15 +37,6 @@ import {
 } from "../attempt-finalize";
 import { KEEPALIVE_COMMENT_BYTES, type StreamEventPipeline } from "./encoder";
 
-/**
- * Upstream iterator settle budget. An upstream generator whose `return()`
- * never settles (pending read the abort never rejects) would otherwise hold
- * the admission lease, pool slot, and reservation forever — the exact leak
- * the inflight backstop force-releases. The fetch is already torn down by
- * the abort, so after this budget the gateway releases unconditionally.
- */
-const ITERATOR_SETTLE_TIMEOUT_MS = 10_000;
-
 /** Collaborators the stream tail reads from the dispatch handler. */
 export interface StreamFinalizeDeps {
   readonly db: CartethyiaDatabase;
@@ -133,10 +124,11 @@ export class StreamFinalizer {
   private readonly streamFirstChunkTimeoutMs: number;
   private stallTimer: ReturnType<typeof setTimeout> | undefined;
   private clientKeepaliveTimer: ReturnType<typeof setInterval> | undefined;
+  private streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
   private streamSettled = false;
+  private streamErrorPromise: Promise<void> | undefined;
   private streamReleased = false;
-  // Stable reference so the (currently unreferenced) removal below matches
-  // what registration would remove; see `releaseStreamResources`.
+  // Stable callback identity for paired abort-listener registration/removal.
   private readonly handleAbort = (): void => this.onStreamAbort();
 
   constructor(input: StreamFinalizeInput, pipeline: StreamEventPipeline, timeouts: {
@@ -147,6 +139,7 @@ export class StreamFinalizer {
     this.pipeline = pipeline;
     this.streamStallTimeoutMs = timeouts.stallTimeoutMs;
     this.streamFirstChunkTimeoutMs = timeouts.firstChunkTimeoutMs;
+    input.state.abortController.signal.addEventListener("abort", this.handleAbort, { once: true });
   }
 
   /**
@@ -176,6 +169,23 @@ export class StreamFinalizer {
   clearStallWatchdog(): void {
     clearTimeout(this.stallTimer);
     this.stallTimer = undefined;
+  }
+
+  /**
+   * Attaches the stream controller so an abort can settle even when no pull is
+   * currently pending (for example, the client stopped reading between chunks).
+   */
+  attachController(controller: ReadableStreamDefaultController<Uint8Array>): void {
+    this.streamController = controller;
+    if (!this.input.state.abortController.signal.aborted) return;
+    this.onStreamAbort();
+    if (this.streamSettled) {
+      try {
+        controller.close();
+      } catch {
+        // The consumer may already have cancelled the response body.
+      }
+    }
   }
 
   /**
@@ -227,42 +237,84 @@ export class StreamFinalizer {
    */
   onStreamAbort(): void {
     const { state } = this.input;
+    if (state.completed || this.streamSettled) return;
     const reason = state.abortController.signal.reason;
     const drain = drainAbortReason(reason);
     const clientDisconnect =
       drain === undefined && reason instanceof DOMException && reason.name === "AbortError";
-    // A drain always defers to `pull()`: the client is still reading, so
-    // the terminal frame matters and releasing here would finalize
-    // telemetry before it (and could double-finalize).
-    if (drain !== undefined) return;
-    // A deadline/stall abort fired from inside `pull()`'s watchdog is
-    // recorded and released by that pull — defer to it. But a pull only
-    // exists while the consumer asks for data, so the same abort with no
-    // pending pull (a half-closed client) has nothing to catch it and must
-    // be released here. A client disconnect always releases: the consumer
-    // is gone, the frame would go nowhere, and the upstream iterator may
-    // ignore the abort entirely (never rejecting the pending `next()`).
+    // Let an active pull emit the terminal frame for a server drain or
+    // deadline. With no pull, no reader will handle it, so this listener must
+    // emit and close through the attached controller itself.
     if (this.pullActive && !clientDisconnect) return;
-    if (clientDisconnect && !state.outcome) {
-      state.outcome = { status: "cancelled", httpStatus: 499 };
+    // Before ReadableStream.start attaches its controller, defer server-side
+    // failures so attachController can deliver the typed terminal frame.
+    if (!clientDisconnect && this.streamController === undefined) return;
+    if (clientDisconnect) {
+      const { candidate } = this.input;
+      if (!state.outcome) {
+        state.outcome = {
+          status: "cancelled",
+          httpStatus: 499,
+          providerId: candidate.providerId,
+          ...(candidate.accountId === undefined ? {} : { accountId: candidate.accountId }),
+          ...(candidate.accountLabel === undefined ? {} : { accountLabel: candidate.accountLabel }),
+          ...(candidate.networkPoolId === undefined ? {} : { networkPoolId: candidate.networkPoolId }),
+          errorCategory: "transport_closed",
+          errorOrigin: "cartethyia",
+        };
+      }
+      if (!state.completed) {
+        const { deps } = this.input;
+        state.completed = true;
+        this.streamSettled = true;
+        if (deps.telemetryBuffer) finalizeRequestTelemetry(state, deps.telemetryBuffer);
+        metrics.proxy_requests_total.inc(1, { status: "cancelled" });
+      }
     }
-    void (async () => {
-      await this.settleUpstreamIterator();
-      await this.releaseStreamResources();
-    })();
+    this.settleUpstreamIterator();
+    if (this.streamController) {
+      if (!clientDisconnect) {
+        const failure = this.abortFailure(reason);
+        if (failure) {
+          void this.emitStreamErrorAndClose(failure, this.streamController)
+            .catch(() => undefined)
+            .finally(() => this.releaseStreamResources());
+          return;
+        }
+      }
+      try {
+        this.streamController.close();
+      } catch {
+        // The consumer may have cancelled while the abort was handled.
+      }
+    }
+    void this.releaseStreamResources();
+  }
+
+  /** Resolves an abort reason that must be shown as an SSE terminal failure. */
+  abortFailure(reason: unknown): GatewayError | undefined {
+    const drain = drainAbortReason(reason);
+    if (drain) return drain;
+    if (reason instanceof GatewayError && reason.code === "deadline_exceeded") return reason;
+    if (reason instanceof DOMException && reason.name === "TimeoutError")
+      return new GatewayError("deadline_exceeded", 504, "request deadline exceeded", {}, "cartethyia");
+    return undefined;
   }
 
   /**
-   * Bounded wait for the current upstream iterator's `return()` (see
-   * `ITERATOR_SETTLE_TIMEOUT_MS`).
+   * Requests iterator cleanup without delaying lease release. The request
+   * signal has already cancelled the outbound transport; a provider iterator
+   * may still serialize `return()` behind a pending read, so awaiting it here
+   * would keep gateway capacity occupied after the client is gone.
    */
-  async settleUpstreamIterator(): Promise<void> {
+  settleUpstreamIterator(): void {
     try {
-      const iterator = this.input.getIterator();
-      await Promise.race([
-        iterator.return?.() ?? Promise.resolve(),
-        new Promise((resolve) => setTimeout(resolve, ITERATOR_SETTLE_TIMEOUT_MS)),
-      ]);
+      const settlement = this.input.getIterator().return?.();
+      if (settlement) {
+        void Promise.resolve(settlement).catch(() => {
+          // Upstream iterator cleanup on abort is best-effort.
+        });
+      }
     } catch {
       // Upstream iterator cleanup on abort is best-effort.
     }
@@ -273,6 +325,7 @@ export class StreamFinalizer {
     this.streamReleased = true;
     const { state, deps, prepared, lease, reservation, proxySlot } = this.input;
     state.abortController.signal.removeEventListener("abort", this.handleAbort);
+    this.streamController = undefined;
     this.clearClientKeepaliveTimer();
     this.clearStallWatchdog();
     await releaseAttemptLeases(
@@ -309,7 +362,7 @@ export class StreamFinalizer {
         pipeline.enqueueEvent(
           {
             type: "terminal",
-            sequence_number: pipeline.streamedEvents.length + 1,
+            sequence_number: pipeline.eventCount + 1,
             state: "aborted",
             stop_reason: "error",
           },
@@ -347,7 +400,7 @@ export class StreamFinalizer {
           : {}),
         usage: finalUsage,
         commitUsage: finalUsage,
-        responseBody: pipeline.streamedEvents,
+        responseBody: pipeline.telemetryEventTranscript,
         ...(pipeline.clientResponseText ? { clientResponseText: pipeline.clientResponseText } : {}),
         ...(pipeline.firstContentDeltaAtMs !== undefined ? { firstContentDeltaAtMs: pipeline.firstContentDeltaAtMs } : {}),
         ...(pipeline.lastEventAtMs !== undefined ? { lastEventAtMs: pipeline.lastEventAtMs } : {}),
@@ -368,7 +421,20 @@ export class StreamFinalizer {
    * emits the SSE error frame, and releases. No-op when the terminal outcome
    * was already recorded (the `streamSettled` guard).
    */
-  async emitStreamErrorAndClose(err: unknown, controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> {
+  emitStreamErrorAndClose(
+    err: unknown,
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): Promise<void> {
+    if (this.streamSettled) return Promise.resolve();
+    if (this.streamErrorPromise) return this.streamErrorPromise;
+    this.streamErrorPromise = this.emitStreamErrorAndCloseOnce(err, controller);
+    return this.streamErrorPromise;
+  }
+
+  private async emitStreamErrorAndCloseOnce(
+    err: unknown,
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): Promise<void> {
     // Already recorded (completed or failed) — e.g. controller.close()
     // threw on the dead controller after a recorded completion. Return
     // without recording again; the caller's finally still releases.
@@ -424,7 +490,7 @@ export class StreamFinalizer {
       // after content was delivered is diagnosed from the transcript,
       // and `null` here made the drawer's panels read "no payload" for
       // exactly the requests an operator most needs to inspect.
-      responseBody: pipeline.streamedEvents.length > 0 ? pipeline.streamedEvents : null,
+      responseBody: pipeline.eventCount > 0 ? pipeline.telemetryEventTranscript : null,
       ...(pipeline.clientResponseText.length > 0 ? { clientResponseText: pipeline.clientResponseText } : {}),
     });
     this.streamSettled = true;

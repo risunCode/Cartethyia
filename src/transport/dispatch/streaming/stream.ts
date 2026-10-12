@@ -100,6 +100,35 @@ export interface StreamingDispatchInput {
 /** How often the SSE keepalive comment frame is sent while the stream is idle. */
 const CLIENT_SSE_KEEPALIVE_INTERVAL_MS = 15_000;
 
+/** Settles a pending provider read when the owning request is aborted. */
+function nextWithAbort<T>(iterator: AsyncIterator<T>, signal: AbortSignal): Promise<IteratorResult<T>> {
+  if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException("request aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => signal.removeEventListener("abort", onAbort);
+    const onAbort = (): void => {
+      cleanup();
+      reject(signal.reason ?? new DOMException("request aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    void Promise.resolve()
+      .then(() => iterator.next())
+      .then(
+        (result) => {
+          cleanup();
+          resolve(result);
+        },
+        (error: unknown) => {
+          cleanup();
+          reject(error);
+        },
+      );
+  });
+}
+
 /**
  * Streams one candidate's answer to the client.
  *
@@ -176,7 +205,7 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
   let iterable = createUpstreamIterable();
   let iterator = iterable[Symbol.asyncIterator]();
   state.upstreamDispatchStartedAtMs = Date.now();
-  let first: IteratorResult<CanonicalEvent> = await iterator.next();
+  let first: IteratorResult<CanonicalEvent> = await nextWithAbort(iterator, state.abortController.signal);
   // Function-tool search loop: collect the first attempt, and when it ends
   // in a `web_search` call, run the configured search and dispatch again.
   // This runs before any client byte is sent, so the stream still shows a
@@ -186,7 +215,7 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
   if (searchLoop !== undefined && !first.done) {
     let collected: CanonicalEvent[] = [first.value];
     for (;;) {
-      const result = await iterator.next();
+      const result = await nextWithAbort(iterator, state.abortController.signal);
       if (result.done) break;
       collected.push(result.value);
     }
@@ -278,11 +307,36 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
     return true;
   };
 
+  const failureForAbort = (): GatewayError | undefined =>
+    finalizer.abortFailure(state.abortController.signal.reason);
+
+  const finishAbortedPull = async (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): Promise<void> => {
+    const failure = failureForAbort();
+    if (!failure) {
+      await finalizer.releaseStreamResources();
+      try {
+        controller.close();
+      } catch {
+        // The client may have cancelled the body while the abort was handled.
+      }
+      return;
+    }
+    try {
+      await finalizer.emitStreamErrorAndClose(failure, controller);
+    } finally {
+      void finalizer.releaseStreamResources();
+    }
+  };
+
   // The client may already be gone before the stream is even constructed.
   if (state.abortController.signal.aborted) finalizer.onStreamAbort();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      finalizer.attachController(controller);
+      if (state.abortController.signal.aborted) return;
       finalizer.startClientKeepalive(controller, CLIENT_SSE_KEEPALIVE_INTERVAL_MS);
       for (const event of servedSearch ?? []) pipeline.enqueueEvent(event, controller);
       if (searchLoopEvents !== undefined) {
@@ -300,41 +354,7 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
       finalizer.pullActive = true;
       try {
         if (state.abortController.signal.aborted) {
-          const reason = state.abortController.signal.reason;
-          // A drain is a *server* close while the client is still reading:
-          // emit the terminal frame so it is not seen as a truncation.
-          const drainFailure = drainAbortReason(reason);
-          const deadlineFailure =
-            reason instanceof GatewayError && reason.code === "deadline_exceeded"
-              ? reason
-              : reason instanceof DOMException && reason.name === "TimeoutError"
-                ? new GatewayError(
-                    "deadline_exceeded",
-                    504,
-                    "request deadline exceeded",
-                    {},
-                    "cartethyia",
-                  )
-                : undefined;
-          const closeFailure = drainFailure ?? deadlineFailure;
-          if (closeFailure) {
-            // Hard deadline / stall watchdog / server drain: emit an SSE
-            // error so the client sees the failure instead of a silent
-            // socket close that Usage records as a generic streaming 500.
-            try {
-              await finalizer.emitStreamErrorAndClose(closeFailure, controller);
-            } finally {
-              void finalizer.releaseStreamResources();
-            }
-          } else {
-            try {
-              await iterator.return?.();
-            } catch {
-              // Upstream iterator cleanup on abort is best-effort.
-            }
-            await finalizer.releaseStreamResources();
-            controller.close();
-          }
+          await finishAbortedPull(controller);
           return;
         }
         try {
@@ -351,13 +371,17 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
             finalizer.armStallWatchdog(sawUpstreamActivity);
             let result: IteratorResult<CanonicalEvent>;
             try {
-              result = await iterator.next();
+              result = await nextWithAbort(iterator, state.abortController.signal);
             } catch (err) {
               finalizer.clearStallWatchdog();
               if (await retryUncommittedResponsesPrelude()) continue;
               throw err;
             }
             finalizer.clearStallWatchdog();
+            if (state.abortController.signal.aborted) {
+              await finishAbortedPull(controller);
+              return;
+            }
             if (result.done) {
               if (await retryUncommittedResponsesPrelude()) continue;
               await finalizer.finalizeStream(controller);
@@ -368,12 +392,17 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
           }
         } catch (err) {
           finalizer.clearStallWatchdog();
-          // A drain that landed mid-read aborts the pending `next()`, which
-          // rejects here. Emit the shutdown terminal frame rather than
-          // synthesizing a truncation terminal and a generic 502.
+          const abortFailure = failureForAbort();
+          if (state.abortController.signal.aborted && !abortFailure) {
+            await finishAbortedPull(controller);
+            return;
+          }
+          // A drain or deadline that landed mid-read aborts the pending
+          // `next()`. Preserve that typed reason instead of reporting a
+          // generic upstream failure.
           const drain = drainAbortReason(state.abortController.signal.reason);
           try {
-            await finalizer.emitStreamErrorAndClose(drain ?? err, controller);
+            await finalizer.emitStreamErrorAndClose(drain ?? abortFailure ?? err, controller);
           } finally {
             // The release must not depend on the error path completing:
             // anything that throws above it (a bookkeeping call, a dead
@@ -390,16 +419,16 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
         finalizer.pullActive = false;
       }
     },
-    async cancel() {
+    cancel() {
+      if (state.completed) return;
       // A cancelled stream may never see another pull(), so abort alone
       // would leak the quota lease, routing reservation, and pool slot.
-      // Close the upstream iterator and release everything here; the
-      // streamReleased guard keeps this idempotent against a pull()
-      // racing on the abort. The settle budget bounds a hung iterator so
-      // cancel itself cannot wedge behind it.
+      // Request upstream iterator cleanup, but do not await a generator's
+      // return(): async generators can queue it behind a permanently pending
+      // read. The request signal has already cancelled the underlying fetch.
       state.abortController.abort(new DOMException("client disconnect", "AbortError"));
-      await finalizer.settleUpstreamIterator();
-      await finalizer.releaseStreamResources();
+      finalizer.settleUpstreamIterator();
+      return finalizer.releaseStreamResources();
     },
   });
 

@@ -342,7 +342,7 @@ export async function handleProviderProxyRequest(
           ...(servedSearch === undefined
             ? {}
             : { servedSearch: servedSearchEvents(servedSearch, dispatchRequest.source_surface) }),
-          ...(nativeSearch || fallbackIntent
+          ...(nativeSearch || fallbackIntent || prepared.webSearch !== true
             ? {}
             : {
                 searchLoop: {

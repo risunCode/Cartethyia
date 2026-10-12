@@ -26,6 +26,11 @@ export interface ValidatedDestination {
   readonly port: number;
 }
 
+type DnsLookup = (
+  hostname: string,
+  options: { all: true },
+) => Promise<readonly { address: string; family: number }[]>;
+
 function ipv4Number(address: string): number {
   const parts = address.split(".");
   if (parts.length !== 4 || parts.some((part) => !/^\d+$/.test(part)))
@@ -172,8 +177,9 @@ export function validateResolvedAddresses(
 export async function resolveAllAddresses(
   hostname: string,
   signal: AbortSignal,
+  lookupFn: DnsLookup = lookup,
 ): Promise<string[]> {
-  if (signal.aborted) throw new GatewayError("transport_closed", 499, "request was cancelled");
+  if (signal.aborted) throw abortErrorForSignal(signal);
   if (isIP(hostname)) return [hostname];
   const cached = dnsCache.get(hostname);
   if (cached) {
@@ -189,19 +195,30 @@ export async function resolveAllAddresses(
     // c-ares directly, so a tunnel resolver that refuses or drops those
     // queries fails direct egress even while the OS can still answer.
     // AAAA-only resolvers can stall, so the OS lookup itself has a deadline.
-    const rows = await Promise.race([
-      lookup(hostname, { all: true }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("DNS lookup timed out")), 5_000)),
-    ]);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    let rows: readonly { address: string; family: number }[];
+    try {
+      rows = await Promise.race([
+        lookupFn(hostname, { all: true }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("DNS lookup timed out")), 5_000);
+          onAbort = () => reject(abortErrorForSignal(signal));
+          signal.addEventListener("abort", onAbort, { once: true });
+          if (signal.aborted) onAbort();
+        }),
+      ]);
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout);
+      if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+    }
     const addresses = [...new Set(rows.filter((row) => row.family === 4).map((row) => row.address))];
     const selected = addresses.length > 0 ? addresses : [...new Set(rows.map((row) => row.address))];
     if (selected.length === 0) throw new Error("no DNS answers");
     cacheDnsResult(hostname, selected, Date.now());
     return selected;
   } catch (error) {
-    // A deadline/abort surfaces as 499 (client cancelled), never 400 — the
-    // same contract the dispatch layer uses for a timed-out upstream dial.
-    if (signal.aborted) throw new GatewayError("transport_closed", 499, "request was cancelled");
+    if (signal.aborted) throw abortErrorForSignal(signal);
     // The hostname belongs to the provider's configuration, not to the
     // caller's request: a resolver that cannot answer is a network failure,
     // and reporting it as the caller's 400 `invalid_request` blamed the
@@ -214,6 +231,14 @@ export async function resolveAllAddresses(
       "network",
     );
   }
+}
+
+function abortErrorForSignal(signal: AbortSignal): GatewayError {
+  const reason = signal.reason;
+  if (reason instanceof GatewayError) return reason;
+  if (reason instanceof DOMException && reason.name === "TimeoutError")
+    return new GatewayError("deadline_exceeded", 504, "request deadline exceeded", {}, "cartethyia");
+  return new GatewayError("transport_closed", 499, "request was cancelled");
 }
 
 export async function resolveAndValidateOnce(

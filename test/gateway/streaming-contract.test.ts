@@ -36,6 +36,7 @@ import { createTestGateway, type TestGateway } from "../helpers/gateway";
 import { createWorld, type GatewayWorld } from "../helpers/fixtures";
 import { dbDescribe } from "../helpers/database";
 import type { CanonicalEvent } from "../../src/protocol/canonical-model";
+import { GatewayError } from "../../src/protocol/gateway-error";
 
 const USAGE = {
   input_tokens: 12,
@@ -185,6 +186,39 @@ dbDescribe("streaming dispatch contract", () => {
       const { body } = await streamChat();
       expect(body).toContain("Hello from Cartethyia");
     });
+
+    test("delivers events incrementally instead of buffering the full answer", async () => {
+      gateway.adapter(world.providerId, {
+        streamEvents: async function* () {
+          yield START;
+          await Bun.sleep(40);
+          yield DELTA;
+          await Bun.sleep(40);
+          yield COMPLETE;
+        },
+      });
+      const response = await gateway.json(
+        "/v1/chat/completions",
+        {
+          model: world.qualifiedModel,
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+        { token: world.token },
+      );
+      const chunks: Uint8Array[] = [];
+      const reader = response.body!.getReader();
+      for (;;) {
+        const result = await reader.read();
+        if (result.done) break;
+        chunks.push(result.value);
+      }
+      reader.releaseLock();
+      const body = new TextDecoder().decode(Buffer.concat(chunks));
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(body).toContain("Hello from Cartethyia");
+    });
   });
 
   describe("a stream that ends without a terminal event", () => {
@@ -262,6 +296,179 @@ dbDescribe("streaming dispatch contract", () => {
       gateway.adapter(world.providerId, { events: () => [] });
       await streamChat();
       expect(await settle()).toBe(0);
+    });
+
+    test("an inbound abort releases a response whose body is not being read", async () => {
+      gateway.adapter(world.providerId, { events: () => [START, DELTA, COMPLETE] });
+      const controller = new AbortController();
+      const response = await gateway.json(
+        "/v1/chat/completions",
+        {
+          model: world.qualifiedModel,
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+        { token: world.token, signal: controller.signal },
+      );
+      expect(response.status).toBe(200);
+      controller.abort();
+      expect(await settle()).toBe(0);
+    });
+
+    test("an inbound abort releases a stalled stream without reader.cancel()", async () => {
+      let releaseProvider!: () => void;
+      let markPendingRead!: () => void;
+      const providerGate = new Promise<void>((resolve) => {
+        releaseProvider = resolve;
+      });
+      const pendingRead = new Promise<void>((resolve) => {
+        markPendingRead = resolve;
+      });
+      gateway.adapter(world.providerId, {
+        streamEvents: async function* () {
+          yield START;
+          markPendingRead();
+          await providerGate;
+          yield DELTA;
+          yield COMPLETE;
+        },
+      });
+      const controller = new AbortController();
+      const response = await gateway.json(
+        "/v1/chat/completions",
+        {
+          model: world.qualifiedModel,
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+        { token: world.token, signal: controller.signal },
+      );
+      expect(response.status).toBe(200);
+      const reader = response.body?.getReader();
+      expect(reader).toBeDefined();
+      await reader?.read();
+      await pendingRead;
+      controller.abort();
+      expect(await settle()).toBe(0);
+      releaseProvider();
+      await reader?.read();
+      reader?.releaseLock();
+    });
+
+    test("a slow client bounds provider production to stream demand", async () => {
+      let produced = 0;
+      gateway.adapter(world.providerId, {
+        streamEvents: async function* () {
+          for (let index = 0; index < 100; index += 1) {
+            produced += 1;
+            yield { ...DELTA, sequence_number: index + 1 };
+          }
+          yield COMPLETE;
+        },
+      });
+      const response = await gateway.json(
+        "/v1/chat/completions",
+        {
+          model: world.qualifiedModel,
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+        { token: world.token },
+      );
+      const reader = response.body?.getReader();
+      expect(reader).toBeDefined();
+      await reader?.read();
+      await Bun.sleep(25);
+      expect(produced).toBeLessThan(10);
+      await reader?.cancel();
+      expect(await settle()).toBe(0);
+    });
+
+    test("a deadline abort with no pending read emits its typed frame and releases", async () => {
+      gateway.adapter(world.providerId, { events: () => [START, DELTA, COMPLETE] });
+      const controller = new AbortController();
+      const response = await gateway.json(
+        "/v1/chat/completions",
+        {
+          model: world.qualifiedModel,
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+        { token: world.token, signal: controller.signal },
+      );
+      controller.abort(new GatewayError("deadline_exceeded", 504, "upstream timed out", {}, "upstream"));
+      const body = await response.text();
+      expect(body).toContain("deadline_exceeded");
+      expect(body).toContain("upstream timed out");
+      expect(await settle()).toBe(0);
+    });
+
+    test("a drain with no pending read sends its shutdown frame and releases", async () => {
+      gateway.adapter(world.providerId, { events: () => [START, DELTA, COMPLETE] });
+      const controller = new AbortController();
+      const response = await gateway.json(
+        "/v1/chat/completions",
+        {
+          model: world.qualifiedModel,
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+        { token: world.token, signal: controller.signal },
+      );
+      controller.abort(new GatewayError("shutting_down", 503, "gateway restarting"));
+      const body = await response.text();
+      expect(body).toContain("shutting_down");
+      expect(body).toContain("gateway restarting");
+      expect(await settle()).toBe(0);
+    });
+
+    test("a typed deadline abort emits a 504 frame instead of a client-cancel outcome", async () => {
+      let releaseProvider!: () => void;
+      let markPendingRead!: () => void;
+      const providerGate = new Promise<void>((resolve) => {
+        releaseProvider = resolve;
+      });
+      const pendingRead = new Promise<void>((resolve) => {
+        markPendingRead = resolve;
+      });
+      gateway.adapter(world.providerId, {
+        streamEvents: async function* () {
+          yield START;
+          markPendingRead();
+          await providerGate;
+          yield DELTA;
+          yield COMPLETE;
+        },
+      });
+      const controller = new AbortController();
+      const response = await gateway.json(
+        "/v1/chat/completions",
+        {
+          model: world.qualifiedModel,
+          max_tokens: 64,
+          stream: true,
+          messages: [{ role: "user", content: "hello" }],
+        },
+        { token: world.token, signal: controller.signal },
+      );
+      const reader = response.body?.getReader();
+      expect(reader).toBeDefined();
+      await reader?.read();
+      await pendingRead;
+      controller.abort(new GatewayError("deadline_exceeded", 504, "upstream timed out", {}, "upstream"));
+      const result = await reader?.read();
+      const frame = new TextDecoder().decode(result?.value);
+      expect(frame).toContain("deadline_exceeded");
+      expect(frame).toContain("upstream timed out");
+      expect(await settle()).toBe(0);
+      releaseProvider();
+      await reader?.read();
+      reader?.releaseLock();
     });
 
     test("a client that abandons the stream mid-body releases anyway", async () => {

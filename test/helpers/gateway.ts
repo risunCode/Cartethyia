@@ -197,6 +197,8 @@ export interface DispatchRecord {
 export interface StubAdapterOptions {
   /** Replaces the default event sequence for every dispatch. */
   readonly events?: (request: CanonicalRequest) => readonly CanonicalEvent[];
+  /** Supplies a demand-driven stream for tests of timing, backpressure, and abort. */
+  readonly streamEvents?: (request: CanonicalRequest) => AsyncIterable<CanonicalEvent>;
   /** Throws instead of yielding, to exercise the failure/retry path. */
   readonly failWith?: (request: CanonicalRequest, attempt: number) => Error | undefined;
   /** Emits a non-streaming-style single response for `stream: false` requests. */
@@ -239,6 +241,13 @@ export function createStubAdapter(
       options.onDispatch?.(record);
       const failure = options.failWith?.(request, attempt);
       if (failure) throw failure;
+      if (options.streamEvents) {
+        for await (const event of options.streamEvents(request)) {
+          if (context.abort_signal.aborted) return;
+          yield event;
+        }
+        return;
+      }
       const events = options.events?.(request) ?? defaultEvents(request);
       for (const event of events) {
         // Yield to the microtask queue between frames so an aborted request is
