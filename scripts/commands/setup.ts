@@ -2,7 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { existsSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { createServer } from "node:net";
 import {
   MINIMUM_BUN_VERSION,
@@ -16,10 +16,11 @@ import {
   parseServiceUrl,
   probeTcpService,
   readEnvFile,
+  ENV_PATH,
+  PROJECT_ROOT,
 } from "../internal/env";
 import type { ProbeResult } from "../internal/env";
 import { resolveDataDir, resolveDbMode } from "../../src/persistence/db-mode";
-const projectRoot = resolve(import.meta.dir, "..", "..");
 
 async function ask(question: string, defaultValue = ""): Promise<string> {
   const rl = createInterface({ input, output });
@@ -33,7 +34,7 @@ async function ask(question: string, defaultValue = ""): Promise<string> {
 }
 
 async function updateEnv(values: Readonly<Record<string, string>>): Promise<void> {
-  const envPath = resolve(projectRoot, ".env");
+  const envPath = ENV_PATH;
   const lines = (await readFile(envPath, "utf8")).split(/\r?\n/);
   const replaced = new Set<string>();
   const output = lines.map((line) => {
@@ -69,7 +70,7 @@ interface SetupConfig {
 
 function loadConfig(): SetupConfig {
   return {
-    envPath: resolve(projectRoot, ".env"),
+    envPath: ENV_PATH,
     dbUrl: process.env.DATABASE_URL ?? "",
     redisUrl: process.env.REDIS_URL ?? "",
     probeTimeoutMs: 3000,
@@ -78,7 +79,7 @@ function loadConfig(): SetupConfig {
 }
 
 async function setupEnvFile(config: SetupConfig): Promise<boolean> {
-  const examplePath = resolve(projectRoot, ".env.example");
+  const examplePath = resolve(PROJECT_ROOT, ".env.example");
 
   if (existsSync(config.envPath)) {
     const fileEnv: Record<string, string> = await readEnvFile(config.envPath).catch(() => ({}) as Record<string, string>);
@@ -109,7 +110,7 @@ async function setupEnvFile(config: SetupConfig): Promise<boolean> {
   const body = await mandatoryEnvBody(examplePath, {
     CARTETHYIA_ENCRYPTION_KEY: generated,
   });
-  await writeFile(config.envPath, body, "utf8");
+  await writeFile(config.envPath, body, { encoding: "utf8", mode: 0o600 });
   console.warn("✨ Created .env from .env.example (mandatory entries only)");
   console.warn("🔑 Auto-generated CARTETHYIA_ENCRYPTION_KEY in .env — keep it safe");
 
@@ -140,6 +141,10 @@ function nonInteractive(): boolean {
   return process.argv.includes("--non-interactive") || !process.stdin.isTTY;
 }
 
+function setupCommand(): string {
+  return process.env.CARTETHYIA_CONFIG_DIR ? "cartethyia setup" : "bun setup";
+}
+
 /**
  * Refuses to continue on a Bun older than the repository declares. Printed as
  * one sentence: a stack trace here tells a first-time installer nothing.
@@ -161,7 +166,8 @@ function assertBunVersion(): void {
 async function chooseDbMode(envExisted: boolean): Promise<void> {
   const alreadyChosen = envExisted && Boolean(process.env.CARTETHYIA_DB_MODE?.trim());
   if (alreadyChosen || nonInteractive()) return;
-  console.log("Lite needs nothing else installed. Full needs a PostgreSQL server that is already running.");
+  console.log("Lite uses embedded SQLite and needs no database server; it suits a single instance.");
+  console.log("Full uses PostgreSQL for server-backed deployments; you must provide a reachable PostgreSQL server. Redis is optional unless you need cross-process coordination.");
   const answer = (await ask(
     "Database mode? lite / full",
     "lite",
@@ -268,7 +274,7 @@ async function ensureFullDatabase(timeoutMs: number): Promise<void> {
   if (nonInteractive()) {
     if (!parsed) {
       throw new Error(
-        "Full mode needs DATABASE_URL. Set it in .env and run again, or run without --non-interactive.",
+        `Full mode needs DATABASE_URL. Set it in ${ENV_PATH} and run ${setupCommand()} again, or run without --non-interactive.`,
       );
     }
     for (const hint of getOsHints("postgres")) console.log(`  ${hint}`);
@@ -298,12 +304,13 @@ async function ensureFullDatabase(timeoutMs: number): Promise<void> {
   console.log(`✓ PostgreSQL is reachable at ${chosen.host}:${chosen.port}\n`);
 }
 
-async function setup(): Promise<void> {
+export async function setup(): Promise<void> {
   console.log("🚀 Setting up Cartethyia...\n");
   assertBunVersion();
 
-  // Step 1: Setup .env file
-  const envPath = resolve(projectRoot, ".env");
+  // Step 1: Setup the user config file for npm installs, repo .env for dev.
+  const envPath = ENV_PATH;
+  mkdirSync(dirname(envPath), { recursive: true });
   const envCreated = await setupEnvFile({
     envPath,
     dbUrl: "",
@@ -346,7 +353,7 @@ async function setup(): Promise<void> {
     if (config.redisUrl.trim() !== "") {
       console.log("📦 Starting Docker Compose Redis service...");
       const proc = Bun.spawn(["docker", "compose", "up", "-d", "redis"], {
-        cwd: projectRoot,
+        cwd: PROJECT_ROOT,
         stdio: ["inherit", "inherit", "inherit"],
         timeout: 30_000,
       });
@@ -362,6 +369,13 @@ async function setup(): Promise<void> {
 
   // Step 4: Probe Postgres in full mode; lite verifies the data dir instead.
   const dbMode = resolveDbMode();
+  if (process.env.CARTETHYIA_CONFIG_DIR && nonInteractive() && dbMode === "full") {
+    if (fileEnv.CARTETHYIA_DB_MODE !== "full" || !fileEnv.DATABASE_URL?.trim()) {
+      throw new Error(
+        `Non-interactive Full setup requires CARTETHYIA_DB_MODE=full and DATABASE_URL already saved in ${envPath}; shell-only values are not persisted.`,
+      );
+    }
+  }
   if (dbMode === "lite") {
     console.log("🗂️  Lite mode: embedded SQLite, no PostgreSQL to install");
     const dataDir = resolveDataDir();
@@ -399,20 +413,24 @@ async function setup(): Promise<void> {
   console.log("✅ Setup complete.");
   console.log("");
   const port = process.env.PORT?.trim() || DEFAULT_PORT;
-  // Two ways in, and which one is right depends on why the operator is here.
-  // `bun run start` runs the compiled binary and refuses when it is missing, so
-  // naming it without the build that produces it sends a first-timer straight
-  // into "binary is missing; run bun run build first". `bun run dev` skips the
-  // build and serves the dashboard from its own dev server, which is the one to
-  // use while changing source.
-  console.log("Next — pick one:");
-  console.log("");
-  console.log("  bun run build && bun run start");
-  console.log("    Production. Builds the dashboard, AOT manifest, and binary first.");
-  console.log("");
-  console.log("  bun run dev");
-  console.log("    Development. No build; hot reload, dashboard on 5173, API on");
-  console.log(`    ${port}. Use this while changing source.`);
+  if (process.env.CARTETHYIA_CONFIG_DIR) {
+    console.log("Next — start Cartethyia:");
+    console.log("");
+    console.log("  cartethyia tray");
+    console.log("    Runs the gateway with a system-tray menu (Open Dashboard, Update, Visit Repository, Exit).");
+    console.log("");
+    console.log("  cartethyia start");
+    console.log("    Runs the gateway in this terminal without the tray.");
+  } else {
+    console.log("Next — pick one:");
+    console.log("");
+    console.log("  bun run build && bun run start");
+    console.log("    Production. Builds the dashboard, AOT manifest, and binary first.");
+    console.log("");
+    console.log("  bun run dev");
+    console.log("    Development. No build; hot reload, dashboard on 5173, API on");
+    console.log(`    ${port}. Use this while changing source.`);
+  }
   console.log("");
   console.log(`Then open http://localhost:${port}/console — the first visit asks you to create the admin user.`);
 }

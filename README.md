@@ -26,6 +26,35 @@ optional Redis coordination.
 > The stable release will be published on `main` once the current development
 > cycle is considered ready.
 
+## Install with npm
+
+The npm package ships Cartethyia's source and dashboard assets; **Bun 1.4.0 or
+newer is required to run it**. Install Node.js/npm and Bun first, then install the CLI:
+
+```bash
+npm install --global cartethyia
+cartethyia setup
+cartethyia tray
+```
+
+Setup asks you to choose a database mode:
+
+- **Lite** uses embedded SQLite and needs no database server. It is intended for
+  a single Cartethyia instance and is the easiest local install.
+- **Full** uses PostgreSQL and requires a reachable server you operate or already
+  have access to; the installer does not install PostgreSQL. Redis is optional
+  for one process and needed when coordination must be shared between processes.
+
+`cartethyia tray` runs the gateway with a system-tray menu for **Open Dashboard**,
+**Update**, **Visit Repository**, and **Exit**. `cartethyia start` runs without the
+tray. Both store configuration in the current user's OS config directory and
+application data in the OS data directory, not inside npm's global package.
+
+The tray's **Update** action and `cartethyia update` use npm to install the latest
+published package; the tray action gracefully stops and restarts the gateway.
+The tray command stays attached to the terminal that launched it. To remove the
+CLI, run `npm uninstall --global cartethyia`.
+
 ## Why Cartethyia?
 
 | Capability | Operational value |

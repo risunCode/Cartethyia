@@ -3,6 +3,7 @@
  */
 
 import { CONFIG_SPEC, readInt, readOptionalText, readText } from "./spec";
+import { resolvePackagePath } from "./package-paths";
 
 /** Resolves the HTTP listener port from the process environment. */
 export function resolvePort(): number {
@@ -11,6 +12,7 @@ export function resolvePort(): number {
 
 /** Resolves the dashboard static asset directory. */
 export function resolveDashboardDist(): string {
+  if (!process.env.DASHBOARD_DIST?.trim()) return resolvePackagePath("dist", "dashboard");
   return readText("DASHBOARD_DIST", CONFIG_SPEC.DASHBOARD_DIST);
 }
 

@@ -71,6 +71,43 @@ Lite is not a reduced feature edition. To move to Full later, export a JSON
 backup from Lite and import it into the Full instance. The configuration does
 not need to be rebuilt manually.
 
+## npm global package
+
+For an installed CLI, install Bun 1.4.0 or newer and npm, then run:
+
+```bash
+npm install --global cartethyia
+cartethyia setup
+cartethyia tray
+```
+
+The setup wizard creates the encryption key, asks Lite or Full on a fresh
+interactive install, checks the selected database, and stores `.env` in the
+user's OS config directory. The source package and built dashboard remain in
+npm's global installation; generated config and SQLite data stay outside it.
+
+Lite uses embedded SQLite and needs no database server; it suits one local
+instance. Full uses PostgreSQL and requires an already-running, reachable server
+configured through `DATABASE_URL`; npm setup does not install PostgreSQL. Redis
+is optional for one process and needed when coordination is shared across
+processes or instances.
+
+`cartethyia start` runs the gateway in the foreground. `cartethyia tray` also
+starts a system-tray menu with **Open Dashboard**, **Update**, **Visit Repository**,
+and **Exit**. Exit and Update request the gateway's authenticated loopback drain
+endpoint before stopping it. Update delegates to npm (`cartethyia update` is the
+terminal equivalent) and restarts the gateway after a successful package update.
+The tray process remains attached to its launching terminal; this does not
+install an OS logon/startup service.
+
+For automation, `cartethyia setup --non-interactive` never prompts and uses the
+persisted user config. Full mode must already have `CARTETHYIA_DB_MODE=full` and
+a reachable `DATABASE_URL` in that config; credentials supplied only in the
+calling shell are not copied to disk. On Linux the config directory follows
+`XDG_CONFIG_HOME` (or `~/.config/Cartethyia`); macOS uses
+`~/Library/Application Support/Cartethyia`, and Windows uses `%APPDATA%\\Cartethyia`.
+Set `CARTETHYIA_CONFIG_DIR` to override the config location.
+
 ## 3. Install dependencies
 
 From the repository root, install the Bun dependencies:

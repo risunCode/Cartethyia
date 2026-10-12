@@ -2,6 +2,7 @@
 import { sql } from "drizzle-orm";
 import { existsSync, readdirSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { resolvePackagePath } from "../config/package-paths";
 import type { CartethyiaDatabase } from "./db-handle";
 
 /**
@@ -16,7 +17,7 @@ export const LEDGER_DDL = `CREATE TABLE IF NOT EXISTS ${MIGRATION_LEDGER_TABLE} 
 )`;
 
 export function resolveMigrationsFolder(): string {
-  const folder = resolve(process.cwd(), "migrations", "full-postgres");
+  const folder = resolvePackagePath("migrations", "full-postgres");
   if (!existsSync(folder)) {
     throw new Error(`Migrations folder not found: ${folder}`);
   }

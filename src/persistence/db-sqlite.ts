@@ -4,7 +4,8 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { getTableColumns, getTableName } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
+import { resolvePackagePath } from "../config/package-paths";
 import { fullSchema, type DatabaseHandle } from "./db-handle";
 import {
   BASELINE_MIGRATION_ID,
@@ -416,7 +417,7 @@ function applyFilePragmas(db: Database): void {
 
 /** The SQLite set lives beside the PostgreSQL one, never inside it. */
 export function resolveSqliteMigrationsFolder(): string {
-  return resolve(process.cwd(), "migrations", "lite-sqlite3");
+  return resolvePackagePath("migrations", "lite-sqlite3");
 }
 
 export async function applySqliteMigrations(

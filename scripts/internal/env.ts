@@ -1,21 +1,24 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { PACKAGE_ROOT } from "../../src/config/package-paths";
 
 /**
  * Absolute path of the repository root.
  *
- * Every operational script needs it, and deriving it per script is how
- * `doctor` came to look for `.env` one directory *above* the checkout
- * (it used `../..` from `scripts/`, which is only correct from a nested dir).
- * One authority, derived from this module's own location, so a script can
- * never disagree with its neighbours about where the project lives.
+ * Operational scripts and the npm runtime share one package-root resolver so
+ * assets and repository config do not depend on the caller's working directory.
  */
-export const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+export const PROJECT_ROOT = PACKAGE_ROOT;
 
-/** Absolute path of the repository's `.env`. */
-export const ENV_PATH = resolve(PROJECT_ROOT, ".env");
+/** Resolve the active `.env`; npm CLI sets a user-owned config directory. */
+export function resolveEnvPath(env: NodeJS.ProcessEnv = process.env): string {
+  const configDir = env.CARTETHYIA_CONFIG_DIR?.trim();
+  return configDir ? resolve(configDir, ".env") : resolve(PROJECT_ROOT, ".env");
+}
+
+/** Absolute path of the active `.env`. */
+export const ENV_PATH = resolveEnvPath();
 
 /**
  * Reads a dotenv-style file without overriding already-exported variables.
