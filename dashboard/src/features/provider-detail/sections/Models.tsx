@@ -23,6 +23,7 @@ import { Input } from "../../../components/ui/input";
 import { Select } from "../../../components/ui/select";
 import { Inline } from "../../../components/ui/inline";
 import { Stack } from "../../../components/ui/stack";
+import { Banner } from "../../../components/patterns/banner";
 import {
   useDeleteProviderModel,
   useProbeModel,
@@ -339,14 +340,14 @@ export function AddModelModal({
           </div>
         )}
         {testState === "passed" && (
-          <div className="rounded-control border border-[color-mix(in_srgb,var(--green)_40%,transparent)] bg-[color-mix(in_srgb,var(--green)_8%,transparent)] px-5 py-4 text-caption text-[var(--green)]">
+          <Banner tone="success" live="status">
             Model test passed — ready to add.
-          </div>
+          </Banner>
         )}
         {testState === "failed" && (
-          <div className="rounded-control border border-[color-mix(in_srgb,var(--red)_40%,transparent)] bg-[color-mix(in_srgb,var(--red)_8%,transparent)] px-5 py-4 text-caption text-[var(--red)]">
+          <Banner tone="danger" live="alert">
             {testError || "Model test failed."}
-          </div>
+          </Banner>
         )}
       </Stack>
     </Dialog>

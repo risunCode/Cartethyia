@@ -15,10 +15,6 @@
     "staticInline": 0,
     "arbitrary": 4
   },
-  "src/components/BackupPanel.tsx": {
-    "staticInline": 0,
-    "arbitrary": 2
-  },
   "src/components/ModelPicker.tsx": {
     "staticInline": 0,
     "arbitrary": 2
@@ -53,7 +49,7 @@
   },
   "src/features/provider-detail/sections/Models.tsx": {
     "staticInline": 0,
-    "arbitrary": 8
+    "arbitrary": 4
   },
   "src/features/providers/ProvidersPage.tsx": {
     "staticInline": 0,
@@ -67,20 +63,12 @@
     "staticInline": 0,
     "arbitrary": 1
   },
-  "src/features/session/SetupPage.tsx": {
-    "staticInline": 0,
-    "arbitrary": 2
-  },
-  "src/features/settings/SettingsPage.tsx": {
-    "staticInline": 0,
-    "arbitrary": 2
-  },
   "src/features/studio/ChatBubble.tsx": {
     "staticInline": 0,
     "arbitrary": 8
   },
   "src/features/usage/UsagePage.tsx": {
     "staticInline": 0,
-    "arbitrary": 8
+    "arbitrary": 6
   }
 }

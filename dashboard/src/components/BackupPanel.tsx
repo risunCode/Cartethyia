@@ -1,6 +1,7 @@
 import { DatabaseBackup, Download, Trash2, Upload } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import { Button } from "./ui/button";
+import { Banner } from "./patterns/banner";
 import { Card, CardBody, CardHeader } from "./ui/card";
 import { Input } from "./ui/input";
 import { Stack } from "./ui/stack";
@@ -235,10 +236,10 @@ export function BackupPanel(): ReactNode {
               <p className="mt-1 text-badge text-text-tertiary">Detected format: {format === "nine_router" ? "router export" : "Cartethyia backup"}</p>
             ) : null}
             {restoreRows.length > 0 ? (
-              <div className="rounded-control border border-[color-mix(in_srgb,var(--green)_40%,transparent)] bg-[color-mix(in_srgb,var(--green)_8%,transparent)] px-5 py-4 text-caption text-[var(--green)]">
+              <Banner tone="success" surface="raised" live="status">
                 <strong>Restored rows</strong>
                 <ul>{restoreRows.map(([table, count]) => <li key={table}>{table}: {count}</li>)}</ul>
-              </div>
+              </Banner>
             ) : null}
             {report !== null ? <ImportReportPanel report={report} /> : null}
           </Stack>

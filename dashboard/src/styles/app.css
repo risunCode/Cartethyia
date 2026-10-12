@@ -956,3 +956,48 @@ html[data-app="landing"] #root {
   background: var(--accent-foreground);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 35%, transparent);
 }
+
+/*
+ * Banner tinting. The status colour is chosen by the block's `data-tone`, so the
+ * mix exists once per tone instead of once per call site — eight sites were
+ * each spelling their own `color-mix(…)` and the alphas had already drifted
+ * apart (40% here, 45% on the setup chip).
+ *
+ * `--banner-accent` is the resolved status colour; the block reads only
+ * `--banner-line` and `--banner-surface`, so a fourth tone is a selector here
+ * and nothing else.
+ */
+.banner {
+  --banner-accent: var(--status-info);
+}
+.banner[data-tone="success"] {
+  --banner-accent: var(--status-success);
+  --banner-ink: var(--status-success);
+}
+.banner[data-tone="danger"] {
+  --banner-accent: var(--status-danger);
+  --banner-ink: var(--status-danger);
+}
+.banner[data-tone="warning"] {
+  --banner-accent: var(--status-warning);
+  --banner-ink: var(--text-secondary);
+}
+
+/*
+ * `page` washes over transparent, for a banner on the page's own background.
+ * `raised` composites over the surface it sits on, because a translucent wash
+ * on a card would show the card's colour through and read as a different tone.
+ */
+.banner[data-surface="page"] {
+  --banner-line: color-mix(in srgb, var(--banner-accent) var(--banner-line-alpha), transparent);
+  --banner-surface: color-mix(in srgb, var(--banner-accent) var(--banner-surface-alpha), transparent);
+}
+.banner[data-surface="raised"] {
+  --banner-line: color-mix(in srgb, var(--banner-accent) var(--banner-line-alpha), var(--inner-border));
+  --banner-surface: color-mix(in srgb, var(--banner-accent) var(--banner-surface-alpha), var(--surface-2));
+}
+.banner {
+  border-color: var(--banner-line);
+  background: var(--banner-surface);
+  color: var(--banner-ink);
+}

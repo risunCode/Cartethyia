@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/button";
 import { Card, CardBody, CardHeader } from "../../components/ui/card";
 import { ErrorState, LoadingState } from "../../components/ui/state";
 import { Stack } from "../../components/ui/stack";
+import { Banner } from "../../components/patterns/banner";
 import { BackupPanel } from "../../components/BackupPanel";
 import { toast } from "../../lib/toast";
 import { useChangePassword } from "../../hooks/auth";
@@ -83,9 +84,9 @@ function PrivacyPanel(): ReactNode {
                 ]}
               />
               {settings.telemetryPayloadDepth !== "minimum" ? (
-                <div role="note" className="rounded-control border border-[color-mix(in_srgb,var(--amber)_35%,var(--inner-border))] bg-[color-mix(in_srgb,var(--amber)_8%,var(--surface-2))] px-5 py-4 text-caption text-text-secondary">
+                <Banner tone="warning" surface="raised" className="text-text-secondary">
                   <strong>High CPU and memory while this is on.</strong> Use it to debug, then switch back to Metadata or Minimum.
-                </div>
+                </Banner>
               ) : null}
             </div>
           ) : null}

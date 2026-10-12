@@ -441,7 +441,7 @@ function BackupSummary({ preview }: { readonly preview: BackupPreview }): ReactN
         </span>
         <span className="inline-flex items-center flex-none px-3.5 py-px border border-inner-border rounded-md bg-surface-2 text-text-secondary text-badge tabular-nums">v{preview.version}</span>
         {unsupported.length > 0 ? (
-          <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] text-status-warning">
+          <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-warning-line text-status-warning">
             {unsupported.length} unsupported
           </span>
         ) : null}
@@ -469,7 +469,7 @@ function BackupSummary({ preview }: { readonly preview: BackupPreview }): ReactN
                   {row.supported ? (
                     row.count
                   ) : (
-                    <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-[color-mix(in_srgb,var(--status-warning)_45%,transparent)] text-status-warning">unsupported</span>
+                    <span className="inline-flex items-center flex-none px-3.5 py-px border rounded-md bg-surface-2 text-badge tabular-nums border-warning-line text-status-warning">unsupported</span>
                   )}
                 </td>
               </tr>

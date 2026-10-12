@@ -181,6 +181,16 @@ Released 2026-10-12.
   breakpoints are tokens rather than literals. All 464 static inline styles are
   gone, and 462 arbitrary literal utilities are down to 79, both held by a
   ratchet that no file may exceed (`dashboard/style-guard.json`).
+- The tinted inline banner is now one block, `components/patterns/banner.tsx`,
+  instead of six call sites each writing its own `color-mix(in srgb, …)`. The
+  tint is `.banner` in `app.css`, keyed by `data-tone`, so a tone change is one
+  rule and a fourth tone is one selector. The alphas had already drifted per
+  site — 40% line / 8% wash against 45% on the setup chips — which is what a
+  per-site decision looks like once nothing holds it together. Callers pass
+  `surface="raised"` when the banner sits on a card, so the translucent wash
+  cannot composite against the card's own colour. The setup chips, which fill
+  with `surface-2` rather than washing, take a `--color-warning-line` token
+  instead of the block; rendering is unchanged there.
 - `Model Lab` is the Studio surface: the old playground is retired from both the
   console and the dashboard (`0011_drop_studio_sessions.sql`), and routed models
   are chatable.

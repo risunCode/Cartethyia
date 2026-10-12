@@ -79,6 +79,23 @@
   /** The uppercase-eyebrow letter-spacing the section headers and stat labels use. */
   --tracking-label: 0.08em;
   --tracking-code: 0.18em;
+
+  /*
+   * Banner tints. Declared as bare custom properties rather than `--color-*`
+   * theme keys because the value depends on the banner's tone, which is a
+   * runtime attribute — `.banner` sets `--banner-line`/`--banner-surface` per
+   * tone in `app.css`, and the block reads only those two names.
+   */
+  --banner-line-alpha: 40%;
+  --banner-surface-alpha: 8%;
+
+  /*
+   * A warning-tinted rule over the surface itself, for the setup chips that fill
+   * with `surface-2` rather than washing. Distinct from `--banner-line-*`, which
+   * mixes toward transparent — these two sit on an opaque card, where a
+   * transparent mix would composite against whatever painted behind it.
+   */
+  --color-warning-line: color-mix(in srgb, var(--status-warning) 45%, transparent);
   --ease-standard: ease;
   --color-green-soft: var(--green-soft);
   --color-overlay: rgb(0 0 0 / 0.4);

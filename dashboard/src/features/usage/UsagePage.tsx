@@ -43,6 +43,7 @@ import { Drawer } from "../../components/ui/drawer";
 import { Select } from "../../components/ui/select";
 import { Inline } from "../../components/ui/inline";
 import { Stack } from "../../components/ui/stack";
+import { Banner } from "../../components/patterns/banner";
 import { useReducedMotion } from "../../hooks/use-reduced-motion";
 import {
   useUsageBy,
@@ -966,14 +967,14 @@ function RequestDetailDrawer({
 
 
           {detail.errorKind ? (
-            <div role="alert" className="flex flex-col gap-2 rounded-control border border-[color-mix(in_srgb,var(--red)_40%,transparent)] bg-[color-mix(in_srgb,var(--red)_8%,transparent)] px-5 py-4 text-caption text-[var(--red)] [overflow-wrap:anywhere] break-words">
+            <Banner tone="danger" live="alert" className="flex flex-col gap-2 [overflow-wrap:anywhere] break-words">
               <strong className="text-caption">
                 {errorLabel(detail.status, detail.errorKind, detail.errorOrigin, detail.httpStatus)}
               </strong>
               <span className="font-mono tabular-nums text-text-tertiary text-micro [overflow-wrap:anywhere]">
                 {detail.errorKind}
               </span>
-            </div>
+            </Banner>
           ) : null}
           <section className="border border-inner-border rounded-control overflow-hidden">
             <div className="border-b border-inner-border px-6 py-5 text-caption font-bold">
