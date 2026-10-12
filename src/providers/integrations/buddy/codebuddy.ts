@@ -87,7 +87,7 @@ function codeBuddyIntlPrePayload(
   void request;
 }
 
-// Model catalog — current CodeBuddy INTL catalog (20 entries)
+// Model catalog — shared CodeBuddy / WorkBuddy international roster
 
 const CODEBUDDY_INTL_RAW: readonly BuddyRawEntry[] = BUDDY_SHARED_RAW;
 
@@ -167,4 +167,3 @@ export function createCodeBuddyAdapter(fetchImpl?: typeof fetch): ProviderAdapte
     { variant: "IDE", systemPrompt: CODEBUDDY_SYSTEM_PROMPT, baseUrl: CODEBUDDY_BASE_URL },
   );
 }
-

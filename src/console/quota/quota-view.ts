@@ -1,5 +1,6 @@
 import { providerAccounts } from "../../persistence/schema";
 import type { ProviderQuotaResult } from "../../providers/quota/quota-contracts";
+import { log } from "../../observability/logger";
 import { GLOBAL_QUOTA_LENS } from "./cache";
 import {
   QUOTA_REFRESH_TIMEOUT_MS,
@@ -19,6 +20,7 @@ export interface QuotaRefreshView {
   readonly lastAttemptAt: string | null;
   readonly lastSuccessAt: string | null;
   readonly error: string | null;
+  readonly refreshError?: string | null;
 }
 
 interface BackgroundQuotaRefreshJob {
@@ -34,7 +36,9 @@ const MAX_BACKGROUND_QUOTA_REFRESHES = 4;
 
 /** Accounts currently queued or in flight, for the overview's `pending` flag. */
 export function pendingQuotaRefreshes(): ReadonlySet<string> {
-  return activeBackgroundQuotaRefreshes;
+  const pending = new Set(activeBackgroundQuotaRefreshes);
+  for (const job of backgroundQuotaRefreshQueue) pending.add(job.target.accountId);
+  return pending;
 }
 
 function drainBackgroundQuotaRefreshes(): void {
@@ -51,7 +55,12 @@ function drainBackgroundQuotaRefreshes(): void {
       job.target,
       signalFetch(AbortSignal.timeout(QUOTA_REFRESH_TIMEOUT_MS)),
     )
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        log.error(
+          `[quota] background refresh failed for account=${job.target.accountId}`,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      })
       .finally(() => {
         activeBackgroundQuotaRefreshes.delete(job.target.accountId);
         drainBackgroundQuotaRefreshes();
@@ -84,19 +93,22 @@ export function toQuotaView(
     fetchedAt?: string | null;
     lastAttemptAt?: string | null;
     lastSuccessAt?: string | null;
+    refreshError?: string | null;
     status?: "ready" | "error" | "refreshing";
   } = {},
 ): QuotaRefreshView {
   const fetchedAt = timestamps.fetchedAt ?? account.lastSuccessAt?.toISOString() ?? null;
+  const error = timestamps.refreshError ?? quota.error ?? null;
   return {
     source: quota.source,
-    status: timestamps.status ?? (quota.error ? "error" : "ready"),
+    status: timestamps.status ?? (error !== null ? "error" : "ready"),
     plan: quota.plan ?? null,
     windows: quota.windows,
     fetchedAt,
     lastAttemptAt: timestamps.lastAttemptAt ?? null,
     lastSuccessAt: timestamps.lastSuccessAt ?? account.lastSuccessAt?.toISOString() ?? null,
-    error: quota.error ?? null,
+    error,
+    refreshError: timestamps.refreshError ?? null,
   };
 }
 

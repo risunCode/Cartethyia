@@ -56,6 +56,15 @@ async function workbuddyDesktopVersion(response: Response): Promise<string | nul
   }
 }
 
+async function kiroCaskVersion(response: Response): Promise<string | null> {
+  try {
+    const data = (await response.json()) as { version?: unknown };
+    return isSemverish(data.version) ? data.version.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function codeBuddyCnVersion(response: Response): Promise<string | null> {
   try {
     const data = (await response.json()) as { version?: unknown };
@@ -111,8 +120,8 @@ async function githubReleaseVersion(response: Response): Promise<string | null> 
  * value the client stamps.
  *
  * How to rediscover it — take it from the shipped build, never from guesswork:
- *   1. The IDE installer lives on the vendor's download feed, under a path that
- *      repeats the version:
+ *   1. The IDE installer is published on the vendor's download feed under a
+ *      path that repeats the version:
  *      `https://prod.download.desktop.kiro.dev/releases/stable/win32-x64/signed/<v>/kiro-ide-<v>-stable-win32-x64.exe`
  *   2. Unpack it. The exe's payload is an LZMA stream behind a 4-byte tag:
  *      `7z x` the exe, drop the 4-byte tag from the extracted `[0]`, then
@@ -232,6 +241,20 @@ export const VERSION_SOURCES = {
       },
     ],
   },
+  workbuddyCnClient: {
+    key: "workbuddy-cn-client",
+    fallback: "5.7.7.40774747",
+    sources: [
+      {
+        url: "https://www.workbuddy.cn/v2/update?platform=workbuddy-win32-x64-user",
+        extract: workbuddyDesktopVersion,
+      },
+      {
+        url: "https://www.workbuddy.cn/v2/update?platform=workbuddy-darwin-arm64",
+        extract: workbuddyDesktopVersion,
+      },
+    ],
+  },
   workbuddyCli: {
     key: "workbuddy",
     fallback: "2.164.0",
@@ -247,8 +270,17 @@ export const VERSION_SOURCES = {
   },
   kiro: {
     key: "kiro",
-    fallback: "1.2.37",
-    sources: [{ url: "https://kiro.dev/downloads/", extract: kiroVersion }],
+    fallback: "1.2.56",
+    sources: [
+      {
+        // Kiro's downloads page no longer exposes a stable version string.
+        // Homebrew tracks the official installer URL and exposes its version
+        // as JSON; keep the product page parser as a fallback.
+        url: "https://formulae.brew.sh/api/cask/kiro.json",
+        extract: kiroCaskVersion,
+      },
+      { url: "https://kiro.dev/downloads/", extract: kiroVersion },
+    ],
   },
   codebuddy: {
     key: "codebuddy",
@@ -275,7 +307,7 @@ export const VERSION_SOURCES = {
     // Current `@anthropic-ai/claude-code` release, so the billing
     // `cc_version=` suffix and the `claude-cli/` User-Agent stay on what
     // upstream ships.
-    fallback: "2.1.293",
+    fallback: "2.1.296",
     sources: [{ url: "https://registry.npmjs.org/@anthropic-ai/claude-code/latest" }],
   },
   claudeSdk: {
@@ -287,7 +319,7 @@ export const VERSION_SOURCES = {
     // discovered: it would advertise a version Claude Code never bundled. Bump
     // alongside the CLI. Read it from the shipped native binary, which defines
     // the version string the template interpolates — never from guesswork.
-    fallback: "0.127.0",
+    fallback: "0.128.0",
     sources: [],
   },
   github: {
@@ -337,6 +369,7 @@ const resolvers = {
   clineSdk: createClientVersionResolver({ ...VERSION_SOURCES.clineSdk, client: "cline-sdk" }),
   codex: createClientVersionResolver({ ...VERSION_SOURCES.codex, client: "codex" }),
   workbuddyClient: createClientVersionResolver({ ...VERSION_SOURCES.workbuddyClient, client: "workbuddy" }),
+  workbuddyCnClient: createClientVersionResolver({ ...VERSION_SOURCES.workbuddyCnClient, client: "workbuddy-cn" }),
   workbuddyCli: createClientVersionResolver({ ...VERSION_SOURCES.workbuddyCli, client: "codebuddy" }),
   kimiCli: createClientVersionResolver({ ...VERSION_SOURCES.kimiCli, client: "kimi" }),
   codebuddy: createClientVersionResolver({ ...VERSION_SOURCES.codebuddy, client: "codebuddy" }),
@@ -363,6 +396,7 @@ const PROVIDER_VERSION_RESOLVERS: Readonly<Record<string, ClientVersionResolver>
   qoder: resolvers.qoder,
   commandcode: resolvers.commandcode,
   workbuddy: resolvers.workbuddyClient,
+  workbuddycn: resolvers.workbuddyCnClient,
   cb: resolvers.codebuddy,
   cbcn: resolvers.codebuddyCn,
   kimi: resolvers.kimiCli,
@@ -479,6 +513,7 @@ export const _resetClineSdkVersionCache = accessor("clineSdk").reset;
 export const getCodexVersion = accessor("codex").get;
 
 export const getWorkBuddyClientVersion = accessor("workbuddyClient").get;
+export const getWorkBuddyCnClientVersion = accessor("workbuddyCnClient").get;
 export const getWorkBuddyCliVersion = accessor("workbuddyCli").get;
 
 export function buildWorkBuddyUserAgent(
@@ -487,6 +522,8 @@ export function buildWorkBuddyUserAgent(
 ): string {
   return `WorkBuddy/${clientVersion} WorkBuddy AI/${clientVersion} CLI/${cliVersion}`;
 }
+
+export const _resetWorkBuddyCnClientVersionCache = accessor("workbuddyCnClient").reset;
 
 export const getKimiCliVersion = accessor("kimiCli").get;
 

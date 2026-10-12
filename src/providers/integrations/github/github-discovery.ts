@@ -146,7 +146,7 @@ export async function discoverGithubModels(
     // The dispatch-time request builder cannot see a catalog row, so the
     // qualifying ids are handed to the adapter here, where the account's real
     // window is known.
-    recordGithubLongContextModels(models);
+    recordGithubLongContextModels(input.credential, models);
     return models;
   } catch {
     return null;

@@ -1,15 +1,10 @@
 // Quota cache: two-tier (in-process TtlCache + Redis) store for provider quota reads.
 //
-// Entries are stored as a versioned envelope (`{ v: 2, fetchedAt, quota }`) so a
-// cached value carries *when* it was fetched. The sweep worker needs that age to
-// decide what is due, and the dashboard's "Last refreshed" is only honest if it
-// comes from the cache rather than from an unrelated account timestamp.
+// Entries are stored as a versioned envelope so cache retention, last attempt,
+// and last successful reading can be tracked independently.
 //
-// Cutover is two releases, not one: this release still *reads* the pre-envelope
-// bare result (with `fetchedAt: null`) so an upgrade never blanks the page,
-// while every *write* uses the envelope. Release N+1 — after one TTL window has
-// drained the old entries — drops that read branch and the multi-lens scan in
-// `invalidateQuotaCacheForAccount`. No third shape may be added.
+// Reads both the pre-envelope bare result and v2 envelopes during upgrade;
+// writes use v3, which records attempt time and retained-refresh errors.
 import type { ProviderQuotaResult } from "../../providers/quota/quota-contracts";
 import type { RedisClient } from "../../persistence/redis";
 import { TtlCache } from "../../persistence/ttl-cache";
@@ -17,8 +12,9 @@ import { log } from "../../observability/logger";
 import { metrics } from "../../observability/metrics";
 
 const QUOTA_KEY_PREFIX = "quota:";
-const QUOTA_TTL_SECONDS = 300;
+const QUOTA_TTL_SECONDS = 900;
 const QUOTA_TTL_MS = QUOTA_TTL_SECONDS * 1000;
+const MAX_STALE_QUOTA_AGE_MS = 30 * 60_000;
 
 /**
  * Cache lens for tenant-null (global/shared) accounts. One entry serves every
@@ -29,15 +25,21 @@ const QUOTA_TTL_MS = QUOTA_TTL_SECONDS * 1000;
 export const GLOBAL_QUOTA_LENS = "global";
 
 interface CachedQuotaEnvelope {
-  readonly v: 2;
-  readonly fetchedAt: string;
+  readonly v: 3;
+  readonly fetchedAt: string | null;
+  readonly lastAttemptAt: string;
+  readonly refreshError: string | null;
   readonly quota: ProviderQuotaResult;
 }
 
 export interface CachedQuotaEntry {
   readonly quota: ProviderQuotaResult;
-  /** ISO timestamp of the fetch, or `null` for a release-N bare entry without one. */
+  /** ISO timestamp of the most recent successful fetch. */
   readonly fetchedAt: string | null;
+  /** ISO timestamp of the most recent fetch attempt. */
+  readonly lastAttemptAt: string | null;
+  /** Most recent refresh failure while retaining an older successful reading. */
+  readonly refreshError: string | null;
 }
 
 const inMemoryQuotaCache = new TtlCache<CachedQuotaEntry>({
@@ -54,7 +56,7 @@ function quotaKey(lens: string, accountId: string): string {
   return `${QUOTA_KEY_PREFIX}${lens}:${accountId}`;
 }
 
-/** Parses a stored envelope, or a release-N bare result; anything else is a miss. */
+/** Parses a versioned envelope or a release-N bare result. */
 function parseCached(raw: string | null | undefined): CachedQuotaEntry | null {
   if (!raw) return null;
   let parsed: unknown;
@@ -67,14 +69,23 @@ function parseCached(raw: string | null | undefined): CachedQuotaEntry | null {
   const record = parsed as Record<string, unknown>;
   const inner = record["quota"];
   if (
-    record["v"] === 2 &&
+    (record["v"] === 2 || record["v"] === 3) &&
     typeof inner === "object" &&
     inner !== null &&
     !Array.isArray(inner)
   ) {
+    const fetchedAt = typeof record["fetchedAt"] === "string" ? record["fetchedAt"] : null;
     return {
       quota: inner as ProviderQuotaResult,
-      fetchedAt: typeof record["fetchedAt"] === "string" ? record["fetchedAt"] : null,
+      fetchedAt,
+      lastAttemptAt:
+        typeof record["lastAttemptAt"] === "string"
+          ? record["lastAttemptAt"]
+          : fetchedAt,
+      refreshError:
+        record["v"] === 3 && typeof record["refreshError"] === "string"
+          ? record["refreshError"]
+          : null,
     };
   }
   // Release N only: the quota result was the whole value, so its age is unknown.
@@ -86,7 +97,18 @@ function parseCached(raw: string | null | undefined): CachedQuotaEntry | null {
   ) {
     return null;
   }
-  return { quota: parsed as ProviderQuotaResult, fetchedAt: null };
+  return { quota: parsed as ProviderQuotaResult, fetchedAt: null, lastAttemptAt: null, refreshError: null };
+}
+
+/**
+ * Returns age since the most recent refresh attempt. Invalid or missing
+ * timestamps are due immediately.
+ */
+export function cachedQuotaAgeMs(entry: CachedQuotaEntry | null | undefined, now = Date.now()): number {
+  const timestamp = entry?.lastAttemptAt ?? entry?.fetchedAt;
+  if (timestamp === null || timestamp === undefined) return Number.POSITIVE_INFINITY;
+  const at = new Date(timestamp).getTime();
+  return Number.isFinite(at) ? now - at : Number.POSITIVE_INFINITY;
 }
 
 export async function getCachedQuotaEntry(
@@ -167,11 +189,41 @@ export async function setCachedQuota(
   fetchedAt: Date = new Date(),
 ): Promise<void> {
   const key = quotaKey(lens, accountId);
-  const fetchedAtIso = fetchedAt.toISOString();
-  inMemoryQuotaCache.set(key, { quota, fetchedAt: fetchedAtIso });
+  const previous = await getCachedQuotaEntry(lens, accountId, redis);
+  const attemptedAt = fetchedAt.toISOString();
+  const previousSuccessAt =
+    previous?.fetchedAt === null || previous?.fetchedAt === undefined
+      ? null
+      : new Date(previous.fetchedAt).getTime();
+  const retainedSuccess =
+    quota.error !== null &&
+    previous?.quota.error === null &&
+    previousSuccessAt !== null &&
+    Number.isFinite(previousSuccessAt) &&
+    fetchedAt.getTime() - previousSuccessAt <= MAX_STALE_QUOTA_AGE_MS;
+  const entry: CachedQuotaEntry = retainedSuccess
+    ? {
+        quota: previous.quota,
+        fetchedAt: previous.fetchedAt,
+        lastAttemptAt: attemptedAt,
+        refreshError: quota.error,
+      }
+    : {
+        quota,
+        fetchedAt: quota.error === null ? attemptedAt : null,
+        lastAttemptAt: attemptedAt,
+        refreshError: null,
+      };
+  inMemoryQuotaCache.set(key, entry);
   if (redis === undefined) return;
   try {
-    const envelope: CachedQuotaEnvelope = { v: 2, fetchedAt: fetchedAtIso, quota };
+    const envelope: CachedQuotaEnvelope = {
+      v: 3,
+      fetchedAt: entry.fetchedAt,
+      lastAttemptAt: attemptedAt,
+      refreshError: entry.refreshError,
+      quota: entry.quota,
+    };
     await redis.set(key, JSON.stringify(envelope), "EX", QUOTA_TTL_SECONDS);
   } catch (error) {
     // In-memory cache holds the record if Redis is unavailable.

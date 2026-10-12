@@ -95,7 +95,7 @@ export function codeBuddyCnPrePayload(
   void request;
 }
 
-// Model catalog — exact current provider CN catalog (13 entries)
+// Model catalog — CodeBuddy CN console and CLI catalog.
 const CODEBUDDY_CN_RAW: readonly BuddyRawEntry[] = [
   ["glm-5.1", "GLM 5.1", true, true, 200_000, 131_072],
   ["glm-5.2", "GLM 5.2", true, true, 1_000_000, 131_072],
@@ -110,7 +110,9 @@ const CODEBUDDY_CN_RAW: readonly BuddyRawEntry[] = [
   ["kimi-k3-1", "Kimi K3", true, true, 1_048_576, 131_072],
   ["hy3", "Hy3", true, true, 192_000, 64_000],
   ["hy4-preview", "Hy4 Preview", true, true, 1_000_000, 64_000],
-  ["hy4-preview-x", "Hy4 Preview X", true, true, 1_000_000, 64_000],
+  ["uto", "UTO", true, true, 256_000, 32_000],
+  ["space-bunny", "Space Bunny", true, true, 1_000_000, 128_000],
+  ["step-5-preview", "Step 5 Preview", true, true, 1_000_000, 64_000],
   ["deepseek-v4-flash", "DeepSeek V4 Flash", true, true, 1_000_000, 384_000],
   ["deepseek-v4-pro", "DeepSeek V4 Pro", true, true, 1_000_000, 384_000],
   ["deepseek-v4.1-flash", "DeepSeek V4.1 Flash", true, true, 1_000_000, 384_000],

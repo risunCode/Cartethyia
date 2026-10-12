@@ -77,6 +77,8 @@ export interface ProviderDispatchContext {
   readonly outbound_websocket?: ValidatedOutboundWebSocket | undefined;
   /** Built-in API-key route-selected fallback User-Agent; custom providers leave this unset. */
   readonly user_agent?: string | undefined;
+  /** Gateway request id, stable across provider retries for one logical request. */
+  readonly request_id?: string | undefined;
   /** Original inbound headers needed only for provider-specific negotiation. */
   readonly request_headers?: Readonly<Record<string, string>> | undefined;
   /** Stable per-conversation cache affinity passed through dispatch. */

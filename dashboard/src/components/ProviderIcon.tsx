@@ -43,11 +43,10 @@ const iconAssets: Record<string, { file: string; ext: "svg" | "webp" }> = {
   mimo: { file: "mimo", ext: "webp" },
   cb: { file: "codebuddy", ext: "webp" },
   cbcn: { file: "codebuddy", ext: "webp" },
-  // The buddy-family gateways share one brand mark, so WorkBuddy reuses it the
-  // same way cbcn does. Without this entry `assetFor` fell through to
-  // `workbuddy.webp`, which does not exist, and every WorkBuddy row rendered
-  // the initials fallback instead of a logo.
+  // WorkBuddy variants share the CodeBuddy family brand mark. Without these
+  // entries `assetFor` falls through to missing provider-specific assets.
   workbuddy: { file: "codebuddy", ext: "webp" },
+  workbuddycn: { file: "codebuddy", ext: "webp" },
   agentrouter: { file: "agentrouter", ext: "svg" },
   parallel: { file: "parallel", ext: "svg" },
   gmi: { file: "gmi-cloud", ext: "svg" },

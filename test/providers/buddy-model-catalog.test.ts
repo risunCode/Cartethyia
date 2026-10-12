@@ -11,12 +11,38 @@
 import { describe, expect, test } from "bun:test";
 import { CODEBUDDY_MODELS } from "../../src/providers/integrations/buddy/codebuddy";
 import { WORKBUDDY_MODELS } from "../../src/providers/integrations/buddy/workbuddy";
+import { WORKBUDDY_CN_MODELS } from "../../src/providers/integrations/buddy/workbuddy-cn";
 import type { ModelDefinition } from "../../src/providers/model-definition";
 import { CODEBUDDY_CN_MODELS } from "../../src/providers/integrations/buddy/codebuddy-cn";
 
 function luna(rows: readonly ModelDefinition[]) {
   return rows.find((row) => row.modelId === "gpt-6-luna");
 }
+
+describe("live Buddy CLI models on the shared roster", () => {
+  test("publishes upstream CLI ids with their captured metadata on both sites", () => {
+    const capturedRows = [
+      ["balanced-model", 256_000, 32_000, true],
+      ["default-model", 176_000, 24_000, false],
+      ["fast-model", 200_000, 32_000, true],
+      ["gemini-3.8-flash", 1_000_000, 65_536, true],
+      ["gpt-6-sol", 1_000_000, 128_000, true],
+      ["step-5-preview", 1_000_000, 64_000, true],
+    ] as const;
+
+    for (const [modelId, contextLimit, outputLimit, reasoning] of capturedRows) {
+      for (const rows of [CODEBUDDY_MODELS, WORKBUDDY_MODELS]) {
+        const row = rows.find((model) => model.modelId === modelId);
+        expect(row).toBeDefined();
+        expect(row?.contextLimit).toBe(contextLimit);
+        expect(row?.outputLimit).toBe(outputLimit);
+        expect(row?.reasoning).toBe(reasoning);
+        expect(row?.toolCall).toBe(true);
+        expect(row?.modalities.input).toContain("image");
+      }
+    }
+  });
+});
 
 describe("gpt-6-luna on the buddy roster", () => {
   test("cb publishes it at the shared context window", () => {
@@ -59,9 +85,29 @@ describe("gpt-6-luna on the buddy roster", () => {
     expect(row?.modalities.input).toContain("image");
   });
 
-  test("CodeBuddy CN is untouched — it publishes a different roster", () => {
-    // Its console has its own ids and its own output ceilings, so carrying this
-    // row there would be asserting a model that site does not serve.
+  test("CodeBuddy CN stays separate from the international-only gpt-6-luna row", () => {
     expect(luna(CODEBUDDY_CN_MODELS)).toBeUndefined();
+  });
+
+  test("CodeBuddy CN publishes the newly fetched CLI models and drops the removed model", () => {
+    const rows = [
+      ["uto", 256_000, 32_000],
+      ["space-bunny", 1_000_000, 128_000],
+      ["step-5-preview", 1_000_000, 64_000],
+    ] as const;
+    for (const [modelId, contextLimit, outputLimit] of rows) {
+      const row = CODEBUDDY_CN_MODELS.find((model) => model.modelId === modelId);
+      expect(row).toBeDefined();
+      expect(row?.contextLimit).toBe(contextLimit);
+      expect(row?.outputLimit).toBe(outputLimit);
+    }
+    expect(CODEBUDDY_CN_MODELS.some((model) => model.modelId === "hy4-preview-x")).toBe(false);
+  });
+
+  test("WorkBuddy CN mirrors WorkBuddy models while keeping its provider identity", () => {
+    const internationalIds = new Set(WORKBUDDY_MODELS.map((model) => model.modelId));
+    expect(new Set(WORKBUDDY_CN_MODELS.map((model) => model.modelId))).toEqual(internationalIds);
+    const cnRow = luna(WORKBUDDY_CN_MODELS);
+    expect(cnRow?.endpointPath).toBe("/v2/chat/completions");
   });
 });

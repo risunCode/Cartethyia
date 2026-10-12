@@ -182,6 +182,9 @@ export function makeBuddyModel(
  */
 export const BUDDY_SHARED_RAW: readonly BuddyRawEntry[] = [
   ["auto", "Auto", true, true, 168_000, null],
+  ["balanced-model", "Balanced", true, true, 256_000, 32_000, true],
+  ["default-model", "Auto", false, true, 176_000, 24_000, true],
+  ["fast-model", "Fast", true, true, 200_000, 32_000, true],
   ["primary-model", "Primary", true, true, 272_000, 72_000],
   ["claude-opus-4.6", "Claude Opus 4.6", true, true, 200_000, 64_000],
   ["claude-opus-4.7-1m", "Claude Opus 4.7 1M", true, true, 1_000_000, 64_000],
@@ -195,6 +198,7 @@ export const BUDDY_SHARED_RAW: readonly BuddyRawEntry[] = [
   ["gemini-3.1-flash-image", "Gemini 3.1 Flash Image", true, true, 1_000_000, 64_000],
   ["gemini-3.1-pro", "Gemini 3.1 Pro", true, true, 1_048_576, 65_536],
   ["gemini-3.5-flash", "Gemini 3.5 Flash", true, true, 1_048_576, 65_536],
+  ["gemini-3.8-flash", "Gemini 3.8 Flash", true, true, 1_000_000, 65_536, true],
   ["glm-5.1", "GLM-5.1", true, false, 200_000, 131_072],
   ["glm-5.2", "GLM-5.2", true, false, 1_000_000, 131_072],
   ["glm-5.3", "GLM-5.3", true, false, 1_000_000, 131_072],
@@ -208,6 +212,7 @@ export const BUDDY_SHARED_RAW: readonly BuddyRawEntry[] = [
   ["gpt-5.6-terra", "GPT-5.6 Terra", true, true, 1_050_000, 128_000],
   ["gpt-6-astra", "GPT-6 Astra", true, true, 1_050_000, 128_000],
   ["gpt-6-luna", "GPT-6 Luna", true, true, 1_050_000, 128_000],
+  ["gpt-6-sol", "GPT-6 Sol", true, true, 1_000_000, 128_000, true],
   ["gpt-6.1-sol", "GPT-6.1 Sol", true, true, 1_050_000, 128_000],
   ["gpt-image-2", "GPT-Image-2", true, true, 400_000, 128_000],
   ["gpt-image-2.5", "GPT-Image-2.5", true, true, 400_000, 128_000],
@@ -223,4 +228,5 @@ export const BUDDY_SHARED_RAW: readonly BuddyRawEntry[] = [
   ["kimi-k3", "Kimi K3", true, false, 1_048_576, 131_072],
   ["kimi-k3.1", "Kimi K3.1", true, false, 1_000_000, 131_072],
   ["minimax-m3", "MiniMax-M3", true, false, 512_000, 512_000],
+  ["step-5-preview", "Step-5-Preview", true, true, 1_000_000, 64_000, true],
 ];

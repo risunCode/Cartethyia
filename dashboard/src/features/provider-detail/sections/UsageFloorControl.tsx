@@ -198,7 +198,7 @@ function isPooledWindow(
   window: { readonly accounting?: "pooled" | "independent"; readonly kind?: string },
 ): boolean {
   if (window.accounting !== undefined) return window.accounting === "pooled";
-  const isBuddyProvider = providerId === "cb" || providerId === "cbcn" || providerId === "workbuddy";
+  const isBuddyProvider = providerId === "cb" || providerId === "cbcn" || providerId === "workbuddy" || providerId === "workbuddycn";
   return isBuddyProvider && (window.kind?.startsWith("quota:") === true || window.kind?.startsWith("bonus:") === true);
 }
 

@@ -12,10 +12,11 @@
  * host is not a constant: the value stored at login is the only place the
  * account's host is recorded.
  */
+import { createHash, randomUUID } from "node:crypto";
 import { defineModel } from "../../model-definition";
 import type { ModelDefinition } from "../../model-definition";
 import type { ProviderAdapter, ProviderDispatchContext, ProviderDispatchTarget } from "../../contracts";
-import type { CanonicalRequest } from "../../../protocol/canonical-model";
+import { allParts, type CanonicalRequest, type ContentPart } from "../../../protocol/canonical-model";
 import { OpenAICompatibleAdapter, withBearerAuthentication } from "../../compatible-adapter";
 import { providerBaseUrl } from "../../metadata";
 import {
@@ -70,34 +71,62 @@ export const GITHUB_EXCLUDED_MODEL_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Model ids the account's catalog reported at or above the long-context
- * threshold.
- *
- * The request builder needs this fact at dispatch time, where the catalog row
- * is not in reach — `ProviderDispatchTarget` carries the wire family and
- * capability flags, not the context window. Discovery is the only place the
- * account's real window is known, so it records the qualifying ids here and the
- * adapter reads them.
- *
- * Absence is the safe default: a model not recorded here simply does not get
- * the long-context tier, which is the behaviour before this existed. The set is
- * only ever added to, so a later discovery run cannot retract a window the
- * upstream already reported.
+ * Long-context models reported by each account's own model directory.
  */
-const longContextModelIds = new Set<string>();
+const longContextModelIdsByCredential = new Map<string, ReadonlySet<string>>();
 
-/** Whether the account's catalog reported `modelId` at the long-context tier. */
-export function githubModelUsesLongContext(modelId: string): boolean {
-  return longContextModelIds.has(modelId.toLowerCase());
+function githubCredentialKey(value: string): string | undefined {
+  try {
+    const credential = parseGithubCredential(value);
+    return createHash("sha256")
+      .update(`${credential.apiHost}:${credential.github ?? credential.access}`)
+      .digest("hex");
+  } catch {
+    return undefined;
+  }
 }
 
-/** Records the qualifying ids from one discovery run. */
-export function recordGithubLongContextModels(models: readonly ModelDefinition[]): void {
-  for (const model of models) {
-    if (model.contextLimit !== null && model.contextLimit >= GITHUB_LONG_CONTEXT_THRESHOLD) {
-      longContextModelIds.add(model.modelId.toLowerCase());
-    }
-  }
+/** Whether this account's catalog reported `modelId` at the long-context tier. */
+export function githubModelUsesLongContext(modelId: string, credential: string): boolean {
+  const key = githubCredentialKey(credential);
+  if (key === undefined) return false;
+  return longContextModelIdsByCredential.get(key)?.has(modelId.toLowerCase()) === true;
+}
+
+/** Replaces the account's long-context roster with the latest discovery result. */
+export function recordGithubLongContextModels(
+  credential: string,
+  models: readonly ModelDefinition[],
+): void {
+  const key = githubCredentialKey(credential);
+  if (key === undefined) return;
+  longContextModelIdsByCredential.set(
+    key,
+    new Set(
+      models
+        .filter(
+          (model) =>
+            model.contextLimit !== null &&
+            model.contextLimit >= GITHUB_LONG_CONTEXT_THRESHOLD,
+        )
+        .map((model) => model.modelId.toLowerCase()),
+    ),
+  );
+}
+
+function isAgentInitiated(request: CanonicalRequest): boolean {
+  const lastMessage = request.messages.at(-1);
+  if (!lastMessage) return false;
+  if (lastMessage.role === "assistant" || lastMessage.role === "tool") return true;
+  return lastMessage.content.length > 0 &&
+    lastMessage.content.every((part) => part.kind === "toolResult");
+}
+
+function containsImage(part: ContentPart): boolean {
+  if (part.kind === "image") return true;
+  return part.kind === "toolResult" &&
+    Array.isArray(part.content) &&
+    part.content.some(containsImage);
 }
 
 interface CopilotModelOptions {
@@ -176,8 +205,12 @@ class GithubAdapter extends OpenAICompatibleAdapter {
         // for a model the account's own catalog reported at or above the
         // threshold. `contextTier` is applied after wire translation so it
         // rides on the serialized body the upstream actually reads.
-        prePayload: (payload, request, candidate) => {
-          if (!githubModelUsesLongContext(request.model)) return;
+        prePayload: (payload, request, candidate, context) => {
+          const secret = context.credential.secret;
+          if (
+            secret === undefined ||
+            !githubModelUsesLongContext(request.model, new TextDecoder().decode(secret))
+          ) return;
           // Only the OpenAI-shaped surfaces accept the extension; the native
           // Anthropic surface validates against its own schema and rejects an
           // unknown top-level key. The candidate's wire family decides.
@@ -215,6 +248,19 @@ class GithubAdapter extends OpenAICompatibleAdapter {
     // it and wins — the route-level User-Agent is for generic OpenAI-compatible
     // hosts and would be rejected here.
     Object.assign(headers, GITHUB_REQUEST_HEADERS);
+    const requestId = context.request_id ?? randomUUID();
+    Object.assign(headers, {
+      "openai-intent": "conversation-agent",
+      "x-agent-task-id": requestId,
+      "x-initiator": isAgentInitiated(request) ? "agent" : "user",
+      "x-interaction-type": "conversation-agent",
+      "x-request-id": requestId,
+    });
+    if (allParts(request).some(containsImage)) {
+      headers["copilot-vision-request"] = "true";
+    } else {
+      delete headers["copilot-vision-request"];
+    }
     const secret = context.credential.secret;
     if (secret === undefined || secret.length === 0) return headers;
     try {

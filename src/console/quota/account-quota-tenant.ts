@@ -8,6 +8,7 @@ import { invalidateCredentialCache } from "../../providers/operations/provider-c
 import { requireTenantScope } from "../shared/errors";
 import {
   GLOBAL_QUOTA_LENS,
+  cachedQuotaAgeMs,
   getCachedQuotaEntries,
   getCachedQuotaEntry,
   invalidateQuotaCache,
@@ -133,12 +134,9 @@ const QUOTA_REFRESH_CONCURRENCY = 5;
 const QUOTA_REFRESH_MAX_IDS = 100;
 
 /**
- * How stale a cached value may be before the overview asks for a refresh.
- *
- * The cache TTL is 300 s, so a value older than this is close enough to expiry
- * that re-fetching now avoids the page ever rendering an expired entry. The
- * background queue dedupes, so a page that polls every couple of seconds still
- * produces at most one upstream fetch per account per window.
+ * How long since the most recent attempt before the overview retries the
+ * account. Cache retention is longer, so a failed refresh can keep displaying
+ * the last successful balance while a later attempt is scheduled.
  */
 const QUOTA_STALE_AFTER_MS = 240_000;
 
@@ -223,7 +221,7 @@ export function registerAccountQuotaTenantRoutes(
       const accounts = rows.map((row) => {
         const entry =
           row.tenantId === null ? globalCache.get(row.id) : ownedCache.get(row.id);
-        const ageMs = entry?.fetchedAt ? now - new Date(entry.fetchedAt).getTime() : Number.POSITIVE_INFINITY;
+        const ageMs = cachedQuotaAgeMs(entry, now);
         // Providers with no quota collector (custom BYOK endpoints, key-only
         // providers) intentionally never refresh: there is no upstream quota
         // endpoint to ask, so enqueueing would only manufacture the
@@ -249,8 +247,10 @@ export function registerAccountQuotaTenantRoutes(
           quota: entry
             ? toQuotaView(entry.quota, row, {
                 fetchedAt: entry.fetchedAt,
-                ...(isRefreshing ? { status: "refreshing" as const } : {}),
-              })
+              lastAttemptAt: entry.lastAttemptAt,
+              refreshError: entry.refreshError,
+              ...(isRefreshing ? { status: "refreshing" as const } : {}),
+            })
             : null,
           pending: isRefreshing,
           health: toQuotaAccountHealth(row),
@@ -298,7 +298,11 @@ export function registerAccountQuotaTenantRoutes(
       if (cached) {
         return {
           accountId,
-          quota: toQuotaView(cached.quota, account, { fetchedAt: cached.fetchedAt }),
+          quota: toQuotaView(cached.quota, account, {
+            fetchedAt: cached.fetchedAt,
+            lastAttemptAt: cached.lastAttemptAt,
+            refreshError: cached.refreshError,
+          }),
           health: toQuotaAccountHealth(account),
         };
       }
@@ -314,10 +318,11 @@ export function registerAccountQuotaTenantRoutes(
       const fresh = await getCachedQuotaEntry(access.tenantId, accountId, redis);
       return {
         accountId,
-        quota: toQuotaView(outcome.quota, account, {
-          fetchedAt: fresh?.fetchedAt ?? new Date().toISOString(),
-          lastAttemptAt: new Date().toISOString(),
-          lastSuccessAt: outcome.quota.error === null ? new Date().toISOString() : null,
+        quota: toQuotaView(fresh?.quota ?? outcome.quota, account, {
+          fetchedAt: fresh?.fetchedAt ?? null,
+          lastAttemptAt: fresh?.lastAttemptAt ?? new Date().toISOString(),
+          lastSuccessAt: fresh?.fetchedAt ?? null,
+          refreshError: fresh?.refreshError ?? null,
         }),
         health: toQuotaAccountHealth(account),
       };

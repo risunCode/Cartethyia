@@ -28,7 +28,7 @@ function capturingFetcher(calls: CapturedCall[]): typeof fetch {
 }
 
 describe("fetchBuddyActivityReport — staged batches for every buddy variant", () => {
-  for (const providerId of ["cb", "cbcn", "workbuddy"]) {
+  for (const providerId of ["cb", "cbcn", "workbuddy", "workbuddycn"]) {
     test(`${providerId}: two rounds of four distinct events, paused between them`, async () => {
       const calls: CapturedCall[] = [];
       const pauses: number[] = [];

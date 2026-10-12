@@ -50,6 +50,16 @@ export interface BuddyMediaConfig {
   readonly variant: CodeBuddyVariant;
   readonly systemPrompt: string;
   readonly baseUrl: string;
+  readonly buildHeaders?: (context: ProviderDispatchContext) => Promise<Record<string, string>>;
+}
+
+async function mediaIdentityHeaders(
+  config: BuddyMediaConfig,
+  context: ProviderDispatchContext,
+): Promise<Record<string, string>> {
+  return config.buildHeaders
+    ? config.buildHeaders(context)
+    : codebuddyHeaders(config.variant, context);
 }
 
 function outbound(context: ProviderDispatchContext): ValidatedOutboundFetch {
@@ -120,7 +130,7 @@ export async function buddyGenerateImage(
     "content-type": "application/json",
     accept: "text/event-stream",
     ...bearer(context),
-    ...(await codebuddyHeaders(config.variant, context)),
+    ...(await mediaIdentityHeaders(config, context)),
   };
   const lifecycle = createUpstreamDeadlineLifecycle(context);
   let response: Response;
@@ -265,7 +275,7 @@ export async function buddyGenerateVideo(
     "content-type": "application/json",
     accept: "application/json",
     ...bearer(context),
-    ...(await codebuddyHeaders(config.variant, context)),
+    ...(await mediaIdentityHeaders(config, context)),
   };
   const submitPath = candidate.endpoint_path;
   const submitUrl = joinUrl(config.baseUrl, submitPath);
@@ -306,7 +316,7 @@ export async function buddyGenerateVideo(
     try {
       statusRes = await outbound(context)(taskPath, {
         method: "GET",
-        headers: { accept: "application/json", ...bearer(context), ...(await codebuddyHeaders(config.variant, context)) },
+        headers: { accept: "application/json", ...bearer(context), ...(await mediaIdentityHeaders(config, context)) },
         signal: lifecycle.signal,
       });
     } catch (error: unknown) {

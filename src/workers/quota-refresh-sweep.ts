@@ -20,7 +20,11 @@ import {
   type QuotaRefreshOutcome,
   type QuotaRefreshTarget,
 } from "../console/quota/refresh";
-import { getCachedQuotaEntries, type CachedQuotaEntry } from "../console/quota/cache";
+import {
+  cachedQuotaAgeMs,
+  getCachedQuotaEntries,
+  type CachedQuotaEntry,
+} from "../console/quota/cache";
 import { runSweep } from "./sweep-runner";
 import type { ValidatedFetch } from "../network/outbound-fetch";
 import type { ProviderId } from "../providers/contracts";
@@ -300,13 +304,9 @@ export async function quotaRefreshSweep(deps: QuotaRefreshSweepDeps): Promise<vo
       const nowMs = now();
       return targets.map((target) => {
         const cached = cachedByAccount.get(target.accountId) ?? null;
-        const fetchedAt = cached?.fetchedAt;
         return {
           target,
-          ageMs:
-            typeof fetchedAt === "string"
-              ? nowMs - new Date(fetchedAt).getTime()
-              : Number.POSITIVE_INFINITY,
+          ageMs: cachedQuotaAgeMs(cached, nowMs),
         };
       });
     },

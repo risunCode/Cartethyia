@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { BUNDLED_PROVIDER_METADATA, providerServiceKinds, providerSupportsWebSearch } from "../../src/providers/metadata";
 import { sanitizeProviderResponse } from "../../src/console/providers/catalog/provider-operations";
+import { createDefaultProviderRegistry } from "../../src/providers/default-registry";
+
+const registry = createDefaultProviderRegistry();
 describe("provider service taxonomy", () => {
   test("declares real search surfaces and keeps bundled providers explicit", () => {
     expect(providerServiceKinds("openai")).toEqual(["llm"]);
@@ -12,6 +15,7 @@ describe("provider service taxonomy", () => {
     // A bundled provider without a declaration serves LLM only — the
     // declaration is authoritative, so `llm` is not read as "everything".
     expect(providerServiceKinds("cbcn")).toEqual(["llm"]);
+    expect(providerServiceKinds("workbuddycn")).toEqual(["llm", "imageGeneration", "videoGeneration"]);
     for (const provider of BUNDLED_PROVIDER_METADATA)
       expect(provider.serviceKinds).not.toContain("all");
   });
@@ -26,6 +30,18 @@ describe("provider service taxonomy", () => {
       "imageGeneration",
       "videoGeneration",
     ]);
+  });
+
+  test("WorkBuddy CN is wired through the provider composition root", async () => {
+    const adapter = await registry.resolve("workbuddycn");
+    const authentication = await registry.resolveAuthentication("workbuddycn");
+    const quotaCollector = await registry.resolveQuotaCollector("workbuddycn");
+
+    expect(adapter?.provider_id).toBe("workbuddycn");
+    expect(registry.hasModelDiscovery("workbuddycn")).toBe(true);
+    expect(authentication?.client).toBeDefined();
+    expect(authentication?.refresher).toBeDefined();
+    expect(quotaCollector).toBeDefined();
   });
   // Web search is a provider capability, not a per-model flag: the adapter
   // either frames a hosted search tool or it does not.

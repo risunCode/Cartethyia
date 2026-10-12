@@ -82,7 +82,7 @@ function normalizeCachedBuddyQuotaWindows(
   providerId: string,
   windows: readonly ProviderQuotaWindow[],
 ): readonly ProviderQuotaWindow[] {
-  if (providerId !== "cb" && providerId !== "cbcn" && providerId !== "workbuddy") return windows;
+  if (providerId !== "cb" && providerId !== "cbcn" && providerId !== "workbuddy" && providerId !== "workbuddycn") return windows;
   return windows.map((window) => {
     if (window.accounting !== undefined) return window;
     if (!window.kind.startsWith("quota:") && !window.kind.startsWith("bonus:")) return window;

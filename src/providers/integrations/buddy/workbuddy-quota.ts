@@ -1,7 +1,12 @@
 import type { FetchLike, ProviderQuotaResult } from "../../quota/quota-contracts";
 import type { QuotaCollectionContext } from "../../quota/quota-support";
 import { providerBaseUrl } from "../../metadata";
-import { buildWorkBuddyUserAgent } from "../../operations/client-versions";
+import {
+  buildWorkBuddyUserAgent,
+  getWorkBuddyClientVersion,
+  getWorkBuddyCnClientVersion,
+  getWorkBuddyCliVersion,
+} from "../../operations/client-versions";
 import { WORKBUDDY_DOMAIN } from "./workbuddy-shared";
 import { fetchTencentBillingQuota } from "./buddy-quota-shared";
 import { buddyAccountUid } from "./buddy-oauth-shared";
@@ -23,11 +28,15 @@ import { buddyAccountUid } from "./buddy-oauth-shared";
 export const WORKBUDDY_USAGE_URL =
   `${providerBaseUrl("workbuddy")}/v2/billing/meter/get-user-resource`;
 
-async function billingHeaders(enterpriseId?: string): Promise<Record<string, string>> {
+async function billingHeaders(
+  domain: string,
+  clientVersion: string,
+  enterpriseId?: string,
+): Promise<Record<string, string>> {
   return {
-    "User-Agent": buildWorkBuddyUserAgent(),
+    "User-Agent": buildWorkBuddyUserAgent(clientVersion, getWorkBuddyCliVersion()),
     "X-Product": "SaaS",
-    "X-Domain": WORKBUDDY_DOMAIN,
+    "X-Domain": domain,
     "X-Requested-With": "XMLHttpRequest",
     "X-CodeBuddy-Request": "1",
     "Accept-Language": "en-US",
@@ -48,18 +57,55 @@ export async function fetchWorkBuddyQuota(
   fetcher: FetchLike,
   context?: QuotaCollectionContext,
 ): Promise<ProviderQuotaResult> {
+  return fetchWorkBuddyQuotaFor({
+    providerId: "workbuddy",
+    display: "WorkBuddy",
+    domain: WORKBUDDY_DOMAIN,
+    credential,
+    fetcher,
+    ...(context === undefined ? {} : { context }),
+  });
+}
+
+export async function fetchWorkBuddyCnQuota(
+  credential: string,
+  fetcher: FetchLike,
+  context?: QuotaCollectionContext,
+): Promise<ProviderQuotaResult> {
+  return fetchWorkBuddyQuotaFor({
+    providerId: "workbuddycn",
+    display: "WorkBuddy CN",
+    domain: "www.workbuddy.cn",
+    credential,
+    fetcher,
+    ...(context === undefined ? {} : { context }),
+  });
+}
+
+async function fetchWorkBuddyQuotaFor(args: {
+  readonly providerId: "workbuddy" | "workbuddycn";
+  readonly display: string;
+  readonly domain: string;
+  readonly credential: string;
+  readonly fetcher: FetchLike;
+  readonly context?: QuotaCollectionContext;
+}): Promise<ProviderQuotaResult> {
+  const { providerId, display, domain, credential, fetcher, context } = args;
   const authState = typeof context?.auth_state === "object" && context?.auth_state !== null
     ? (context.auth_state as Record<string, unknown>)
     : undefined;
   const enterpriseId = typeof authState?.enterpriseId === "string" ? authState.enterpriseId : undefined;
+  const clientVersion = providerId === "workbuddycn"
+    ? getWorkBuddyCnClientVersion()
+    : getWorkBuddyClientVersion();
   return fetchTencentBillingQuota({
-    source: "workbuddy",
-    display: "WorkBuddy",
-    url: WORKBUDDY_USAGE_URL,
-    headers: await billingHeaders(enterpriseId),
+    source: providerId,
+    display,
+    url: `${providerBaseUrl(providerId)}/v2/billing/meter/get-user-resource`,
+    headers: await billingHeaders(domain, clientVersion, enterpriseId),
     credential,
     fetcher,
-    defaultPlan: "WorkBuddy",
+    defaultPlan: display,
     uid: buddyAccountUid(credential),
   });
 }

@@ -62,7 +62,7 @@ function credentialExpiryLabel(expiresAt: string | undefined): string | undefine
   const timestamp = new Date(expiresAt).getTime();
   if (!Number.isFinite(timestamp)) return undefined;
   if (timestamp <= Date.now()) return `Expired ${new Date(expiresAt).toLocaleDateString()}`;
-  return `Expires ${formatResetDistance(expiresAt)}`;
+  return formatResetDistance(expiresAt, false);
 }
 
 
@@ -198,7 +198,7 @@ function QuotaPill({
   for (const window of windows) {
     const isPooled = window.accounting === "pooled" ||
       (window.accounting === undefined &&
-        (providerId === "cb" || providerId === "cbcn" || providerId === "workbuddy") &&
+        (providerId === "cb" || providerId === "cbcn" || providerId === "workbuddy" || providerId === "workbuddycn") &&
         (window.kind?.startsWith("quota:") === true || window.kind?.startsWith("bonus:") === true));
     if (!isPooled) {
       if (typeof window.remainingPercent === "number" && Number.isFinite(window.remainingPercent)) {
@@ -272,6 +272,7 @@ function AccountRow({
   const privacy = useMysteriousAccounts(providerId);
   const shown = (account.label?.match(/[^\s@]+@[^\s@]+/)?.[0] ?? account.label) || account.id.slice(0, 8);
   const label = privacy.enabled ? "Mysterious accounts" : shown;
+  const expiryLabel = credentialExpiryLabel(account.tokenExpiresAt);
   // The countdown re-renders on a timer. It must be armed by the per-model
   // backoffs too, not only by `cooldownUntil`: a model-scoped 429 writes
   // `modelCooldowns` and deliberately leaves `cooldownUntil` untouched (the
@@ -394,13 +395,16 @@ function AccountRow({
           </div>
           <div className="flex items-center flex-nowrap gap-2 min-w-0 overflow-hidden">
             <AccountStatusBadge account={account} />
-          </div>
-          <div className="flex items-center flex-wrap gap-2 min-w-0">
-            {credentialExpiryLabel(account.tokenExpiresAt) ? (
-              <span className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap" title={credentialExpiryLabel(account.tokenExpiresAt)}>
-                {credentialExpiryLabel(account.tokenExpiresAt)}
+            {expiryLabel ? (
+              <span
+                className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap"
+                title={expiryLabel}
+              >
+                {expiryLabel}
               </span>
             ) : null}
+          </div>
+          <div className="flex items-center flex-wrap gap-2 min-w-0">
             <span className="inline-flex items-center gap-2.5 max-w-full px-3.5 py-1 border border-inner-border rounded-chip bg-surface-1 text-text-secondary text-badge leading-normal whitespace-nowrap" title={`Today: ${account.usageToday.totalTokens.toLocaleString()} tokens, ${account.usageToday.requests.toLocaleString()} requests`}>
               <span className="text-text-tertiary text-micro font-semibold uppercase tracking-label">Today</span>
               {account.usageToday.totalTokens.toLocaleString()} tok · {account.usageToday.requests.toLocaleString()} req

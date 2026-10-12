@@ -132,7 +132,7 @@ describe("quota sweep — the check-in budget is spent on buddy accounts only", 
   });
 
   test("every buddy variant is covered, not just one", async () => {
-    expect(await runPass(["cb", "cbcn", "workbuddy"], CAP)).toBe(3);
+    expect(await runPass(["cb", "cbcn", "workbuddy", "workbuddycn"], CAP)).toBe(4);
   });
 
   test("resolves credentials again on the next sweep pass", async () => {

@@ -393,6 +393,13 @@ export const PROVIDER_CAPABILITIES = {
     loadAuthentication: oauthCapability(() => import("./integrations/buddy/workbuddy-oauth"), "workBuddyOAuthClient", { withRefresher: true }),
     loadQuotaCollector: quotaCapability(() => import("./integrations/buddy/workbuddy-quota"), "fetchWorkBuddyQuota"),
   },
+  workbuddycn: {
+    loadAdapter: async () => (await import("./integrations/buddy/workbuddy-cn")).createWorkBuddyCnAdapter(),
+    loadModels: async () => (await import("./integrations/buddy/workbuddy-cn")).WORKBUDDY_CN_MODELS,
+    loadModelDiscovery: async () => async ({ credential, fetcher }) => (await import("./integrations/buddy/workbuddy-cn")).discoverWorkBuddyCnModels({ credential, ...(fetcher === undefined ? {} : { fetcher }) }),
+    loadAuthentication: oauthCapability(() => import("./integrations/buddy/workbuddy-cn-oauth"), "workBuddyCnOAuthClient", { withRefresher: true }),
+    loadQuotaCollector: quotaCapability(() => import("./integrations/buddy/workbuddy-quota"), "fetchWorkBuddyCnQuota"),
+  },
   kilo: {
     loadAdapter: async () => (await import("./integrations/kilo/kilo")).kiloAdapter,
     loadModels: async () => (await import("./integrations/kilo/kilo")).KILO_MODELS,

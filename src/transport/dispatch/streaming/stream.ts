@@ -173,6 +173,7 @@ export async function dispatchStreamingAttempt(input: StreamingDispatchInput): P
     deadline: state.deadlineMs,
     signal: state.abortController.signal,
     headers: inboundHeaders,
+    requestId: state.requestId,
     requestIdentity: state,
     ...(conversationAffinity ? { conversationAffinity } : {}),
     ...(candidate.user_agent === undefined ? {} : { userAgent: candidate.user_agent }),

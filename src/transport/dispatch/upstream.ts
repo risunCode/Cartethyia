@@ -35,6 +35,7 @@ export function buildUpstreamDispatchContext(input: {
   readonly deadline: number;
   readonly signal: AbortSignal;
   readonly headers: Record<string, string>;
+  readonly requestId?: string;
   readonly userAgent?: string;
   readonly outboundFetch?: ValidatedOutboundFetch;
   readonly outboundWebSocket?: ValidatedOutboundWebSocket;
@@ -66,6 +67,7 @@ export function buildUpstreamDispatchContext(input: {
     credential: input.credential,
     deadline: input.deadline,
     abort_signal: input.signal,
+    ...(input.requestId === undefined ? {} : { request_id: input.requestId }),
     ...(userAgent ? { user_agent: userAgent } : {}),
     ...(Object.keys(input.headers).length > 0 ? { request_headers: input.headers } : {}),
     ...(outboundFetch ? { outbound_fetch: outboundFetch } : {}),

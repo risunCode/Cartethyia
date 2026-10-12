@@ -18,6 +18,7 @@ import type { DiscoveryInput } from "../../discovery/discovery-types";
 import {
   WORKBUDDY_CHAT_PATH,
   workbuddyAdapterConfig,
+  workbuddyHeaders,
 } from "./workbuddy-shared";
 import {
   BUDDY_SHARED_RAW,
@@ -141,18 +142,21 @@ export function workbuddyPrePayload(
 // limits) plus its global effort table; `reasoning` marks models with a
 // declared reasoning-effort scale.
 const WORKBUDDY_RAW: readonly BuddyRawEntry[] = BUDDY_SHARED_RAW;
-export const WORKBUDDY_MODELS: readonly ModelDefinition[] = [
-  ...WORKBUDDY_RAW.filter(
-    (entry) => !BUDDY_IMAGE_MODEL_ID_SET.has(entry[0]) && !BUDDY_VIDEO_MODEL_ID_SET.has(entry[0]),
-  ).map((entry) =>
-    makeBuddyModel(entry, "workbuddy", WORKBUDDY_CHAT_PATH),
-  ),
-  // WorkBuddy's base URL carries no version segment, so the image rows need the
-  // same explicit path the chat rows use — the generic default would produce a
-  // URL this upstream answers with a 405.
-  ...makeBuddyImageModels("workbuddy", WORKBUDDY_CHAT_PATH),
-  ...makeBuddyVideoModels("workbuddy", "/v2/videos/generations"),
-];
+
+export function makeWorkBuddyModels(providerId: "workbuddy" | "workbuddycn"): readonly ModelDefinition[] {
+  return [
+    ...WORKBUDDY_RAW.filter(
+      (entry) => !BUDDY_IMAGE_MODEL_ID_SET.has(entry[0]) && !BUDDY_VIDEO_MODEL_ID_SET.has(entry[0]),
+    ).map((entry) => makeBuddyModel(entry, providerId, WORKBUDDY_CHAT_PATH)),
+    // WorkBuddy's base URL carries no version segment, so the image rows need the
+    // same explicit path the chat rows use — the generic default would produce a
+    // URL this upstream answers with a 405.
+    ...makeBuddyImageModels(providerId, WORKBUDDY_CHAT_PATH),
+    ...makeBuddyVideoModels(providerId, "/v2/videos/generations"),
+  ];
+}
+
+export const WORKBUDDY_MODELS: readonly ModelDefinition[] = makeWorkBuddyModels("workbuddy");
 
 /**
  * Reads WorkBuddy's live console directory.
@@ -185,6 +189,11 @@ export function createWorkBuddyAdapter(fetchImpl?: typeof fetch): ProviderAdapte
       prePayload: workbuddyPrePayload,
       ...(fetchImpl ? { fetchImpl } : {}),
     }),
-    { variant: "IDE", systemPrompt: WORKBUDDY_SYSTEM_PROMPT, baseUrl: WORKBUDDY_BASE_URL },
+    {
+      variant: "IDE",
+      systemPrompt: WORKBUDDY_SYSTEM_PROMPT,
+      baseUrl: WORKBUDDY_BASE_URL,
+      buildHeaders: (context) => workbuddyHeaders(context),
+    },
   );
 }

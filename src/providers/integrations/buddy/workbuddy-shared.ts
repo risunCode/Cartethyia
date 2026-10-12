@@ -56,17 +56,18 @@ function deriveAccountStableId(accountId: string, purpose: string): string {
 export async function workbuddyHeaders(
   context?: ProviderDispatchContext,
   request?: CanonicalRequest,
+  domain = WORKBUDDY_DOMAIN,
+  clientVersion = getWorkBuddyClientVersion(),
 ): Promise<Record<string, string>> {
-  const clientVersion = getWorkBuddyClientVersion();
   const headers: Record<string, string> = {
     accept: "application/json, text/event-stream",
     "user-agent": buildWorkBuddyUserAgent(clientVersion, getWorkBuddyCliVersion()),
-    origin: `https://${WORKBUDDY_DOMAIN}`,
-    referer: `https://${WORKBUDDY_DOMAIN}/`,
+    origin: `https://${domain}`,
+    referer: `https://${domain}/`,
     "accept-language": "en-US",
     "x-requested-with": "XMLHttpRequest",
     "x-codebuddy-request": "1",
-    "x-domain": WORKBUDDY_DOMAIN,
+    "x-domain": domain,
     "x-agent-purpose": "conversation",
     "x-ide-name": "WorkBuddy",
     "x-ide-type": "WorkBuddy",
@@ -105,6 +106,7 @@ export function readBuddyDeviceToken(context?: ProviderDispatchContext): string 
 export function workbuddyAdapterConfig(args: {
   providerId: ProviderId;
   baseUrl: string;
+  domain?: string;
   prePayload: (
     payload: Record<string, unknown>,
     request: CanonicalRequest,
@@ -116,9 +118,9 @@ export function workbuddyAdapterConfig(args: {
     provider_id: args.providerId,
     base_url: args.baseUrl,
     endpoint_paths_by_wire_family: { chat: WORKBUDDY_CHAT_PATH },
-    buildExtraHeaders: (context, request) => workbuddyHeaders(context, request),
+    buildExtraHeaders: (context, request) =>
+      workbuddyHeaders(context, request, args.domain ?? WORKBUDDY_DOMAIN),
     prePayload: args.prePayload,
     ...(args.fetchImpl ? { fetchImpl: args.fetchImpl } : {}),
   });
 }
-

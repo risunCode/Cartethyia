@@ -98,6 +98,7 @@ export interface OpenAICompatibleAdapterConfig {
     payload: Record<string, unknown>,
     request: CanonicalRequest,
     candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
   ) => void;
   /** Transport injection for tests; defaults to global fetch. */
   readonly fetch?: typeof fetch;
@@ -191,6 +192,7 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
   protected async preparePayload(
     request: CanonicalRequest,
     candidate: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
   ): Promise<unknown> {
     const wireFamily = candidate.wire_family;
     const effectiveRequest = this.config.prepareRequest?.(request) ?? request;
@@ -235,7 +237,7 @@ export class OpenAICompatibleAdapter extends BaseProviderAdapter {
         payload["response_format"] = { type: "json_object" };
       }
     }
-    this.config.prePayload?.(payload, effectiveRequest, candidate);
+    this.config.prePayload?.(payload, effectiveRequest, candidate, context);
     return payload;
   }
 

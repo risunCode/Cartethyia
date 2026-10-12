@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { buddyPrePayloadCommon } from "../../src/providers/integrations/buddy/buddy-chat-shared";
 import { readBuddyDeviceToken, workbuddyHeaders } from "../../src/providers/integrations/buddy/workbuddy-shared";
 import { fetchTencentBillingQuota } from "../../src/providers/integrations/buddy/buddy-quota-shared";
+import { fetchWorkBuddyCnQuota } from "../../src/providers/integrations/buddy/workbuddy-quota";
 import { parseDsmlToolCalls } from "../../src/protocol/response/dsml";
 import { parseChatResponseToEvents } from "../../src/protocol/response/chat";
 import type { CanonicalRequest } from "../../src/protocol/canonical-model";
@@ -55,6 +56,19 @@ describe("Buddy upstream protocol alignment", () => {
     expect(readBuddyDeviceToken({ credential: { auth_state: {} } } as unknown as ProviderDispatchContext)).toBeUndefined();
   });
 
+  test("WorkBuddy CN changes only the host identity in the shared headers", async () => {
+    const cnHeaders = await workbuddyHeaders(context, request, "www.workbuddy.cn", "5.7.7.40774747");
+    const intlHeaders = await workbuddyHeaders(context, request);
+    expect(cnHeaders["origin"]).toBe("https://www.workbuddy.cn");
+    expect(cnHeaders["referer"]).toBe("https://www.workbuddy.cn/");
+    expect(cnHeaders["x-domain"]).toBe("www.workbuddy.cn");
+    expect(cnHeaders["user-agent"]).toMatch(
+      /^WorkBuddy\/5\.7\.7\.40774747 WorkBuddy AI\/5\.7\.7\.40774747 CLI\/\S+$/,
+    );
+    expect(cnHeaders["user-agent"]).toContain("5.7.7.40774747");
+    expect(cnHeaders["x-product"]).toBe(intlHeaders["x-product"]);
+  });
+
   test("recovers a complete DSML block as a tool call", () => {
     const pipe = "\uFF5C\uFF5C";
     const text = `<${pipe}DSML${pipe} calls><${pipe}DSML${pipe} invoke name="run_shell"><${pipe}DSML${pipe} parameter name="command" string="true">ls</${pipe}DSML${pipe} parameter></${pipe}DSML${pipe} invoke></${pipe}DSML${pipe} calls>`;
@@ -82,9 +96,41 @@ describe("Buddy upstream protocol alignment", () => {
       fetcher,
       defaultPlan: "WorkBuddy",
     });
+
     expect(result.plan).toBe("Enterprise");
     expect(result.windows[0]?.remaining).toBe(800);
     expect(result.windows[0]?.limit).toBe(1000);
+  });
+
+  test("WorkBuddy CN quota uses its own host and client version", async () => {
+    let capturedUrl = "";
+    let capturedHeaders: Headers | undefined;
+    const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+      capturedUrl = String(url);
+      capturedHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({
+        code: 0,
+        data: {
+          Response: {
+            Data: {
+              Accounts: [{
+                PackageName: "WorkBuddy CN",
+                CapacityUsed: 10,
+                CapacitySize: 100,
+                CycleEndTime: "2026-11-01T00:00:00.000Z",
+              }],
+            },
+          },
+        },
+      }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const result = await fetchWorkBuddyCnQuota("token", fetcher);
+
+    expect(result.source).toBe("workbuddycn");
+    expect(capturedUrl).toBe("https://www.workbuddy.cn/v2/billing/meter/get-user-resource");
+    expect(capturedHeaders?.get("x-domain")).toBe("www.workbuddy.cn");
+    expect(capturedHeaders?.get("user-agent")).toContain("WorkBuddy/5.7.7.40774747");
   });
 
   test("classifies refill and bonus packages into the same spendable credit pool", async () => {

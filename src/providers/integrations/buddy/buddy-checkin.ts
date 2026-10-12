@@ -21,7 +21,12 @@
 import { providerBaseUrl } from "../../metadata";
 import { WORKBUDDY_DOMAIN } from "./workbuddy-shared";
 import { BUDDY_PROVIDER_IDS } from "../../metadata";
-import { buildWorkBuddyUserAgent } from "../../operations/client-versions";
+import {
+  buildWorkBuddyUserAgent,
+  getWorkBuddyClientVersion,
+  getWorkBuddyCnClientVersion,
+  getWorkBuddyCliVersion,
+} from "../../operations/client-versions";
 import { buildCodeBuddyUserAgent } from "../../operations/client-versions";
 import { codebuddyDomain, type CodeBuddyVariant } from "./codebuddy-shared";
 /** Providers whose billing facade exposes the daily check-in routes. */
@@ -278,12 +283,13 @@ const CLAIM_RETRY_DELAYS_MS = [1_000, 2_000] as const;
 /**
  * Check-in paths are joined onto the provider's manifest base URL, which does
  * NOT carry a consistent version segment: `cb`/`cbcn` already end in `/v2`,
- * while `workbuddy` is bare and needs `/v2` prepended. This map keeps that
+ * while WorkBuddy variants are bare and need `/v2` prepended. This map keeps that
  * join aligned with each provider's own quota collector, so the three
  * gateways cannot drift apart.
  */
 const VERSION_SEGMENT: Readonly<Record<string, string>> = {
   workbuddy: "/v2",
+  workbuddycn: "/v2",
   cb: "",
   cbcn: "",
 };
@@ -297,7 +303,7 @@ function claimUrl(providerId: string): string {
 }
 
 /**
- * Per-provider billing headers. The three gateways share the Tencent billing
+ * Per-provider billing headers. The Buddy gateways share the Tencent billing
  * facade but each risk-gates on its own client identity: WorkBuddy wants the
  * desktop brand, CodeBuddy intl wants the `IDE` identity, and CN wants `CLI`
  * (plus its own `X-Domain`). Sending the wrong one trips a 403 the same way
@@ -321,10 +327,13 @@ async function checkinHeaders(providerId: string): Promise<Record<string, string
       "X-Domain": codebuddyDomain(variant),
     };
   }
+  const clientVersion = providerId === "workbuddycn"
+    ? getWorkBuddyCnClientVersion()
+    : getWorkBuddyClientVersion();
   return {
     ...common,
-    "User-Agent": buildWorkBuddyUserAgent(),
-    "X-Domain": WORKBUDDY_DOMAIN,
+    "User-Agent": buildWorkBuddyUserAgent(clientVersion, getWorkBuddyCliVersion()),
+    "X-Domain": providerId === "workbuddycn" ? "www.workbuddy.cn" : WORKBUDDY_DOMAIN,
     "Accept-Language": "en-US",
   };
 }

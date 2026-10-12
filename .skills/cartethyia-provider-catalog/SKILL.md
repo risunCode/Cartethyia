@@ -1,6 +1,6 @@
 ---
 name: cartethyia-provider-catalog
-description: "Add, remove, import, authenticate, or curate a provider or model. Use for adapters, OAuth/BYOK flows, base-models.json catalog rows, /v1/models, capabilities, and availability claims."
+description: "Add, remove, import, authenticate, or curate a provider or model; refresh provider client versions and fetchers. Use for adapters, OAuth/BYOK flows, base-models.json catalog rows, /v1/models, capabilities, client User-Agent versions, and availability claims."
 ---
 
 # Provider and catalog
@@ -35,13 +35,50 @@ safe.
 
 ## Fetch a Buddy model catalog
 
-CodeBuddy and WorkBuddy expose two different catalog surfaces. Do not confuse
-the desktop product-config snapshot with Cartethyia's runtime discovery:
+CodeBuddy and WorkBuddy (including WorkBuddy CN) expose two different catalog
+surfaces. Do not confuse the desktop product-config snapshot with Cartethyia's
+runtime discovery:
 
 | Purpose | International endpoint | Response shape |
 |---|---|---|
-| Desktop picker snapshot / manual investigation | `GET https://www.codebuddy.ai/v3/config` or `GET https://www.workbuddy.ai/v3/config` | `data.agents[].models` is the picker roster; `data.models[]` has metadata |
-| Cartethyia account discovery | CodeBuddy: `/v2/enterprises/personal/models`; WorkBuddy: `/v2/enterprises/personal/models` | `data.models[]` plus `data.agents[]`; `disabled` and the `cli` agent roster constrain the result |
+| Desktop picker snapshot / manual investigation | `GET https://www.codebuddy.ai/v3/config`, `GET https://www.workbuddy.ai/v3/config`, or `GET https://www.workbuddy.cn/v3/config` | `data.agents[].models` is the picker roster; `data.models[]` has metadata |
+| Cartethyia account discovery | CodeBuddy: `/v2/enterprises/personal/models`; WorkBuddy variants: `/v2/enterprises/personal/models` | `data.models[]` plus `data.agents[]`; `disabled` and the `cli` agent roster constrain the result |
+
+WorkBuddy CN is the same WorkBuddy client contract on `www.workbuddy.cn`.
+Its desktop client version is fetched from that host's
+`/v2/update?platform=workbuddy-win32-x64-user` feed; keep its version source
+separate from the international `.ai` feed because releases can differ.
+
+## Refresh client versions quickly
+
+When provider/client identity work is in scope—or while doing a quick
+maintenance pass—check whether the known client versions in
+`src/providers/operations/client-versions.ts` have moved. Do a bounded source
+check and update verified pins; do not turn this into a broad audit or download
+large installers when a small official metadata response answers the question.
+
+| Identity | Source to check | Version to update |
+|---|---|---|
+| Claude Code CLI | `https://registry.npmjs.org/@anthropic-ai/claude-code/latest` | `VERSION_SOURCES.claudeCli` |
+| Claude Code bundled Anthropic SDK | Open the matching official `@anthropic-ai/claude-code-win32-x64` package metadata on npm, fetch its `dist.tarball` only if the bundled binary must be inspected, then find the `NT="x.y.z"` constant used by `X-Stainless-Package-Version` and the `userOAuthProvider` User-Agent template in `claude.exe` | `VERSION_SOURCES.claudeSdk` |
+| Kiro IDE | `https://formulae.brew.sh/api/cask/kiro.json`; its installer URL points to the official Kiro artifact | `VERSION_SOURCES.kiro` |
+| Kiro streaming runtime SDK | Inspect the signed Windows Kiro installer for the version of `@aws/codewhisperer-streaming-client` in the agent bundle that defines and imports `getCodeWhispererStreamingClient` | `KIRO_RUNTIME_SDK_VERSION` |
+| Kiro SSO/OIDC SDK | In that same installer, inspect the embedded `@aws-sdk/client-sso-oidc` package metadata used by the OIDC login/refresh bundle | `KIRO_SSO_SDK_VERSION` |
+
+The CLI/IDE application version and each bundled SDK version are separate
+identities. Do not use the standalone `@anthropic-ai/sdk` npm latest as Claude
+Code's bundled version. Kiro installers can contain multiple copies of a
+package: tie the SDK version to the active client/import path, not the first
+matching version string. For reference, Claude Code `2.1.296` bundles SDK
+`0.128.0`; Kiro IDE `1.2.56` uses streaming SDK `1.0.39` and SSO/OIDC SDK
+`3.980.0`. A nearby `1.0.44` string in that Kiro payload belongs to a different
+copy and must not replace the active streaming client's version.
+
+After changing a pin, check any derived User-Agent/fingerprint consumers remain
+connected to the same source, add or update a focused assertion in
+`test/providers/client-version-monitor.test.ts`, and run that test file plus
+`bun run typecheck`. Preserve separate regional client identities and fallbacks
+where their official feeds differ.
 
 The `/v3/config` result depends on the client identity in `User-Agent`. The
 observed identities in

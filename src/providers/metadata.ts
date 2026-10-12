@@ -291,6 +291,7 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
   { id: "cb", displayName: "CodeBuddy", baseUrl: "https://www.codebuddy.ai/v2", hasAdapterUserAgent: true, serviceKinds: ["llm", "imageGeneration", "videoGeneration"], credentialUrl: "https://www.codebuddy.ai", credentialHint: "Sign in with the same CodeBuddy account you use in the desktop app." },
   { id: "cbcn", displayName: "CodeBuddy CN", baseUrl: "https://copilot.tencent.com/v2", hasAdapterUserAgent: true, credentialUrl: "https://copilot.tencent.com", credentialHint: "Sign in with the same CodeBuddy China account you use in the desktop app." },
   { id: "workbuddy", displayName: "WorkBuddy", baseUrl: "https://www.workbuddy.ai", hasAdapterUserAgent: true, serviceKinds: ["llm", "imageGeneration", "videoGeneration"], credentialUrl: "https://www.workbuddy.ai", credentialHint: "Sign in with the same WorkBuddy account you use in the desktop app." },
+  { id: "workbuddycn", displayName: "WorkBuddy CN", baseUrl: "https://www.workbuddy.cn", hasAdapterUserAgent: true, serviceKinds: ["llm", "imageGeneration", "videoGeneration"], credentialUrl: "https://www.workbuddy.cn", credentialHint: "Sign in with the same WorkBuddy China account you use in the desktop app." },
   {
     // Kilo Code resells the OpenRouter catalog. The base URL carries the API's
     // path prefix (`/api/openrouter`) and every model row carries only the wire
@@ -378,7 +379,7 @@ export type BundledProviderId = (typeof RAW_BUNDLED_PROVIDER_METADATA)[number]["
  * get added in one place and silently missed in the others. Declared here
  * beside the identities it names; the layers keep their own *policies*.
  */
-export const BUDDY_PROVIDER_IDS: ReadonlySet<string> = new Set(["cb", "cbcn", "workbuddy"]);
+export const BUDDY_PROVIDER_IDS: ReadonlySet<string> = new Set(["cb", "cbcn", "workbuddy", "workbuddycn"]);
 
 /**
  * Per-provider JWT verification defaults for issued OAuth access tokens. An

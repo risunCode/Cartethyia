@@ -1,6 +1,7 @@
 /** Memory-backend paths: the flows and cache legs that run without REDIS_URL. */
 import { describe, expect, test } from "bun:test";
 import {
+  cachedQuotaAgeMs,
   clearQuotaCacheForTests,
   getCachedQuotaEntry,
   invalidateQuotaCache,
@@ -84,6 +85,81 @@ describe("quota cache without Redis", () => {
       expect(hit?.quota.source).toBe("memory-test");
       await invalidateQuotaCache("tenant:t1", "acc-1", undefined);
       await expect(getCachedQuotaEntry("tenant:t1", "acc-1", undefined)).resolves.toBeNull();
+    } finally {
+      clearQuotaCacheForTests();
+    }
+  });
+
+  test("a failed refresh preserves the last successful quota and records the attempt", async () => {
+    clearQuotaCacheForTests();
+    const firstFetch = new Date("2026-10-12T12:00:00.000Z");
+    const failedFetch = new Date("2026-10-12T12:04:00.000Z");
+    const availableQuota: ProviderQuotaResult = {
+      source: "memory-test",
+      plan: null,
+      windows: [{
+        kind: "monthly",
+        label: "Monthly",
+        usedPercent: 55,
+        remainingPercent: 45,
+        resetsAt: null,
+        remaining: 45,
+        used: 55,
+        limit: 100,
+      }],
+      error: null,
+    };
+    const failedQuota: ProviderQuotaResult = {
+      source: "memory-test",
+      plan: null,
+      windows: [],
+      error: "Temporary provider failure",
+    };
+    try {
+      await setCachedQuota("tenant:t1", "acc-2", availableQuota, undefined, firstFetch);
+      await setCachedQuota("tenant:t1", "acc-2", failedQuota, undefined, failedFetch);
+      const retained = await getCachedQuotaEntry("tenant:t1", "acc-2", undefined);
+      expect(retained?.quota).toEqual(availableQuota);
+      expect(retained?.fetchedAt).toBe(firstFetch.toISOString());
+      expect(retained?.lastAttemptAt).toBe(failedFetch.toISOString());
+      expect(retained?.refreshError).toBe(failedQuota.error);
+      expect(cachedQuotaAgeMs(retained, failedFetch.getTime() + 60_000)).toBe(60_000);
+    } finally {
+      clearQuotaCacheForTests();
+    }
+  });
+
+  test("repeated errors stop retaining a successful quota after thirty minutes", async () => {
+    clearQuotaCacheForTests();
+    const firstFetch = new Date("2026-10-12T12:00:00.000Z");
+    const expiredFetch = new Date("2026-10-12T12:31:00.000Z");
+    const availableQuota: ProviderQuotaResult = {
+      source: "memory-test",
+      plan: null,
+      windows: [{
+        kind: "monthly",
+        label: "Monthly",
+        usedPercent: 55,
+        remainingPercent: 45,
+        resetsAt: null,
+        remaining: 45,
+        used: 55,
+        limit: 100,
+      }],
+      error: null,
+    };
+    const failedQuota: ProviderQuotaResult = {
+      source: "memory-test",
+      plan: null,
+      windows: [],
+      error: "Temporary provider failure",
+    };
+    try {
+      await setCachedQuota("tenant:t1", "acc-3", availableQuota, undefined, firstFetch);
+      await setCachedQuota("tenant:t1", "acc-3", failedQuota, undefined, expiredFetch);
+      const expired = await getCachedQuotaEntry("tenant:t1", "acc-3", undefined);
+      expect(expired?.quota).toEqual(failedQuota);
+      expect(expired?.fetchedAt).toBeNull();
     } finally {
       clearQuotaCacheForTests();
     }

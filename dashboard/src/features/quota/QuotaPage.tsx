@@ -281,6 +281,7 @@ function QuotaCard({
   }, 0);
   const rawError =
     (refresh.error ? getErrorMessage(refresh.error, "Unable to refresh this account") : null) ??
+    quota?.refreshError ??
     quota?.error ??
     account.health?.sanitizedMessage;
   const friendly = friendlyQuotaError(rawError);

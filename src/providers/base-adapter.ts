@@ -28,7 +28,7 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
       throw new GatewayError("invalid_request", 400, "model must not contain query string");
     }
     const headers = await this.prepareHeaders(context, request, target);
-    const payload = await this.preparePayload(request, target);
+    const payload = await this.preparePayload(request, target, context);
     const lifecycle = createUpstreamDeadlineLifecycle(context);
     const transportContext: ProviderDispatchContext = { ...context, abort_signal: lifecycle.signal };
     try {
@@ -62,6 +62,7 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
   protected abstract preparePayload(
     request: CanonicalRequest,
     target: ProviderDispatchTarget,
+    context: ProviderDispatchContext,
   ): Promise<unknown>;
   protected abstract executeTransport(
     headers: Record<string, string>,
