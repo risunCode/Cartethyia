@@ -426,7 +426,7 @@ function CustomProviderCard({ customProvider }: { customProvider: ProviderRespon
           <ProviderIcon
             icon={customProvider.wireFamilyDefault === "messages" ? "anthropic" : "openai"}
             name={customProvider.label || customProvider.providerId}
-            size={32}
+            size={48}
           />
           <div className="min-w-0 flex-1">
             <div
@@ -844,7 +844,7 @@ const ProviderCard = memo(function ProviderCard({
         className={CARD_LINK}
       >
         <Inline gap="10px">
-          <ProviderIcon icon={provider.providerId} name={displayName} size={32} />
+          <ProviderIcon icon={provider.providerId} name={displayName} size={48} />
           <div className="min-w-0 flex-1">
             <div
               className={CARD_NAME}

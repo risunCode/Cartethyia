@@ -62,6 +62,7 @@ import { toast } from "../../lib/toast";
 import { getErrorMessage } from "../../data/api";
 const transportKinds = ["http", "https", "socks5"] as const;
 type TransportKind = (typeof transportKinds)[number];
+const BULK_POOL_CREATE_CONCURRENCY = 4;
 
 const MYSTERIOUS_PROXY = "Mysterious Proxy";
 
@@ -329,6 +330,7 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
   const [quotaGb, setQuotaGb] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [batchSubmitting, setBatchSubmitting] = useState(false);
   const lines = text
     .split("\n")
     .map((l) => l.trim())
@@ -377,29 +379,61 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
     e.preventDefault();
     if (lines.length === 0) return;
     setError(null);
-    let ok = 0;
-    let fail = 0;
-    const failures: string[] = [];
-    for (const line of lines) {
-      try {
-        await createPool.mutateAsync({
-          kind: detectProxyKind(line),
-          endpoint: line,
-          ...(quotaBytes === null ? {} : { quotaBytes }),
-          ...(family.trim() !== "" ? { family: family.trim() } : {}),
-        });
-        ok++;
-      } catch (err) {
-        fail++;
-        if (failures.length < 3) failures.push(`${line.slice(0, 48)}…: ${getErrorMessage(err, "invalid endpoint")}`);
+    setBatchSubmitting(true);
+    try {
+      const outcomes: Array<{ ok: boolean; error?: string }> = new Array(lines.length);
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < lines.length) {
+          const index = cursor++;
+          const line = lines[index]!;
+          try {
+            await createPool.mutateAsync({
+              kind: detectProxyKind(line),
+              endpoint: line,
+              ...(quotaBytes === null ? {} : { quotaBytes }),
+              ...(family.trim() !== "" ? { family: family.trim() } : {}),
+            });
+            outcomes[index] = { ok: true };
+          } catch (err) {
+            outcomes[index] = { ok: false, error: getErrorMessage(err, "Proxy pool creation failed") };
+          }
+        }
+      };
+      await Promise.all(
+        Array.from(
+          { length: Math.min(BULK_POOL_CREATE_CONCURRENCY, lines.length) },
+          () => worker(),
+        ),
+      );
+
+      const failures: string[] = [];
+      let ok = 0;
+      for (const [index, outcome] of outcomes.entries()) {
+        if (outcome.ok) {
+          ok++;
+        } else if (failures.length < 3) {
+          failures.push(`${lines[index]!.slice(0, 48)}…: ${outcome.error}`);
+        }
       }
-    }
-    if (ok > 0) toast.success(`Added ${ok} proxy pool(s)`, fail ? `${fail} failed` : undefined);
-    if (fail > 0 && ok === 0) toast.error("Failed to create pool", "Check endpoint format");
-    if (fail > 0) setError(failures.join("\n"));
-    if (ok > 0) {
-      setText("");
-      onClose();
+      const fail = lines.length - ok;
+      const firstFailure = outcomes.find((outcome) => !outcome.ok)?.error;
+      if (ok > 0) {
+        toast.success(
+          `Added ${ok} proxy pool(s)`,
+          fail ? `${fail} failed: ${firstFailure ?? "see the import details"}` : undefined,
+        );
+      }
+      if (fail > 0 && ok === 0) {
+        toast.error("Failed to create pool", firstFailure ?? "See the import details");
+      }
+      if (fail > 0) setError(failures.join("\n"));
+      if (ok > 0) {
+        setText("");
+        onClose();
+      }
+    } finally {
+      setBatchSubmitting(false);
     }
   };
 
@@ -407,62 +441,61 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
     actionsRef?.(
       <>
         <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" type="submit" form="add-proxy-form" disabled={createPool.isPending || lines.length === 0}>
-          {createPool.isPending ? "Adding…" : `Add ${lines.length || ""} Proxy`}
+        <Button variant="primary" type="submit" form="add-proxy-form" disabled={batchSubmitting || lines.length === 0}>
+          {batchSubmitting ? "Adding…" : `Add ${lines.length} Prox${lines.length === 1 ? "y" : "ies"}`}
         </Button>
       </>
     );
-  });
+  }, [actionsRef, batchSubmitting, lines.length, onClose]);
   return (
-    <form id="add-proxy-form" onSubmit={submit} className="flex flex-col gap-6">
-      <div className="flex justify-between items-center">
-        <span className="text-caption text-text-secondary">
-          Paste one per line · http / https / socks5
-        </span>
+    <form id="add-proxy-form" onSubmit={submit} className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor="proxy-endpoints" className="text-caption font-semibold text-text-primary">
+          Proxy endpoints
+        </label>
         <Button variant="secondary" size="sm" type="button" onClick={handlePaste}>
           Paste
         </Button>
       </div>
-      <div className="rounded-inset border border-inner-border bg-surface-2 px-6 py-5 text-badge leading-[1.55] text-text-secondary">
-        <strong className="text-text-primary">How to add proxies</strong>
-        <div>One proxy per line. Supported formats: HTTP, HTTPS, and SOCKS5.</div>
-        <div>Authentication is optional: <code>https://username:password@host:port</code>.</div>
-        <div>Without credentials: <code>http://host:port</code>. The username/password stays private.</div>
-      </div>
       <textarea
+        id="proxy-endpoints"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder={"http://user:pass@10.0.1.5:8080\nhttps://user:pass@10.0.1.6:8443\nsocks5://user:pass@10.0.1.7:1080"}
-        rows={8}
-        className="w-full min-h-160 resize-y rounded-control border border-inner-border bg-surface-1 p-5 font-mono text-caption text-text-primary"
+        placeholder={"http://proxy.example:8080\nhttps://proxy.example:8443\nsocks5://proxy.example:1080"}
+        rows={5}
+        aria-describedby="proxy-format-hint proxy-line-count"
+        aria-invalid={Boolean(error)}
+        className="w-full min-h-32 max-h-64 resize-y overflow-y-auto rounded-control border border-inner-border bg-surface-1 p-3 font-mono text-caption text-text-primary outline-none transition-[border-color,box-shadow] duration-(--dur-micro) ease-spring focus:border-accent focus:shadow-focus"
       />
-      <div>
-        <Input
-          label="Family (blank = untagged)"
-          value={family}
-          placeholder="e.g. residential-id"
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFamily(e.target.value)}
-          className="w-full"
-        />
-      </div>
-      <div>
-        <Input
-          label="Bandwidth quota per pool (GB, blank = unmetered)"
-          type="number"
-          min={0.001}
-          step="0.1"
-          value={quotaGb}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuotaGb(e.target.value)}
-          className="w-full"
-        />
-      </div>
-      <div className={`text-badge ${overCap ? "text-red" : "text-text-tertiary"}`}>
-        {lines.length} line(s) detected
-        {overCap ? ` · ${MAX_BATCH_PROBE_TARGETS} max per test` : ""}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p id="proxy-format-hint" className="m-0 text-badge leading-normal text-text-secondary">
+          HTTP, HTTPS, or SOCKS5 | one per line | authentication optional
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <span
+            id="proxy-line-count"
+            role="status"
+            aria-live="polite"
+            className={`text-badge ${overCap ? "text-red" : "text-text-tertiary"}`}
+          >
+            {lines.length === 1 ? "1 proxy detected" : `${lines.length} proxies detected`}
+            {overCap ? ` · max ${MAX_BATCH_PROBE_TARGETS} per test` : ""}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            onClick={() => void runTest()}
+            disabled={probeBatch.isPending || lines.length === 0 || overCap}
+          >
+            {probeBatch.isPending ? "Testing…" : "Test proxies"}
+          </Button>
+        </div>
       </div>
       {error && (
         <div
-          className="px-6 py-4 rounded-inset text-badge whitespace-pre-line bg-red-soft text-red"
+          role="alert"
+          className="max-h-28 overflow-y-auto rounded-inset bg-red-soft px-4 py-3 text-badge text-red whitespace-pre-wrap break-words"
         >
           {error}
         </div>
@@ -471,17 +504,33 @@ function ProxyBulkForm({ onClose, actionsRef }: { readonly onClose: () => void; 
         <div
           role="log"
           aria-label="Proxy test results"
-          // Fixed height with its own scrollbar: a 100-line paste must not
-          // stretch the dialog, it should scroll inside this box.
-          className="scroll-region h-66 max-h-66 whitespace-pre rounded-inset border border-inner-border bg-surface-1 px-5 py-4 font-mono text-badge leading-[1.6] text-text-secondary"
+          aria-live="polite"
+          className="scroll-region max-h-40 overflow-y-auto whitespace-pre-wrap break-all rounded-inset border border-inner-border bg-surface-1 px-3 py-2 font-mono text-badge leading-[1.5] text-text-secondary"
         >
           {log.join("\n")}
         </div>
       )}
-      <div>
-        <Button variant="secondary" type="button" onClick={() => void runTest()} disabled={probeBatch.isPending || lines.length === 0 || overCap}>
-          {probeBatch.isPending ? "Testing…" : "Test proxies"}
-        </Button>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Input
+          id="proxy-family"
+          label="Family"
+          hint="Optional"
+          value={family}
+          placeholder="e.g. residential-id"
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFamily(e.target.value)}
+          className="w-full"
+        />
+        <Input
+          id="proxy-quota"
+          label="Bandwidth quota (GB)"
+          hint="Optional"
+          type="number"
+          min={0.001}
+          step="0.1"
+          value={quotaGb}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuotaGb(e.target.value)}
+          className="w-full"
+        />
       </div>
     </form>
   );
@@ -1202,6 +1251,7 @@ export default function Proxy(): ReactNode {
   const updatePool = useUpdateNetworkPool();
   const healthCheck = useHealthCheckNetworkPool();
   const [showProxyForm, setShowProxyForm] = useState(false);
+  const closeAddProxy = useCallback(() => setShowProxyForm(false), []);
   const [addProxyActions, setAddProxyActions] = useState<ReactNode>(null);
   const [editProxyActions, setEditProxyActions] = useState<ReactNode>(null);
   const [showRelayDeploy, setShowRelayDeploy] = useState(false);
@@ -1441,11 +1491,11 @@ export default function Proxy(): ReactNode {
       <Stack gap="16px">
       <Dialog
         open={showProxyForm}
-        onClose={() => setShowProxyForm(false)}
+        onClose={closeAddProxy}
         title="Add Proxy"
         footer={addProxyActions}
       >
-        <ProxyBulkForm onClose={() => setShowProxyForm(false)} actionsRef={setAddProxyActions} />
+        <ProxyBulkForm onClose={closeAddProxy} actionsRef={setAddProxyActions} />
       </Dialog>
 
       <Dialog

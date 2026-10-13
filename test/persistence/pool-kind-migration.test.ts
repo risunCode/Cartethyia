@@ -23,6 +23,14 @@ import { resolve } from "node:path";
 import { Database } from "bun:sqlite";
 
 const MIGRATION = resolve(import.meta.dir, "../../migrations/lite-sqlite3/0012_network_pool_https.sql");
+const HEALTH_TIMESTAMP_MIGRATION = resolve(
+  import.meta.dir,
+  "../../migrations/lite-sqlite3/0014_restore_network_pool_last_error_at.sql",
+);
+const RESTORED_POOL_COLUMNS_MIGRATION = resolve(
+  import.meta.dir,
+  "../../migrations/lite-sqlite3/0015_restore_network_pool_columns.sql",
+);
 
 /** The pre-0012 shape: the retired kind list, and the child that references it. */
 const OLD_SCHEMA = `
@@ -41,8 +49,19 @@ CREATE TABLE network_pools (
   "last_latency_ms" integer,
   "last_error" text,
   "last_error_category" text,
+  "last_error_at" text,
   "cooldown_until" text,
   "last_recovered_at" text,
+  "last_health_check_at" text,
+  "egress_ip" text,
+  "quota_bytes" integer,
+  "last_speedtest_bytes" integer,
+  "last_speedtest_duration_ms" integer,
+  "last_speedtest_status" text,
+  "last_speedtest_error" text,
+  "last_speedtest_at" text,
+  "bytes_sent_total" integer DEFAULT 0 NOT NULL,
+  "bytes_received_total" integer DEFAULT 0 NOT NULL,
   "model_cooldowns" text DEFAULT '{}' NOT NULL,
   "sort_index" integer DEFAULT 0 NOT NULL,
   "family" text,
@@ -79,7 +98,7 @@ function stripComments(statement: string): string {
   return statement.replace(/--[^\n]*/g, "").trim();
 }
 
-test("0012 folds bridge to https and keeps the pool health history", () => {
+test("pool migrations fold bridge to https and retain pool health columns", () => {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(OLD_SCHEMA);
@@ -93,10 +112,16 @@ test("0012 folds bridge to https and keeps the pool health history", () => {
 
   // The shipped file, split and stripped the way `applySqliteMigrations` does
   // it, so this exercises the same bytes the runner would execute.
-  for (const statement of splitStatements(readFileSync(MIGRATION, "utf8"))) {
-    const sql = stripComments(statement);
-    if (sql.length === 0) continue;
-    db.exec(sql);
+  for (const migration of [
+    MIGRATION,
+    HEALTH_TIMESTAMP_MIGRATION,
+    RESTORED_POOL_COLUMNS_MIGRATION,
+  ]) {
+    for (const statement of splitStatements(readFileSync(migration, "utf8"))) {
+      const sql = stripComments(statement);
+      if (sql.length === 0) continue;
+      db.exec(sql);
+    }
   }
 
   const kinds = db.query("SELECT id, kind FROM network_pools ORDER BY id").all() as Array<{ id: string; kind: string }>;
@@ -115,5 +140,29 @@ test("0012 folds bridge to https and keeps the pool health history", () => {
   const fk = db.query("SELECT sql FROM sqlite_master WHERE name = 'health_events'").get() as { sql: string };
   expect(fk.sql).toContain('REFERENCES "network_pools"');
   expect(fk.sql).not.toContain("retired");
+  const columns = db.query("PRAGMA table_info('network_pools')").all() as Array<{ name: string }>;
+  const columnNames = columns.map((column) => column.name);
+  expect(columnNames).toContain("last_error_at");
+  expect(columnNames).toContain("last_health_check_at");
+  expect(columnNames).toContain("egress_ip");
+  expect(columnNames).toContain("quota_bytes");
+  expect(columnNames).toContain("last_speedtest_bytes");
+  expect(columnNames).toContain("last_speedtest_duration_ms");
+  expect(columnNames).toContain("last_speedtest_status");
+  expect(columnNames).toContain("last_speedtest_error");
+  expect(columnNames).toContain("last_speedtest_at");
+  expect(columnNames).toContain("bytes_sent_total");
+  expect(columnNames).toContain("bytes_received_total");
+  db.exec(`INSERT INTO network_pools (
+             id, kind, endpoint_config, tenant_id, last_error_at, last_health_check_at,
+             egress_ip, quota_bytes, last_speedtest_bytes, last_speedtest_duration_ms,
+             last_speedtest_status, last_speedtest_error, last_speedtest_at,
+             bytes_sent_total, bytes_received_total
+           ) VALUES (
+             'pool-4', 'https', '{"endpoint":"relay.example.com"}', 'tenant-1',
+             '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z',
+             '203.0.113.10', 1000, 512, 250, 'ok', NULL,
+             '2026-10-13T00:00:00Z', 1024, 2048
+           )`);
   db.close();
 });

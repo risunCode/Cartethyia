@@ -17,6 +17,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - The Usage page no longer reports an unreceived in-flight snapshot as zero.
+- Proxy imports work on Lite databases by restoring network-pool health and
+  accounting columns omitted by the SQLite transport migration.
 
 ## 2.2 Zhezhi
 

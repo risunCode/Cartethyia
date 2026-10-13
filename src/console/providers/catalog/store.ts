@@ -896,6 +896,8 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     providerId: string,
     request: CreateProviderAccountRequest,
     existingTx?: Parameters<Parameters<CartethyiaDatabase["transaction"]>[0]>[0],
+    includeUsage = true,
+    sortIndexOverride?: number,
   ): Promise<ProviderAccountResponse> {
     // Callers inside an existing transaction pass it in so the account lands in
     // that unit of work (the batch path); otherwise this opens its own.
@@ -989,7 +991,8 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
           credentialMode: effectiveCredentialMode,
           ...(tokenExpiresAt === undefined ? {} : { tokenExpiresAt: tokenExpiresAt.toISOString() }),
         };
-        const nextSortIndex = await this.nextAccountSortIndex(tx, providerId, tenantId);
+        const nextSortIndex =
+          sortIndexOverride ?? (await this.nextAccountSortIndex(tx, providerId, tenantId));
         const rows = await tx
           .insert(providerAccounts)
           .values({
@@ -1037,6 +1040,10 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
           );
         }
 
+        if (!includeUsage) {
+          const emptyUsage = { requests: 0, errors: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+          return this.mapAccount(row, { today: emptyUsage, allTime: emptyUsage });
+        }
         const [account] = await this.accountsWithUsage(tenantId, [row]);
         if (!account) throw new Error("created provider account could not be mapped");
         return account;
@@ -1087,14 +1094,16 @@ export class DrizzleProviderCatalogStore implements ProviderCatalogStore {
     let failed = 0;
 
     await this.db.transaction(async (tx) => {
+      let nextSortIndex = await this.nextAccountSortIndex(tx, providerId, tenantId);
       for (const [index, request] of requests.entries()) {
         try {
           // A nested transaction acts as a savepoint: a duplicate-fingerprint
           // violation rolls back only this item, not the accounts before it.
           const account = await tx.transaction(async (inner) =>
-            this.createAccount(tenantId, providerId, request, inner),
+            this.createAccount(tenantId, providerId, request, inner, false, nextSortIndex),
           );
           created += 1;
+          nextSortIndex += 1;
           results.push({ index, ok: true, ...(account ? { account } : {}) });
         } catch (error) {
           failed += 1;
