@@ -11,13 +11,13 @@
  * must be kept in sync manually if these values ever change.
  */
 
-export type ConsoleThemeChoice = "system" | "light" | "dark";
+export type ConsoleThemeChoice = "light" | "dark";
 
 /** localStorage key for the persisted console theme. */
 export const CONSOLE_THEME_KEY = "console-theme";
 
 export function parseConsoleTheme(value: unknown): ConsoleThemeChoice {
-  return value === "light" || value === "dark" || value === "system" ? value : "dark";
+  return value === "light" || value === "dark" ? value : "dark";
 }
 
 export function readConsoleTheme(fallback: ConsoleThemeChoice = "dark"): ConsoleThemeChoice {
@@ -29,15 +29,9 @@ export function readConsoleTheme(fallback: ConsoleThemeChoice = "dark"): Console
   }
 }
 
-/** Resolves the effective dark mode for a stored choice (system follows the OS). */
+/** Returns whether the explicitly selected theme is dark. */
 export function isDarkEffective(theme: ConsoleThemeChoice): boolean {
-  if (theme === "dark") return true;
-  if (theme === "light") return false;
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  );
+  return theme === "dark";
 }
 
 /**
@@ -45,9 +39,6 @@ export function isDarkEffective(theme: ConsoleThemeChoice): boolean {
  */
 export function applyConsoleTheme(theme: ConsoleThemeChoice): void {
   if (typeof document === "undefined") return;
-  // The stylesheets key on "light" and "dark" only. Writing the stored choice
-  // straight through left "system" on the root, which matches no rule, so a
-  // click did nothing whenever the OS already agreed with the current look.
   document.documentElement.dataset.theme = isDarkEffective(theme) ? "dark" : "light";
 }
 

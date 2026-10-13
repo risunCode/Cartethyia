@@ -38,13 +38,12 @@ beforeEach(() => {
 });
 
 describe("parseConsoleTheme", () => {
-  test("the three valid choices pass through", () => {
+  test("the explicit choices pass through", () => {
     expect(parseConsoleTheme("light")).toBe("light");
     expect(parseConsoleTheme("dark")).toBe("dark");
-    expect(parseConsoleTheme("system")).toBe("system");
   });
 
-  test("anything else resolves to the dark default", () => {
+  test("unknown and legacy choices resolve to the dark default", () => {
     expect(parseConsoleTheme(null)).toBe("dark");
     expect(parseConsoleTheme(undefined)).toBe("dark");
     expect(parseConsoleTheme("")).toBe("dark");
@@ -52,6 +51,7 @@ describe("parseConsoleTheme", () => {
     expect(parseConsoleTheme("Dark")).toBe("dark");
     expect(parseConsoleTheme("  dark  ")).toBe("dark");
     expect(parseConsoleTheme("auto")).toBe("dark");
+    expect(parseConsoleTheme("system")).toBe("dark");
     expect(parseConsoleTheme(0)).toBe("dark");
     expect(parseConsoleTheme({ theme: "dark" })).toBe("dark");
   });
@@ -65,7 +65,7 @@ describe("parseConsoleTheme", () => {
   });
 
   test("the result is always in the documented union", () => {
-    const choices: readonly ConsoleThemeChoice[] = ["system", "light", "dark"];
+    const choices: readonly ConsoleThemeChoice[] = ["light", "dark"];
     for (const input of ["light", "dark", "system", "nonsense", null, 42, []]) {
       expect(choices).toContain(parseConsoleTheme(input));
     }
@@ -81,6 +81,11 @@ describe("readConsoleTheme", () => {
   });
 
   test("nothing stored defaults to dark", () => {
+    expect(readConsoleTheme()).toBe("dark");
+  });
+
+  test("a legacy system preference defaults to dark", () => {
+    window.localStorage.setItem(CONSOLE_THEME_KEY, "system");
     expect(readConsoleTheme()).toBe("dark");
   });
 
@@ -126,77 +131,18 @@ describe("readConsoleTheme", () => {
 });
 
 describe("isDarkEffective", () => {
-  test("an explicit choice is answered directly", () => {
-    // No OS consultation for an explicit choice — that is what makes the toggle
-    // deterministic.
+  test("reports the explicit theme without consulting the OS", () => {
     expect(isDarkEffective("dark")).toBe(true);
     expect(isDarkEffective("light")).toBe(false);
-  });
-
-  test("system consults the OS preference", () => {
-    // The harness's matchMedia stand-in always reports `matches: false`, so
-    // "system" resolves to light here. The discriminating assertion is the
-    // explicit-vs-system split above; this pins the stand-in's contribution so a
-    // change to the helper is visible.
-    expect(isDarkEffective("system")).toBe(false);
-  });
-
-  test("system consults matchMedia rather than assuming light", () => {
-    // Replace the WINDOW's matchMedia with one that reports dark, and assert the
-    // result follows. Without this the previous test would pass on an
-    // implementation that hard-coded `false` for "system".
-    //
-    // MEASURED: patching `globalThis.matchMedia` does NOT work — the module reads
-    // `window.matchMedia`, and the harness registers `window` as happy-dom's own
-    // object whose `matchMedia` is a distinct function. I first patched the global
-    // and the test failed, which is the correct signal that I was patching the
-    // wrong object.
-    const windowRecord = window as unknown as Record<string, unknown>;
-    const original = windowRecord.matchMedia;
-    windowRecord.matchMedia = (query: string) => ({
-      matches: query === "(prefers-color-scheme: dark)",
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => true,
-    });
-    try {
-      expect(isDarkEffective("system")).toBe(true);
-      // And an explicit light still wins over a dark OS.
-      expect(isDarkEffective("light")).toBe(false);
-      // As does an explicit dark over a light OS — checked by the next test.
-    } finally {
-      windowRecord.matchMedia = original;
-    }
-  });
-
-  test("a missing matchMedia is handled rather than thrown on", () => {
-    // An older browser, or a non-DOM context. The `typeof === "function"` guard
-    // means the answer is light rather than a TypeError during render.
-    const windowRecord = window as unknown as Record<string, unknown>;
-    const original = windowRecord.matchMedia;
-    windowRecord.matchMedia = undefined;
-    try {
-      expect(isDarkEffective("system")).toBe(false);
-    } finally {
-      windowRecord.matchMedia = original;
-    }
   });
 });
 
 describe("applyConsoleTheme", () => {
-  test("the resolved theme lands on the root, never the raw choice", () => {
-    // Stylesheets match "light" and "dark" only. Writing "system" through left
-    // the root with a value no rule matches, so the toggle looked dead.
+  test("the explicit theme lands on the root", () => {
     applyConsoleTheme("dark");
     expect(document.documentElement.dataset.theme).toBe("dark");
     applyConsoleTheme("light");
     expect(document.documentElement.dataset.theme).toBe("light");
-    applyConsoleTheme("system");
-    expect(document.documentElement.dataset.theme).not.toBe("system");
   });
 
   test("applying does not write to storage", () => {
@@ -233,7 +179,7 @@ describe("writeConsoleTheme", () => {
 
   test("a round trip through storage returns the same choice", () => {
     // The property that makes the preference survive a reload.
-    for (const theme of ["light", "dark", "system"] as const satisfies readonly ConsoleThemeChoice[]) {
+    for (const theme of ["light", "dark"] as const satisfies readonly ConsoleThemeChoice[]) {
       writeConsoleTheme(theme);
       expect(readConsoleTheme()).toBe(theme);
     }

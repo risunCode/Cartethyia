@@ -46,10 +46,6 @@
       html[data-app="share"] { background: #fffdf8; }
       html[data-app="console"][data-theme="dark"],
       html[data-app="share"][data-theme="dark"] { background: #08080b; }
-      @media (prefers-color-scheme: dark) {
-        html[data-app="console"][data-theme="system"],
-        html[data-app="share"][data-theme="system"] { background: #08080b; }
-      }
     </style>
     <script>
       // This bootstrap mirrors dashboard/src/lib/theme.ts because it must run
@@ -81,10 +77,7 @@
         }
         try {
           const storedTheme = window.localStorage.getItem("console-theme");
-          const theme =
-            storedTheme === "light" || storedTheme === "dark" || storedTheme === "system"
-              ? storedTheme
-              : "dark";
+          const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark";
           root.dataset.theme = theme;
         } catch {
           root.dataset.theme = "dark";
