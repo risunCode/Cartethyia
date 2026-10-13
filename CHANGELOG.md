@@ -7,6 +7,17 @@ under `migrations/full-postgres/` and their same-named SQLite twins.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Added
+
+- Usage now includes average routing/preparation delay and period-bound P50,
+  P95, and P99 request latency in its summary cards.
+
+### Fixed
+
+- The Usage page no longer reports an unreceived in-flight snapshot as zero.
+
 ## 2.2 Zhezhi
 
 Released 2026-10-12.

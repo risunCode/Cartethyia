@@ -47,8 +47,8 @@
  * Everything else is left live: the pages are the real console against a real
  * gateway, which is exactly what a styling regression would break. The dev
  * database is **read-only** for this script (the only write is the session row
- * the sign-in form itself creates); it is not the test suite, which stays on
- * the isolated `.env.test` database.
+ * the sign-in form itself creates); database tests use the disposable
+ * `CARTETHYIA_TEST_DATABASE_URL`.
  *
  * ```bash
  * CARTETHYIA_DEV_ADMIN_PASSWORD=… bun scripts/dev/visual-baseline.ts capture

@@ -46,11 +46,15 @@ Lite is the default in `.env.example`. Nothing else to install.
 git clone -b dev https://github.com/risunCode/Cartethyia.git
 cd Cartethyia
 
-bun install
+bun install --linker isolated
 bun setup --non-interactive
 bun run build
 bun run start
 ```
+
+Run the install from the repository root. The isolated linker installs both
+workspaces and creates dependency directories for the backend and
+`dashboard/`; no second dashboard install is needed.
 
 Open `http://localhost:12800/console`.
 
@@ -87,7 +91,7 @@ REDIS_URL=redis://localhost:6379   # optional; omit for in-memory
 ```
 
 ```bash
-bun install
+bun install --linker isolated
 bun setup --non-interactive
 bun doctor
 bun run build
@@ -135,7 +139,7 @@ CARTETHYIA_INSTALL_ID_DIR=/opt/cartethyia/data/.cartethyia
 EOF
 
 # 5. Build
-bun install
+bun install --linker isolated
 bun run build
 ```
 
@@ -218,7 +222,7 @@ if [ "$LOCAL" = "$REMOTE" ]; then exit 0; fi
 
 echo "[$(date -Is)] deploy $LOCAL -> $REMOTE" >> "$LOG"
 git reset --quiet --hard "$REMOTE" || exit 1
-bun install --frozen-lockfile >> "$LOG" 2>&1 || { echo "install failed" >> "$LOG"; exit 1; }
+bun install --linker isolated --frozen-lockfile >> "$LOG" 2>&1 || { echo "install failed" >> "$LOG"; exit 1; }
 bun run build >> "$LOG" 2>&1 || { echo "build failed" >> "$LOG"; exit 1; }
 
 systemctl restart cartethyia
@@ -378,8 +382,9 @@ bash scripts/install/lite.sh
 
 That script is the canonical one-shot installer; it installs system packages and
 Bun, clones the repository, then hands off to the same wizard and build every
-other path uses (`bun install` → `bun run setup --non-interactive` → `bun run
-build`) and finishes with a systemd unit. An existing `.env` is never
+other path uses (`bun install --linker isolated` →
+`bun run setup --non-interactive` → `bun run build`) and finishes with a
+systemd unit. An existing `.env` is never
 overwritten.
 
 Environment overrides: `CARTETHYIA_ROOT`, `CARTETHYIA_BRANCH`,

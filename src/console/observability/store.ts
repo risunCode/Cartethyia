@@ -193,6 +193,42 @@ function percentile(sorted: readonly number[], fraction: number): number {
   return Math.round(sorted[index] ?? 0);
 }
 
+export interface UsagePerformanceSummary {
+  avgResolveMs: number;
+  avgDurationMs: number;
+  latencyP50Ms: number;
+  latencyP95Ms: number;
+  latencyP99Ms: number;
+}
+
+/** Summarizes routing delay and request latency for an already-filtered period. */
+export function summarizeUsagePerformance(
+  events: readonly Pick<TelemetryEventRecord, "latencyMs" | "resolveMs">[],
+): UsagePerformanceSummary {
+  const latencies: number[] = [];
+  let latencySum = 0;
+  let resolveSum = 0;
+  let resolveCount = 0;
+  for (const event of events) {
+    if (event.latencyMs !== null) {
+      latencies.push(event.latencyMs);
+      latencySum += event.latencyMs;
+    }
+    if (event.resolveMs !== null) {
+      resolveSum += event.resolveMs;
+      resolveCount += 1;
+    }
+  }
+  latencies.sort((a, b) => a - b);
+  return {
+    avgResolveMs: resolveCount > 0 ? resolveSum / resolveCount : 0,
+    avgDurationMs: latencies.length > 0 ? latencySum / latencies.length : 0,
+    latencyP50Ms: percentile(latencies, 0.5),
+    latencyP95Ms: percentile(latencies, 0.95),
+    latencyP99Ms: percentile(latencies, 0.99),
+  };
+}
+
 /** The largest entries of a count map, capped. */
 function topCounts(counts: ReadonlyMap<string, number>, limit: number): Array<[string, number]> {
   return [...counts].sort((a, b) => b[1] - a[1]).slice(0, limit);
@@ -381,6 +417,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
 
   async usageSummary(tenantId: string, period: string): Promise<UsageSummaryResponse> {
     const events = await this.periodEvents(tenantId, period);
+    const performance = summarizeUsagePerformance(events);
     let requests = 0;
     let inputTokens = 0;
     let cachedTokens = 0;
@@ -388,8 +425,6 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
     let errors = 0;
     let cancelled = 0;
     let truncated = 0;
-    let latencySum = 0;
-    let latencyCount = 0;
     let estimatedCostUsd = 0;
     let unpriced = 0;
     let tokensPerSecSum = 0;
@@ -403,10 +438,6 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
       if (isGatewayError(event.status, event.httpStatus)) errors += 1;
       if (event.status === "cancelled") cancelled += 1;
       if (event.status === "truncated") truncated += 1;
-      if (event.latencyMs !== null) {
-        latencySum += event.latencyMs;
-        latencyCount += 1;
-      }
       if (event.estimatedCostUsd !== null) estimatedCostUsd += event.estimatedCostUsd;
       else if (event.status === "completed") unpriced += 1;
       if (event.tokensPerSec !== null) {
@@ -427,7 +458,7 @@ export class DrizzleObservabilityStore implements ObservabilityStore {
         errors,
         cancelled,
         truncated,
-        avgDurationMs: latencyCount > 0 ? latencySum / latencyCount : 0,
+        ...performance,
         estimatedCostUsd,
         partial: unpriced > 0,
         cacheHitRate: inputTokens > 0 ? (cachedTokens / inputTokens) * 100 : 0,

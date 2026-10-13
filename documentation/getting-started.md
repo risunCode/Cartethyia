@@ -114,14 +114,16 @@ Set `CARTETHYIA_CONFIG_DIR` to override the config location.
 
 ## 3. Install dependencies
 
-From the repository root, install the Bun dependencies:
+From the repository root, install both Bun workspaces (backend and dashboard):
 
 ```bash
-bun install
+bun install --linker isolated
 ```
 
-`bun install` installs packages only. It does not create the database, generate
-`.env`, or start Cartethyia.
+The isolated linker creates dependency directories for both the repository
+root and `dashboard/`; one command installs both workspaces. Do not run a
+separate install from `dashboard/`. Installation does not create the database,
+generate `.env`, or start Cartethyia.
 
 ## 4. Configure and validate the installation
 
@@ -309,11 +311,11 @@ passwords and store them securely.
 
 ## 9. Test database
 
-Database-backed tests use the isolated URL in `CARTETHYIA_TEST_DATABASE_URL`,
-not the development `DATABASE_URL`. The test runner loads `.env.test`
-explicitly; create that file from `.env.test.example` before running
-database-backed checks. `bun setup` creates or updates the application `.env`
-(or the npm CLI's user config), not `.env.test`.
+Database-backed tests use the disposable URL in `CARTETHYIA_TEST_DATABASE_URL`,
+not the runtime `DATABASE_URL`. Keep optional test service settings in the
+existing local `.env` (created from `.env.example`) or export them in your
+shell; there is no separate test env file. The backend suite requires
+`CARTETHYIA_TEST_DATABASE_URL`; dashboard tests do not need a database.
 
 Check the test database:
 
@@ -321,12 +323,22 @@ Check the test database:
 bun run test-db:check
 ```
 
-If local PostgreSQL is unavailable, use the disposable test database in Compose:
+If local PostgreSQL is unavailable, use the disposable test database in Compose
+and add its URL to your existing `.env`:
 
 ```bash
-cp .env.test.example .env.test
 bun run test-db:up
+```
+
+```dotenv
+CARTETHYIA_TEST_DATABASE_URL=postgres://cartethyia_test:cartethyia_test@127.0.0.1:55432/cartethyia_test
+```
+
+Then run:
+
+```bash
 bun run test-db:check
+bun run test:backend
 bun run test-db:down
 ```
 

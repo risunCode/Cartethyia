@@ -46,8 +46,11 @@ the `cartethyia-schema-telemetry` skill. Dashboard contracts stay browser-safe.
 
 ## First install
 
-`bun install`, then `bun setup`. The wizard creates the env, the encryption
-key, the Lite/Full choice, the listen port, and probes the database. `PORT`
+`bun install --linker isolated`, then `bun setup`. Run install at the repository
+root; it installs the backend and dashboard workspaces and creates each
+workspace's dependency directory. Do not install separately from `dashboard/`.
+The wizard creates the env, encryption key, Lite/Full choice, and listen port,
+then probes the database. `PORT`
 (default 12800) is what `bun dev` and the production build bind. 5173 is only
 the dashboard dev server. Automation uses `bun setup --non-interactive` and
 must already have `CARTETHYIA_DB_MODE`, plus a reachable `DATABASE_URL` for

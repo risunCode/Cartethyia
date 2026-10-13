@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Verifies the isolated test database is reachable.
+ * Verifies the disposable test database is reachable.
  *
  * The variable name is `CARTETHYIA_TEST_DATABASE_URL` — the same one the
  * suites read through `test/helpers/database.ts`. A second spelling
@@ -13,13 +13,13 @@ import { join } from "node:path";
  * developer's *working* database would be worse than no check.
  */
 const PROJECT_ROOT = join(import.meta.dir, "..", "..");
-const ENV_TEST_PATH = join(PROJECT_ROOT, ".env.test");
+const ENV_PATH = join(PROJECT_ROOT, ".env");
 
-function readEnvTest(): Record<string, string> {
-  if (!existsSync(ENV_TEST_PATH)) return {};
+function readLocalEnv(): Record<string, string> {
+  if (!existsSync(ENV_PATH)) return {};
   const values: Record<string, string> = {};
-  for (const line of readFileSync(ENV_TEST_PATH, "utf8").split(/\r?\n/)) {
-    if (line.startsWith("#")) continue;
+  for (const line of readFileSync(ENV_PATH, "utf8").split(/\r?\n/)) {
+    if (line.trimStart().startsWith("#")) continue;
     const separator = line.indexOf("=");
     if (separator <= 0) continue;
     values[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
@@ -27,13 +27,13 @@ function readEnvTest(): Record<string, string> {
   return values;
 }
 
-const fileEnv = readEnvTest();
+const fileEnv = readLocalEnv();
 const databaseUrl =
-  process.env.CARTETHYIA_TEST_DATABASE_URL ?? fileEnv.CARTETHYIA_TEST_DATABASE_URL;
+  process.env.CARTETHYIA_TEST_DATABASE_URL?.trim() || fileEnv.CARTETHYIA_TEST_DATABASE_URL;
 
 if (!databaseUrl) {
   console.error(
-    "CARTETHYIA_TEST_DATABASE_URL is not set (checked the environment and .env.test).\n" +
+    "CARTETHYIA_TEST_DATABASE_URL is not set (checked the environment and .env).\n" +
       "Point it at a disposable database; DATABASE_URL is deliberately never used here.",
   );
   process.exit(1);

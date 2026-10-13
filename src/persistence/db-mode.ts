@@ -19,7 +19,7 @@ export type DbMode = "full" | "lite";
  * different migration sets (`migrations/lite-sqlite3/` vs
  * `migrations/full-postgres/`), so guessing one silently picks which migrations
  * an operator's data is read against. `bun setup`, `scripts/install/lite.sh`,
- * `.env.example`, `.env.test`, and `docker-compose.yml` all set it explicitly,
+ * `.env.example`, and `docker-compose.yml` all set it explicitly,
  * so requiring it costs an existing deployment nothing.
  */
 export function resolveDbMode(env: NodeJS.ProcessEnv = process.env): DbMode {

@@ -4,13 +4,10 @@
  * A bare `bun test` is not enough for this suite, and the reasons are worth
  * stating so the flags are not "helpfully" removed later:
  *
- * - **`.env.test` is loaded explicitly, and it wins.** Bun loads `.env` by
- *   default, which holds a developer's *runtime* database and mode. Without
- *   this the suites would migrate and write into the working database — the
- *   exact failure the old suite was deleted over. Loading it here (rather than
- *   relying on Bun's `.env.test` auto-load) means the file that is loaded is
- *   named in one place, and it overrides `.env` so a lite runtime mode cannot
- *   reach the pg-backed suites.
+ * - The local `.env` is shared with the test subprocesses. Database suites
+ *   only run when `CARTETHYIA_TEST_DATABASE_URL` points to a disposable
+ *   database; when present, the runner routes `DATABASE_URL` there and selects
+ *   Full mode so tests cannot accidentally write to the runtime database.
  * - **`--timeout` is a hang detector, not a budget.** 15 s is far longer than
  *   any legitimate test in this suite; it exists so a deadlocked test fails
  *   with a name instead of stalling CI. A test that needs to wait is written
@@ -41,16 +38,7 @@ const DASHBOARD_TESTS = join(DASHBOARD_ROOT, "test");
 const rawArgs = process.argv.slice(2);
 
 /**
- * Reads a dotenv file, overriding already-exported variables.
- *
- * It overrides on purpose. Bun loads `.env` first, and a developer's runtime
- * `.env` is `CARTETHYIA_DB_MODE=lite` (`.env.example` defaults to lite). The
- * suites open a real pg pool — `getTestPool()` has no embedded path — so
- * inheriting a lite runtime mode made 44 database tests fail with "Lite
- * database is not booted". `.env.test` is the authority for the test
- * environment, so a key it defines wins; a key it does not name is still
- * inherited from `.env`, which is how the runtime encryption key reaches the
- * suites that read it.
+ * Reads a dotenv file into the test environment. Explicit shell variables win.
  */
 function loadEnvFile(path: string): Record<string, string> {
   if (!existsSync(path)) return {};
@@ -68,6 +56,11 @@ function loadEnvFile(path: string): Record<string, string> {
 
 const scopeIndex = rawArgs.indexOf("--scope");
 const scope = scopeIndex >= 0 ? rawArgs[scopeIndex + 1] : "all";
+if (scope !== "all" && scope !== "backend" && scope !== "dashboard") {
+  console.error(`[test] unknown --scope "${scope}"; expected backend, dashboard, or all`);
+  process.exit(1);
+}
+
 const passthrough = rawArgs.filter((_arg, index) => {
   // Drop the `--scope <value>` pair; everything else is forwarded to `bun test`.
   if (scopeIndex < 0) return true;
@@ -77,9 +70,21 @@ const watch = passthrough.includes("--watch");
 const testArgs = passthrough.filter((arg) => arg !== "--watch");
 
 const sharedEnv = {
+  ...loadEnvFile(join(PROJECT_ROOT, ".env")),
   ...process.env,
-  ...loadEnvFile(join(PROJECT_ROOT, ".env.test")),
 };
+
+const testDatabaseUrl = sharedEnv.CARTETHYIA_TEST_DATABASE_URL?.trim();
+if (testDatabaseUrl) {
+  sharedEnv.CARTETHYIA_DB_MODE = "full";
+  sharedEnv.DATABASE_URL = testDatabaseUrl;
+} else if (scope === "all" || scope === "backend") {
+  console.error(
+    "[test] set CARTETHYIA_TEST_DATABASE_URL in the local .env or shell before running backend tests; " +
+      "the development DATABASE_URL is never used as a test fallback",
+  );
+  process.exit(1);
+}
 
 /**
  * One `bun test` invocation.
@@ -115,9 +120,5 @@ if (scope === "all" || scope === "backend") {
 }
 if (exitCode === 0 && (scope === "all" || scope === "dashboard")) {
   exitCode = await runTests(DASHBOARD_ROOT, "dashboard", [DASHBOARD_TESTS]);
-}
-if (scope !== "all" && scope !== "backend" && scope !== "dashboard") {
-  console.error(`[test] unknown --scope "${scope}"; expected backend, dashboard, or all`);
-  exitCode = 1;
 }
 process.exit(exitCode);

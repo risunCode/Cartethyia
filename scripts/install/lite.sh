@@ -94,7 +94,7 @@ fi
 
 # --- 6. install + setup + build -------------------------------------------
 say "bun install"
-bun install --frozen-lockfile || die "bun install failed"
+bun install --linker isolated --frozen-lockfile || die "bun install failed"
 
 say "bun setup"
 bun run setup --non-interactive || die "bun setup failed"

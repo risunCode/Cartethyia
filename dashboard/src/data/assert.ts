@@ -99,7 +99,11 @@ export function assertUsageSummary(value: unknown): UsageSummaryResponse {
     "errors",
     "cancelled",
     "truncated",
+    "avgResolveMs",
     "avgDurationMs",
+    "latencyP50Ms",
+    "latencyP95Ms",
+    "latencyP99Ms",
     "estimatedCostUsd",
     "cacheHitRate",
   ];

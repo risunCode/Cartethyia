@@ -1112,17 +1112,17 @@ function InFlightPill({
   uniqueIps: number | null;
   live: boolean;
 }): ReactNode {
-  const active = count ?? 0;
-  const ips = uniqueIps ?? 0;
+  const active = count;
+  const ips = uniqueIps;
   const requestWord = active === 1 ? "request" : "requests";
   const ipWord = ips === 1 ? "IP" : "IPs";
+  let title: string;
+  if (!live) title = "Live feed disconnected — last seen value";
+  else if (active === null || ips === null) title = "Waiting for the first in-flight snapshot";
+  else title = `${active} ${requestWord} executing right now from ${ips} unique client ${ipWord} — all clients combined, not a summary of the table below`;
   return (
     <span
-      title={
-        live
-          ? `${active} ${requestWord} executing right now from ${ips} unique client ${ipWord} — all clients combined, not a summary of the table below`
-          : "Live feed disconnected — last seen value"
-      }
+      title={title}
       className="inline-flex items-center gap-3 text-badge text-text-secondary whitespace-nowrap"
     >
       <span
@@ -1134,7 +1134,7 @@ function InFlightPill({
         }}
       />
       <span className="font-mono tabular-nums font-bold text-text-primary">
-        {active} in flight · {ips} {ipWord}
+        {active === null || ips === null ? "In-flight unavailable" : `${active} in flight · ${ips} ${ipWord}`}
       </span>
     </span>
   );
@@ -1185,7 +1185,11 @@ function RequestsStatCard({
     <StatCard
       label="Requests"
       value={pending ? "…" : formatNumber(requests)}
-      detail={`${periodLabel(period)} · ${flight.count ?? 0} in flight from ${flight.uniqueIps ?? 0} IPs`}
+      detail={
+        flight.count === null || flight.uniqueIps === null
+          ? `${periodLabel(period)} · In-flight unavailable`
+          : `${periodLabel(period)} · ${flight.count} in flight from ${flight.uniqueIps} IPs`
+      }
       icon={<Activity size={13} />}
     />
   );
@@ -1523,6 +1527,17 @@ export default function Usage(): ReactNode {
               onChange={setTokenScale}
             />
           }
+        />
+        <StatCard
+          label="Routing average"
+          value={summaryQuery.isPending ? "…" : formatDuration(summary?.avgResolveMs)}
+          detail={
+            summaryQuery.isPending
+              ? `${periodLabel(period)} · Performance`
+              : `${periodLabel(period)} · Performance P50 ${formatDuration(summary?.latencyP50Ms)} · P95 ${formatDuration(summary?.latencyP95Ms)} · P99 ${formatDuration(summary?.latencyP99Ms)}`
+          }
+          tone="teal"
+          icon={<Route size={13} />}
         />
         <StatCard
           label="Est. cost"

@@ -22,7 +22,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install --frozen-lockfile
+      - run: bun install --linker isolated --frozen-lockfile
       - run: bun run typecheck
 
   dashboard:
@@ -33,5 +33,5 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install --frozen-lockfile
+      - run: bun install --linker isolated --frozen-lockfile
       - run: bun run dashboard:typecheck

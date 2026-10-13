@@ -75,5 +75,6 @@ plus `bun run test:backend`.
 
 The boundary specific to this skill is the database: exercise a new migration
 against an isolated database when available. Never reset production data —
-verify the target environment first, and use the isolated `.env.test` database
+verify the target environment first, and use the disposable database configured
+with `CARTETHYIA_TEST_DATABASE_URL` in the local `.env` or shell
 (`bun run test-db:up/check/down`).

@@ -45,7 +45,8 @@ domain change, use the closest skill listed in `AGENTS.md`.
    time-dependent inputs, normalization, and error paths that could change the
    outcome. Search consumers before recommending a change to a shared contract.
 6. **Reproduce only when useful.** Prefer focused tests and fake transports.
-   Use the isolated test database for persistence behavior. Live gateway
+   Use the disposable database configured with `CARTETHYIA_TEST_DATABASE_URL`
+   for persistence behavior. Live gateway
    verification must use the authorized local setup and redact credentials,
    session identifiers, and sensitive payloads. Do not probe external
    providers directly unless the user explicitly authorizes a safe probe.

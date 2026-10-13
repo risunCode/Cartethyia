@@ -40,8 +40,7 @@ let previousMode: string | undefined;
 beforeEach(async () => {
   // The sweep's per-model pruning picks its SQL from `resolveDbMode()`, so a
   // file-backed fixture needs the mode to name the backend it is actually
-  // writing to. The suite default is `full` (`.env.test` pins it so the pg
-  // suites never inherit a developer's lite runtime).
+  // writing to. This suite pins its own mode so it does not depend on local env.
   previousMode = process.env.CARTETHYIA_DB_MODE;
   process.env.CARTETHYIA_DB_MODE = "lite";
   dir = mkdtempSync(join(tmpdir(), "cartethyia-disabled-recovery-"));

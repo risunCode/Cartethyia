@@ -15,9 +15,10 @@
  * changes cannot be hot-applied — a new/edited SQL migration (runs only at
  * boot) and a dependency manifest change (bun.lock/package.json). This
  * supervisor polls both cheaply (DEV_WATCH_MS, default 3000) and, when it
- * detects one, reinstalls deps (`bun install --frozen-lockfile`) and restarts
- * the stack in place, so `bun run dev:watch` is the only command you ever
- * re-run. Set DEV_WATCH_MS=0 to disable polling and keep CTRL+R-only behavior.
+ * detects one, reinstalls deps (`bun install --linker isolated --frozen-lockfile`)
+ * and restarts the stack in place, so `bun run dev:watch` is the only command
+ * you ever re-run. Set DEV_WATCH_MS=0 to disable polling and keep CTRL+R-only
+ * behavior.
  *
  * Env:
  *   DEV_PROXY_PORT     public port the proxy binds   (default PORT env or 12800)
@@ -106,7 +107,7 @@ async function migrationStamp(): Promise<number> {
  */
 async function reinstallDependencies(): Promise<void> {
   console.log("[dev] dependency manifest changed — reinstalling…");
-  const proc = Bun.spawn(["bun", "install", "--frozen-lockfile"], {
+  const proc = Bun.spawn(["bun", "install", "--linker", "isolated", "--frozen-lockfile"], {
     stdin: "ignore",
     stdout: "inherit",
     stderr: "inherit",

@@ -85,7 +85,13 @@ export interface UsageSummaryTotals {
   truncated: number;
   /** Counts by actual HTTP status for the clickable Requests filters. */
   statusCounts: Array<{ status: number; count: number }>;
+  /** Average gateway routing and preparation delay before upstream dispatch. */
+  avgResolveMs: number;
   avgDurationMs: number;
+  /** Nearest-rank latency percentiles over the selected usage period. */
+  latencyP50Ms: number;
+  latencyP95Ms: number;
+  latencyP99Ms: number;
   estimatedCostUsd: number;
   /** True when completed rows without persisted cost exist in the window. */
   partial: boolean;
@@ -393,4 +399,3 @@ export function createObservabilityOperations(config: ObservabilityConfig) {
   };
   return operations;
 }
-
