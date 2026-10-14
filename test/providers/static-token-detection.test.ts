@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { getDb } from "../../src/persistence/postgres";
+import { getDb, type CartethyiaDatabase } from "../../src/persistence/postgres";
 import { providerAccounts, providerOauthStates } from "../../src/persistence/schema";
 import { encryptCredential, decryptCredentialToString } from "../../src/security/crypto";
 import {
@@ -77,9 +77,14 @@ describe("classifyAccessTokenUsability", () => {
 
 dbDescribe("OAuth refresh: automatic static-token detection", () => {
   let world: GatewayWorld;
-  const db = getDb();
+  let db: CartethyiaDatabase;
 
   beforeAll(async () => {
+    // Resolved here, not at collection time: `getDb()` throws when no database
+    // is configured, and `dbDescribe` becomes `describe.skip` in that case —
+    // but a skipped suite still runs its body, so a top-level call failed the
+    // file instead of skipping it.
+    db = getDb();
     world = await createWorld();
   });
 

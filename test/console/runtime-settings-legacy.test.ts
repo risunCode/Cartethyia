@@ -47,10 +47,15 @@ function dataPlaneInjects(
 
 dbDescribe("runtime settings: the two-key ponyTail bag", () => {
   let world: GatewayWorld;
-  const store = new DrizzleRuntimeSettingsStore(getDb(), "redis");
-  const reader = new DrizzlePreferencesReader(getDb());
+  let store: DrizzleRuntimeSettingsStore;
+  let reader: DrizzlePreferencesReader;
 
   beforeAll(async () => {
+    // Resolved here, not at collection time: `getDb()` throws when no database
+    // is configured, and a skipped suite still evaluates its body to collect
+    // the cases — so a top-level call failed the file instead of skipping it.
+    store = new DrizzleRuntimeSettingsStore(getDb(), "redis");
+    reader = new DrizzlePreferencesReader(getDb());
     world = await createWorld();
   });
 

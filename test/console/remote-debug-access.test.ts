@@ -11,11 +11,12 @@
  * (`createTestGateway` mounts `/console/api`), so what passes here is what the
  * server actually does.
  */
-import { describe, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
+import { dbDescribe } from "../helpers/database";
 import { createWorld } from "../helpers/fixtures";
 import { createTestGateway } from "../helpers/gateway";
 
-describe("remote request detail via API key", () => {
+dbDescribe("remote request detail via API key", () => {
   test("a dashboard:read key reads its tenant's request detail", async () => {
     const world = await createWorld({ apiKeyOptions: { scopes: ["dashboard:read"] } });
     const gateway = await createTestGateway();
