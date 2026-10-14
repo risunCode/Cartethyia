@@ -11,11 +11,24 @@ import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { mkdir, rm } from "node:fs/promises";
 
-/** Home directory — shared contract used by all injectors. */
-export { homedir as homeDir };
 export { join };
 
 const IS_WIN: boolean = platform() === "win32";
+
+/**
+ * Home directory — shared contract used by all injectors.
+ *
+ * Read from the environment on every call rather than delegated to
+ * `node:os`'s `homedir()`. Bun caches that value on first use, so a runtime
+ * change to `HOME` — the seam this module's header documents for pointing
+ * injectors at a temp directory in tests — was ignored, and the injectors kept
+ * reading and writing the real home directory. `homedir()` remains the
+ * fallback for a process started without either variable.
+ */
+export function homeDir(): string {
+  const fromEnv = IS_WIN ? process.env.USERPROFILE : process.env.HOME;
+  return fromEnv !== undefined && fromEnv !== "" ? fromEnv : homedir();
+}
 
 /** Check if a file exists. */
 export async function fileExists(path: string): Promise<boolean> {
