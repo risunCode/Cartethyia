@@ -34,7 +34,7 @@ import {
 import { metrics } from "../../src/observability/metrics";
 import { getDb, type CartethyiaDatabase } from "../../src/persistence/postgres";
 import { telemetryEvents } from "../../src/persistence/schema";
-import { createRunId, getTestPool, requireDatabase } from "../helpers/database";
+import { createRunId, dbDescribe, getTestPool, requireDatabase } from "../helpers/database";
 import { createTenant } from "../helpers/fixtures";
 
 requireDatabase();
@@ -186,7 +186,7 @@ describe("adaptiveFlushIntervalMs", () => {
   });
 });
 
-describe("TelemetryBatchBuffer — drop accounting", () => {
+dbDescribe("TelemetryBatchBuffer — drop accounting", () => {
   test("a queue past maxItems drops the overflow and counts it", async () => {
     // A silent drop is the worst outcome: the request appears in the gateway
     // log, no row appears in Usage, and nothing explains the gap.
@@ -240,7 +240,7 @@ describe("TelemetryBatchBuffer — drop accounting", () => {
   });
 });
 
-describe("TelemetryBatchBuffer — flush lifecycle", () => {
+dbDescribe("TelemetryBatchBuffer — flush lifecycle", () => {
   test("flushing an empty buffer resolves without touching the database", async () => {
     const buffer = startBuffer();
     await expect(buffer.flush()).resolves.toBeUndefined();
@@ -276,7 +276,7 @@ describe("TelemetryBatchBuffer — flush lifecycle", () => {
   });
 });
 
-describe("telemetry row mapping, read back from Postgres", () => {
+dbDescribe("telemetry row mapping, read back from Postgres", () => {
   test("every column with a live producer is persisted", async () => {
     // The end-to-end claim: what the buffer enqueues is what Postgres holds.
     // A column rename or a broken insert fails here rather than emptying the
@@ -527,7 +527,7 @@ describe("telemetry row mapping, read back from Postgres", () => {
   });
 });
 
-describe("TelemetryBatchBuffer — batching", () => {
+dbDescribe("TelemetryBatchBuffer — batching", () => {
   test("a batch of many events lands in one flush, all of them", async () => {
     // Batching is the entire reason this class exists: 1000 concurrent
     // requests must not race the pool with one INSERT each.
@@ -565,7 +565,7 @@ describe("TelemetryBatchBuffer — batching", () => {
   });
 });
 
-describe("TelemetryBatchBuffer — failed drain", () => {
+dbDescribe("TelemetryBatchBuffer — failed drain", () => {
   /**
    * A drain that the database rejects is retried `DRAIN_MAX_ATTEMPTS` (5) times
    * with exponential backoff before the batch is dropped, so one failing drain
