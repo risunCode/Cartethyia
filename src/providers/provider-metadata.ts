@@ -172,6 +172,18 @@ const RAW_BUNDLED_PROVIDER_METADATA = [
     credentialUrl: "https://commandcode.ai/studio",
     credentialHint: "Use the API key from the Command Code CLI, or create one in the studio.",
   },
+  {
+    // The account credential is the JSON the `minimax-agent-automation`
+    // harvester writes (`{email, password, cookie, jwt}`), so an account row
+    // carries the bearer JWT and the cookie jar the upstream's WAF expects
+    // together — there is no key to paste.
+    id: "minimax",
+    displayName: "MiniMax Agent",
+    baseUrl: "https://agent.minimax.io",
+    bespokeWire: true,
+    hasAdapterUserAgent: true,
+    credentialHint: "Add an account harvested from agent.minimax.io; the credential is the exported JWT plus its cookie jar, not a pasted key.",
+  },
   { id: "qoder", displayName: "Qoder", baseUrl: "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1", hasAdapterUserAgent: true, credentialUrl: "https://qoder.com/account/integrations", credentialHint: "Paste a Personal Access Token (pt-...) from the Qoder integrations page, or sign in with your Qoder account." },
   { id: "ollamacloud", displayName: "Ollama Cloud", baseUrl: "https://ollama.com/v1", credentialUrl: "https://ollama.com/settings/keys" },
   { id: "gemini", displayName: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", serviceKinds: ["llm", "websearch"], credentialUrl: "https://aistudio.google.com/app/apikey" },
@@ -310,9 +322,10 @@ export interface BundledProviderMetadata {
   /**
    * The provider's adapter frames its own wire protocol instead of going
    * through one of the gateway's canonical codecs (chat / responses /
-   * messages). Devin and Kiro are the bundled cases: they encode requests
-   * by hand, so a part their codec does not handle is dropped rather than
-   * encoded, and generation controls reach them raw.
+   * messages). Devin, Kiro, and MiniMax Agent are the bundled cases: they
+   * encode requests by hand, so a part their codec does not handle is dropped
+   * rather than encoded, and each adapter reads only the controls it
+   * understands.
    */
   readonly bespokeWire: boolean;
   /** True when the provider adapter builds its own User-Agent header. */

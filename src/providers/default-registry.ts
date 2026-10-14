@@ -356,6 +356,10 @@ export const PROVIDER_CAPABILITIES = {
     loadAdapter: async () => (await import("./integrations/commandcode")).createCommandCodeAdapter(),
     loadModels: async () => (await import("./integrations/commandcode")).COMMANDCODE_MODELS,
   },
+  minimax: {
+    loadAdapter: async () => (await import("./integrations/minimax")).createMinimaxAdapter(),
+    loadModels: async () => (await import("./integrations/minimax")).MINIMAX_MODELS,
+  },
   qoder: {
     loadAdapter: async () => (await import("./integrations/qoder")).createQoderAdapter(),
     loadModels: async () => (await import("./integrations/qoder")).QODER_MODELS,
