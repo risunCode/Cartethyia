@@ -263,6 +263,12 @@ A suite whose service is absent skips with a stated reason instead of failing, s
 read the skip count: a green run with 142 skips is a run where no database suite
 executed. Never use production data for tests.
 
+The suites in `test/persistence/migration-*.test.ts` apply real DDL to the shared
+test database. `bun run test` runs those files first and alone, then everything
+else in parallel: under concurrency their `ALTER TABLE` and another suite's tenant
+teardown deadlock, and PostgreSQL kills one of the two with `40P01`. Add a
+migration suite to that directory so the runner picks it up.
+
 ## 10. Verification commands
 
 Run the gates relevant to the change:

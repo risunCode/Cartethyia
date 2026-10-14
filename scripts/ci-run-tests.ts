@@ -18,6 +18,14 @@
  *   construction. Serializing the run instead would hide a leak that the
  *   parallel run catches.
  *
+ * - **Schema-DDL suites run first, serially, with nothing else connected.** A
+ *   suite that applies a migration's SQL takes `ACCESS EXCLUSIVE` on tables
+ *   every other suite writes; PostgreSQL then finds a lock-order inversion it
+ *   cannot resolve and kills one side with `40P01` (`deadlock detected`). No
+ *   lock order fixes it — a transaction that alters two tables cannot hold one
+ *   lock, and the cascade order of a tenant teardown is the server's choice.
+ *   See `schemaDdlSuites` for the measurements.
+ *
  * `--scope` picks a tree: `backend` (`test/`), `dashboard` (`dashboard/test/`),
  * or `all`. `--watch` re-runs on change. Anything else is forwarded to
  * `bun test`, so `bun run test -- --test-name-pattern admission` works.
@@ -28,7 +36,7 @@
  * was silently running the dashboard suites a second time. The paths below are
  * the single definition of what each scope covers.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const PROJECT_ROOT = join(import.meta.dir, "..");
@@ -69,14 +77,60 @@ const sharedEnv = {
 };
 
 /**
+ * The directory that holds the suites applying a migration's SQL to the shared
+ * test database, and the file-name shape they all share.
+ *
+ * `SCHEMA_DDL_IGNORE` is the same predicate as `SCHEMA_DDL_FILE`, in the syntax
+ * `--path-ignore-patterns` takes: it removes those files from the parallel
+ * pass. The glob is double-star rooted because the flag matches the path as
+ * `bun test` discovered it, relative to the working directory — an absolute
+ * pattern silently matches nothing, which runs the DDL suites twice and
+ * restores the deadlock. Both forms name the same files: anything matching one
+ * matches the other.
+ */
+const SCHEMA_DDL_DIR = join(BACKEND_TESTS, "persistence");
+const SCHEMA_DDL_FILE = /^migration-.*\.test\.ts$/;
+const SCHEMA_DDL_IGNORE = "**/migration-*.test.ts";
+
+/**
+ * The schema-DDL suites, in a stable order.
+ *
+ * They apply DDL to tables every other suite writes concurrently, which
+ * PostgreSQL resolves into a lock-order inversion: the DDL holds
+ * `provider_routing_settings` and waits for `provider_accounts` while a tenant
+ * teardown's cascade holds `provider_accounts` and waits for
+ * `provider_routing_settings`. The server kills one of them with `40P01`, and
+ * whichever suite was unlucky fails — measured on a pristine `origin/dev`, 3
+ * runs in 14. The runner therefore executes these files alone, before the
+ * parallel pass: with no other connection open, no other transaction can hold
+ * the lock the DDL is waiting for.
+ */
+function schemaDdlSuites(): string[] {
+  if (!existsSync(SCHEMA_DDL_DIR)) return [];
+  return readdirSync(SCHEMA_DDL_DIR)
+    .filter((name) => SCHEMA_DDL_FILE.test(name))
+    .sort()
+    .map((name) => join(SCHEMA_DDL_DIR, name));
+}
+
+/**
  * One `bun test` invocation.
  *
  * `paths` are the explicit test roots for the scope. They are what keeps the
  * scopes disjoint; see the header comment. `cwd` still matters because each tree
  * has its own `tsconfig.json` and dependency resolution (the dashboard has its
  * own `package.json`).
+ *
+ * `parallel` is off for the schema-DDL pass: `--parallel` spawns a worker per
+ * file, which is exactly the concurrency those suites cannot survive.
+ * `ignore` drops files from a pass by glob.
  */
-function runTests(cwd: string, label: string, paths: readonly string[]): Promise<number> {
+function runTests(
+  cwd: string,
+  label: string,
+  paths: readonly string[],
+  options: { readonly parallel?: boolean; readonly ignore?: string } = {},
+): Promise<number> {
   const proc = Bun.spawn(
     [
       "bun",
@@ -84,7 +138,8 @@ function runTests(cwd: string, label: string, paths: readonly string[]): Promise
       ...(watch ? ["--watch"] : []),
       "--timeout",
       "15000",
-      "--parallel",
+      ...(options.parallel === false ? [] : ["--parallel"]),
+      ...(options.ignore === undefined ? [] : [`--path-ignore-patterns=${options.ignore}`]),
       ...paths,
       ...testArgs,
     ],
@@ -98,7 +153,12 @@ function runTests(cwd: string, label: string, paths: readonly string[]): Promise
 
 let exitCode = 0;
 if (scope === "all" || scope === "backend") {
-  exitCode = await runTests(PROJECT_ROOT, "backend", [BACKEND_TESTS]);
+  exitCode = await runTests(PROJECT_ROOT, "schema-ddl", schemaDdlSuites(), { parallel: false });
+}
+if (exitCode === 0 && (scope === "all" || scope === "backend")) {
+  exitCode = await runTests(PROJECT_ROOT, "backend", [BACKEND_TESTS], {
+    ignore: SCHEMA_DDL_IGNORE,
+  });
 }
 if (exitCode === 0 && (scope === "all" || scope === "dashboard")) {
   exitCode = await runTests(DASHBOARD_ROOT, "dashboard", [DASHBOARD_TESTS]);
