@@ -16,17 +16,14 @@
  * Rows are written through the real pool and deleted in `afterAll`: the store
  * needs a Drizzle handle, which a rolled-back `PoolClient` cannot provide.
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { DrizzleShareLinkStore, type ShareLinkRefusal } from "../../src/persistence/share-store";
 import { hashSecret } from "../../src/security/crypto";
 import { getDb } from "../../src/persistence/postgres";
-import { getTestPool, requireDatabase } from "../helpers/database";
-
-requireDatabase();
+import { dbDescribe, getTestPool } from "../helpers/database";
 
 const TOKEN_HASH_LENGTH = 64;
-const db = getDb();
 
 /** One tenant shared by every seeded row, so teardown is a single delete. */
 let tenantId = "";
@@ -95,11 +92,14 @@ async function seedLink(options: SeedOptions = {}): Promise<string> {
 
 /** The refusal a token reports, or "resolved" if the link serves. */
 async function refusalFor(tokenHash: string): Promise<ShareLinkRefusal | "resolved"> {
-  const outcome = await new DrizzleShareLinkStore(db).resolveShareLinkOutcome(tokenHash);
+  // The handle is resolved per call rather than at module scope: `getDb()`
+  // throws when no database is configured, and a skipped suite still evaluates
+  // its body to collect the cases, so a top-level call failed the whole file.
+  const outcome = await new DrizzleShareLinkStore(getDb()).resolveShareLinkOutcome(tokenHash);
   return outcome.ok ? "resolved" : outcome.refusal;
 }
 
-describe("share link refusal", () => {
+dbDescribe("share link refusal", () => {
   test("a paused key refuses with `disabled`", async () => {
     expect(await refusalFor(await seedLink({ enabled: false }))).toBe("disabled");
   });
@@ -123,7 +123,7 @@ describe("share link refusal", () => {
 
   test("a healthy link resolves, and `resolveShareLink` still collapses to null", async () => {
     expect(await refusalFor(await seedLink())).toBe("resolved");
-    const store = new DrizzleShareLinkStore(db);
+    const store = new DrizzleShareLinkStore(getDb());
     expect(await store.resolveShareLink(await seedLink({ enabled: false }))).toBeNull();
   });
 

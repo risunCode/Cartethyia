@@ -161,8 +161,15 @@ afterAll(async () => {
  * Asserts that a service is reachable *before* a suite's tests run, so a
  * connection failure reads as an infrastructure problem instead of a failing
  * assertion inside a test body.
+ *
+ * Registers nothing when no database is configured: the suites that call this
+ * are `dbDescribe`-guarded, so their tests are already skipped, and a hook that
+ * threw here would turn "no database on this machine" into a failing run —
+ * the opposite of this module's promise that an unconfigured service skips
+ * with a stated reason.
  */
 export function requireDatabase(): void {
+  if (!testDatabaseUrl) return;
   beforeAll(async () => {
     await getTestPool();
   });

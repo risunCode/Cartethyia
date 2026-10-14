@@ -235,6 +235,15 @@ Database-backed tests use the isolated URL in `CARTETHYIA_TEST_DATABASE_URL`,
 not the development `DATABASE_URL`. The setup command creates `.env.test` from
 `.env.test.example` when it is missing.
 
+The URL must carry a password. `pg_hba` requires scram for TCP connections, so a
+passwordless URL fails every database suite at connect time. Against a local
+server, create a dedicated role rather than reusing the cluster superuser:
+
+```sql
+CREATE ROLE cartethyia_test LOGIN PASSWORD 'cartethyia_test';
+CREATE DATABASE cartethyia_test OWNER cartethyia_test;
+```
+
 Check the test database:
 
 ```bash
@@ -250,7 +259,15 @@ bun run test-db:check
 bun run test-db:down
 ```
 
-Never use production data for tests.
+A suite whose service is absent skips with a stated reason instead of failing, so
+read the skip count: a green run with 142 skips is a run where no database suite
+executed. Never use production data for tests.
+
+The suites in `test/persistence/migration-*.test.ts` apply real DDL to the shared
+test database. `bun run test` runs those files first and alone, then everything
+else in parallel: under concurrency their `ALTER TABLE` and another suite's tenant
+teardown deadlock, and PostgreSQL kills one of the two with `40P01`. Add a
+migration suite to that directory so the runner picks it up.
 
 ## 10. Verification commands
 

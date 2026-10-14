@@ -105,8 +105,13 @@ bun run test:backend         # or bun run test / dashboard:test / test:watch
 ```
 
 The repository carries an active test suite (`test/`, `dashboard/test/`, run via
-`scripts/ci-run-tests.ts` against the isolated `.env.test` database). Typecheck
-is not behavioral proof. Exercise the real boundary: a live gateway request,
+`scripts/ci-run-tests.ts` against the isolated `.env.test` database). A suite whose
+service is not configured skips with a stated reason rather than failing, so read the
+skip count: a green run with 142 skips is a run where no database suite executed.
+`test/persistence/migration-*.test.ts` applies real DDL, so the runner executes those
+files first, serially, and excludes them from the parallel pass; a migration suite added
+anywhere else re-introduces the `40P01` deadlock they cause under concurrency.
+Typecheck is not behavioral proof. Exercise the real boundary: a live gateway request,
 headless browser/CDP surface when available, database migration in an isolated
 environment, or a temporary script calling production code. If a browser/CDP
 runtime is available, UI claims require that automation evidence; if unavailable,
