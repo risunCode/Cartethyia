@@ -3,14 +3,34 @@
 # Runs the repo's own runners:
 # - backend job: typecheck.
 # - dashboard job: dashboard:typecheck.
+# - test job: the full suite against disposable PostgreSQL and Redis services.
+#
+# The suite job exists because nothing else runs it. The workflow used to be
+# `workflow_dispatch` only, so a defect could sit in `dev` indefinitely: a test
+# that opened an absolute path on the author's desktop, and a `homeDir` that Bun
+# cached on first use, both survived until someone ran `bun test` by hand. The
+# gates `AGENTS.md` names are now enforced on every push and pull request.
+#
+# `bun-version` is deliberately omitted from every job: `oven-sh/setup-bun`
+# reads the committed `.bun-version`, which is the same pin `packageManager` and
+# `engines` carry. `latest` would let CI drift onto a Bun the lockfile was never
+# resolved against.
 
 name: ci
 
 on:
+  push:
+    branches:
+      - dev
+      - SeeYouLater
+  pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,8 +40,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
 
@@ -31,7 +49,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run dashboard:typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # Same image, credentials and host port as `docker-compose.test.yml`, so a
+      # URL that works here works for `bun run test-db:up` on a laptop too.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cartethyia_test
+          POSTGRES_PASSWORD: cartethyia_test
+          POSTGRES_DB: cartethyia_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U cartethyia_test -d cartethyia_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      # `scripts/ci-run-tests.ts` loads `.env.test` without overriding variables
+      # that are already exported, so these win over the file's localhost URLs.
+      # `CARTETHYIA_ENCRYPTION_KEY` still comes from the committed `.env.test`.
+      CARTETHYIA_TEST_DATABASE_URL: postgres://cartethyia_test:cartethyia_test@127.0.0.1:55432/cartethyia_test
+      CARTETHYIA_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run test
